@@ -1,0 +1,27 @@
+{
+    "updatedAt":  "2026-07-21T20:30:00Z",
+    "events":  [
+                   {
+                       "id":  "learner-2026-08-01",
+                       "startsAt":  "2026-08-01T19:30:00+02:00",
+                       "endsAt":  "2026-08-01T21:30:00+02:00",
+                       "type":  "LEARNER",
+                       "title":  "ToA Learner",
+                       "world":  "366",
+                       "host":  "Management",
+                       "description":  "Beginners zijn welkom",
+                       "codeword":  ""
+                   },
+                   {
+                       "id":  "boss-2026-08-02",
+                       "startsAt":  "2026-08-02T20:00:00+02:00",
+                       "endsAt":  "2026-08-02T22:30:00+02:00",
+                       "type":  "BOSS",
+                       "title":  "Chambers of Xeric",
+                       "world":  "",
+                       "host":  "Management",
+                       "description":  "Neem je beste gear mee",
+                       "codeword":  ""
+                   }
+               ]
+}

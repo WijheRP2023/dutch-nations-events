@@ -1,0 +1,31 @@
+plugins {
+    id 'application'
+    id 'java'
+}
+
+repositories { mavenCentral() }
+
+dependencies {
+    implementation 'com.google.code.gson:gson:2.10.1'
+    implementation 'org.postgresql:postgresql:42.7.7'
+    testImplementation 'junit:junit:4.13.2'
+}
+
+application {
+    mainClass = 'nl.dutchnations.server.DutchNationsApi'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release.set(11)
+}
+
+tasks.register('runLocal', JavaExec) {
+    group = 'application'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = application.mainClass
+    environment 'DN_BIND', '127.0.0.1'
+    environment 'DN_PORT', '8787'
+    environment 'DN_OWNER_TOKEN', 'dutch-nations-local-owner'
+    environment 'DN_DATA_FILE', file('../server-data/state.json').absolutePath
+}
