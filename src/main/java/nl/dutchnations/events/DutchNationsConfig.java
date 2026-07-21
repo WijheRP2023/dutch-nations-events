@@ -11,15 +11,15 @@ public interface DutchNationsConfig extends Config
 
     @ConfigItem(keyName = "feedUrl", name = "Management-feed",
         description = "Publieke feed-URL van de Dutch Nations API", position = 0)
-    default String feedUrl() { return "http://127.0.0.1:8787/feed.json"; }
+    default String feedUrl() { return "https://dutch-nations-events.onrender.com/feed.json"; }
 
     @ConfigItem(keyName = "managementApiUrl", name = "Event-API",
         description = "Beveiligde API voor toevoegen en verwijderen", position = 1)
-    default String managementApiUrl() { return "http://127.0.0.1:8787/api/events"; }
+    default String managementApiUrl() { return "https://dutch-nations-events.onrender.com/api/events"; }
 
     @ConfigItem(keyName = "rolesApiUrl", name = "Rollen-API",
         description = "Beveiligde owner-API voor managementrollen", position = 2)
-    default String rolesApiUrl() { return "http://127.0.0.1:8787/api/roles"; }
+    default String rolesApiUrl() { return "https://dutch-nations-events.onrender.com/api/roles"; }
 
     @ConfigItem(keyName = "managementToken", name = "Management-token",
         description = "Persoonlijke token; deel deze nooit met anderen", secret = true, position = 3)

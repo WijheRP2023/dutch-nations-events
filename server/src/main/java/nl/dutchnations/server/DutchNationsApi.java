@@ -70,6 +70,7 @@ public final class DutchNationsApi
     private void start(String bind, int port) throws IOException
     {
         HttpServer server = HttpServer.create(new InetSocketAddress(bind, port), 0);
+        server.createContext("/", this::root);
         server.createContext("/health", exchange -> send(exchange, 200, map("status", "ok")));
         server.createContext("/feed.json", this::feed);
         server.createContext("/api/events", this::events);
@@ -82,6 +83,18 @@ public final class DutchNationsApi
         Runtime.getRuntime().addShutdownHook(new Thread(() -> { cleanup.shutdown(); server.stop(1); }));
         System.out.println("Dutch Nations API actief op http://" + bind + ":" + port);
         System.out.println("Feed: http://" + bind + ":" + port + "/feed.json");
+    }
+
+    private void root(HttpExchange exchange) throws IOException
+    {
+        if (!"/".equals(exchange.getRequestURI().getPath())) { sendError(exchange, 404, "Route niet gevonden"); return; }
+        if (!"GET".equals(exchange.getRequestMethod())) { methodNotAllowed(exchange); return; }
+        Map<String, Object> status = new HashMap<>();
+        status.put("service", "Dutch Nations Events API");
+        status.put("status", "ok");
+        status.put("health", "/health");
+        status.put("feed", "/feed.json");
+        send(exchange, 200, status);
     }
 
     private void feed(HttpExchange exchange) throws IOException
