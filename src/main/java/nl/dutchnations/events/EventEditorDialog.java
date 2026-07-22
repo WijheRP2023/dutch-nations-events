@@ -1,6 +1,7 @@
 package nl.dutchnations.events;
 
 import java.awt.GridLayout;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
@@ -39,9 +40,9 @@ final class EventEditorDialog
         });
 
         JPanel form = new JPanel(new GridLayout(0, 2, 6, 6));
-        add(form, "Soort", type); add(form, "Titel", title); add(form, "Start (jjjj-mm-dd uu:mm)", start);
-        add(form, "Einde", end); add(form, "Wereld (learner/mass)", world); add(form, "Host", host);
-        add(form, "Omschrijving", description); add(form, "Codewoord (boss/mass)", codeword);
+        add(form, "Soort", type); add(form, "Titel", title); add(form, "Start (lokale tijd)", start);
+        add(form, "Einde (lokale tijd)", end); add(form, "Wereld (learner/mass)", world); add(form, "Host", host);
+        add(form, "Omschrijving", description); add(form, "Codewoord (alleen boss)", codeword);
 
         if (JOptionPane.showConfirmDialog(null, form, "Dutch Nations - event maken",
             JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE) != JOptionPane.OK_OPTION) return null;
@@ -55,8 +56,18 @@ final class EventEditorDialog
             draft.description = description.getText().trim(); draft.codeword = codeword.getText().trim();
             boolean learner = "LEARNER".equals(draft.type);
             boolean boss = "BOSS".equals(draft.type);
-            if (draft.title.isEmpty() || !OffsetDateTime.parse(draft.endsAt).isAfter(OffsetDateTime.parse(draft.startsAt)))
-                throw new IllegalArgumentException();
+            OffsetDateTime parsedStart = OffsetDateTime.parse(draft.startsAt);
+            OffsetDateTime parsedEnd = OffsetDateTime.parse(draft.endsAt);
+            if (draft.title.isEmpty() || !parsedEnd.isAfter(parsedStart)) throw new IllegalArgumentException();
+            long durationHours = Duration.between(parsedStart, parsedEnd).toHours();
+            if (!parsedStart.toLocalDate().equals(parsedEnd.toLocalDate()) || durationHours >= 12)
+            {
+                int confirm = JOptionPane.showConfirmDialog(null,
+                    "Let op: dit event eindigt op " + parsedEnd.toLocalDate() + " om " + parsedEnd.toLocalTime() +
+                        " en duurt ongeveer " + durationHours + " uur. Klopt dit?",
+                    "Controleer de einddatum", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+                if (confirm != JOptionPane.YES_OPTION) return null;
+            }
             if (!boss && draft.world.isEmpty())
             {
                 JOptionPane.showMessageDialog(null, "Een learner- of mass-event heeft een wereld nodig.", "Controle", JOptionPane.WARNING_MESSAGE); return null;

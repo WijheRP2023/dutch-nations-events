@@ -30,6 +30,18 @@ public class DutchNationsApiSecurityTest
     }
 
     @Test
+    public void removesExpiredEventsRegardlessOfType() throws Exception
+    {
+        Path directory = Files.createTempDirectory("dutch-nations-expired-test");
+        DutchNationsApi.Store store = new DutchNationsApi.Store(directory.resolve("state.json"));
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        DutchNationsApi.Event expired = event("expired", now.minusHours(2), now.minusMinutes(1), "");
+        expired.type = "MASS";
+        store.addEvent(expired);
+        store.removeExpired();
+        assertTrue(store.feed().events.isEmpty());
+    }
+    @Test
     public void administratorCanManageEventsWithoutOwnerRights()
     {
         DutchNationsApi.Actor administrator = new DutchNationsApi.Actor("admin", "ADMINISTRATOR");

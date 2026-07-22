@@ -98,7 +98,7 @@ final class DutchNationsPanel extends PluginPanel
     {
         JPanel panel = card(RED);
         JLabel title = label("DUTCH NATIONS", Color.WHITE, Font.BOLD, 18f); panel.add(title);
-        panel.add(label("Clan-eventkalender", new Color(255, 220, 220), Font.PLAIN, 11f));
+        panel.add(label("Clan-eventkalender", new Color(255, 235, 235), Font.PLAIN, 12f));
         if (isOwner.getAsBoolean()) panel.add(label("Beheerstatus: OWNER", new Color(255, 225, 120), Font.BOLD, 11f));
         else if (isAdministrator.getAsBoolean()) panel.add(label("Beheerstatus: ADMINISTRATOR", GOLD, Font.BOLD, 11f));
         else if (canManage.getAsBoolean()) panel.add(label("Beheerstatus: MANAGER", new Color(220, 235, 255), Font.BOLD, 11f));
@@ -114,7 +114,7 @@ final class DutchNationsPanel extends PluginPanel
         panel.add(label("STATUS", new Color(120, 220, 140), Font.BOLD, 10f));
         JTextArea text = new JTextArea(status);
         text.setLineWrap(true); text.setWrapStyleWord(true); text.setEditable(false); text.setFocusable(false);
-        text.setOpaque(false); text.setForeground(Color.LIGHT_GRAY); text.setFont(text.getFont().deriveFont(11f));
+        text.setOpaque(false); text.setForeground(Color.LIGHT_GRAY); text.setFont(text.getFont().deriveFont(12f));
         text.setAlignmentX(Component.LEFT_ALIGNMENT); panel.add(text);
         return panel;
     }
@@ -143,14 +143,14 @@ final class DutchNationsPanel extends PluginPanel
         heading.setBorder(BorderFactory.createCompoundBorder(
             BorderFactory.createMatteBorder(0, 5, 0, 0, accent),
             BorderFactory.createEmptyBorder(7, 8, 7, 8)));
-        heading.add(label(title + "  (" + events.size() + ")", accent, Font.BOLD, 12f));
-        heading.add(label(subtitle, Color.GRAY, Font.PLAIN, 10f));
+        heading.add(label(title + "  (" + events.size() + ")", accent, Font.BOLD, 13f));
+        heading.add(label(subtitle, Color.LIGHT_GRAY, Font.PLAIN, 11f));
         add(heading); add(Box.createRigidArea(new Dimension(0, 7)));
 
         if (events.isEmpty())
         {
             JPanel empty = card(ColorScheme.DARKER_GRAY_COLOR);
-            empty.add(label("Geen geplande events in deze categorie.", Color.GRAY, Font.ITALIC, 11f));
+            empty.add(label("Geen geplande events in deze categorie.", Color.LIGHT_GRAY, Font.ITALIC, 12f));
             add(empty); return;
         }
         for (ClanFeed.ClanEvent event : events) { add(eventCard(event, accent)); add(Box.createRigidArea(new Dimension(0, 8))); }
@@ -163,18 +163,24 @@ final class DutchNationsPanel extends PluginPanel
             BorderFactory.createMatteBorder(1, 1, 1, 1, new Color(65, 65, 65)),
             BorderFactory.createEmptyBorder(9, 9, 9, 9)));
         String badgeText = event.learner() ? " LEARNER " : ("MASS".equalsIgnoreCase(event.type) ? " MASS " : " BOSS ");
-        JLabel badge = label(badgeText, Color.BLACK, Font.BOLD, 10f); badge.setOpaque(true); badge.setBackground(accent); panel.add(badge);
+        JLabel badge = label(badgeText, Color.BLACK, Font.BOLD, 11f); badge.setOpaque(true); badge.setBackground(accent); panel.add(badge);
         panel.add(Box.createRigidArea(new Dimension(0, 6)));
-        panel.add(label(event.title, Color.WHITE, Font.BOLD, 15f));
+        panel.add(label(event.title, Color.WHITE, Font.BOLD, 16f));
         java.time.ZonedDateTime start = event.start().atZoneSameInstant(ZoneId.systemDefault());
         java.time.ZonedDateTime end = event.end().atZoneSameInstant(ZoneId.systemDefault());
-        panel.add(label("Datum:  " + DATE.format(start), GOLD, Font.BOLD, 11f));
-        panel.add(label("Tijd:      " + TIME.format(start) + " - " + TIME.format(end), GOLD, Font.BOLD, 11f));
-        if (!"BOSS".equalsIgnoreCase(event.type)) panel.add(label("Wereld: " + event.world, Color.LIGHT_GRAY, Font.PLAIN, 11f));
-        if (!blank(event.host)) panel.add(label("Host:      " + event.host, Color.LIGHT_GRAY, Font.PLAIN, 11f));
-        if (!blank(event.description)) panel.add(label("Info:       " + event.description, Color.LIGHT_GRAY, Font.PLAIN, 11f));
+        panel.add(label("Datum: " + DATE.format(start), GOLD, Font.BOLD, 12f));
+        if (start.toLocalDate().equals(end.toLocalDate()))
+            panel.add(label("Tijd: " + TIME.format(start) + " - " + TIME.format(end), GOLD, Font.BOLD, 12f));
+        else
+        {
+            panel.add(label("Start: " + TIME.format(start), GOLD, Font.BOLD, 12f));
+            panel.add(label("Einde: " + DATE.format(end) + " om " + TIME.format(end), new Color(255, 155, 105), Font.BOLD, 12f));
+        }
+        if (!"BOSS".equalsIgnoreCase(event.type)) panel.add(label("Wereld: " + event.world, Color.WHITE, Font.PLAIN, 12f));
+        if (!blank(event.host)) panel.add(label("Host: " + event.host, Color.WHITE, Font.PLAIN, 12f));
+        if (!blank(event.description)) panel.add(label("Info: " + event.description, Color.WHITE, Font.PLAIN, 12f));
         String codeInfo = "BOSS".equalsIgnoreCase(event.type) ? "Codewoord verschijnt tijdens het event" : "Geen codewoord nodig";
-        panel.add(Box.createRigidArea(new Dimension(0, 4))); panel.add(label(codeInfo, accent, Font.BOLD, 10f));
+        panel.add(Box.createRigidArea(new Dimension(0, 5))); panel.add(label(codeInfo, accent, Font.BOLD, 11f));
         if (canManage.getAsBoolean())
         {
             JButton remove = button("Event verwijderen"); remove.setForeground(new Color(255, 135, 135)); remove.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -194,8 +200,8 @@ final class DutchNationsPanel extends PluginPanel
         JPanel heading = card(new Color(46, 46, 46));
         heading.setBorder(BorderFactory.createCompoundBorder(
             BorderFactory.createMatteBorder(0, 5, 0, 0, GOLD), BorderFactory.createEmptyBorder(7, 8, 7, 8)));
-        heading.add(label("MANAGEMENTROLLEN", GOLD, Font.BOLD, 12f));
-        heading.add(label("Rollen zijn beveiligd en niet zichtbaar in de openbare feed.", Color.LIGHT_GRAY, Font.PLAIN, 10f));
+        heading.add(label("MANAGEMENTROLLEN", GOLD, Font.BOLD, 13f));
+        heading.add(label("Rollen zijn beveiligd en niet zichtbaar in de openbare feed.", Color.LIGHT_GRAY, Font.PLAIN, 11f));
         add(heading);
     }
 
