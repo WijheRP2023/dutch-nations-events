@@ -11,10 +11,11 @@ final class RoleEditorDialog
 {
     private RoleEditorDialog() { }
 
-    static RoleDraft show()
+    static RoleDraft show(boolean owner)
     {
         JTextField rsn = new JTextField();
-        JComboBox<String> role = new JComboBox<>(new String[]{"MANAGER", "EVENT_HOST", "OWNER", "REMOVE"});
+        String[] choices = owner ? new String[]{"MANAGER", "ADMINISTRATOR", "EVENT_HOST", "REMOVE"} : new String[]{"MANAGER"};
+        JComboBox<String> role = new JComboBox<>(choices);
         JPanel form = new JPanel(new GridLayout(0, 2, 6, 6));
         form.add(new JLabel("Exacte RuneScape-naam")); form.add(rsn);
         form.add(new JLabel("Nieuwe rol")); form.add(role);

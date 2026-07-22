@@ -48,6 +48,7 @@ public class DutchNationsPlugin extends Plugin
     private DutchNationsPanel panel;
     private NavigationButton button;
     private volatile ClanFeed feed;
+    private volatile String authenticatedRole = "";
     private final Set<String> remindedEvents = new HashSet<>();
     private final Set<String> announcedEvents = new HashSet<>();
     private int ticksUntilRefresh;
@@ -58,6 +59,7 @@ public class DutchNationsPlugin extends Plugin
     {
         service = new FeedService(http, gson);
         panel = new DutchNationsPanel(this::refresh, this::canManage, this::isOwner,
+            this::isAdministrator, this::canManageRoles,
             this::createEvent, this::deleteEvent, this::saveRole);
         ClanFeed cached = service.parse(configs.getConfiguration(DutchNationsConfig.GROUP, CACHE));
         if (cached != null) { feed = cached; panel.update(cached, "Opgeslagen versie; update wordt gecontroleerd."); }
@@ -67,7 +69,7 @@ public class DutchNationsPlugin extends Plugin
 
     @Override protected void shutDown()
     {
-        overlays.remove(overlay); toolbar.removeNavigation(button); feed = null; panel = null; service = null;
+        overlays.remove(overlay); toolbar.removeNavigation(button); feed = null; authenticatedRole = ""; panel = null; service = null;
     }
 
     @Subscribe public void onConfigChanged(ConfigChanged e)
@@ -77,6 +79,8 @@ public class DutchNationsPlugin extends Plugin
 
     @Subscribe public void onGameStateChanged(GameStateChanged ignored)
     {
+        authenticatedRole = "";
+        refreshRole();
         if (panel != null) SwingUtilities.invokeLater(panel::permissionsChanged);
     }
 
@@ -126,7 +130,13 @@ public class DutchNationsPlugin extends Plugin
         return current.events.stream().filter(e -> "BOSS".equalsIgnoreCase(e.type) && e.active(now)).findFirst().orElse(null);
     }
 
-    private boolean canManage() { return isOwner() || !config.managementToken().trim().isEmpty(); }
+    private boolean canManage()
+    {
+        return isOwner() || "OWNER".equals(authenticatedRole) || "ADMINISTRATOR".equals(authenticatedRole) ||
+            "MANAGER".equals(authenticatedRole) || "EVENT_HOST".equals(authenticatedRole);
+    }
+    private boolean isAdministrator() { return "ADMINISTRATOR".equals(authenticatedRole); }
+    private boolean canManageRoles() { return isOwner() || isAdministrator(); }
     private boolean isOwner()
     {
         Player local = client.getLocalPlayer();
@@ -149,7 +159,9 @@ public class DutchNationsPlugin extends Plugin
 
     private void saveRole(RoleDraft draft)
     {
-        if (!isOwner()) { panel.status("Alleen een owner kan rollen aanpassen."); return; }
+        if (!canManageRoles()) { panel.status("Geen rechten om rollen aan te passen."); return; }
+        if (isAdministrator() && !"MANAGER".equals(draft.role))
+        { panel.status("Administrators mogen alleen managers toevoegen."); return; }
         if ("heavenskill".equals(normalize(draft.rsn)) && "REMOVE".equals(draft.role))
         { panel.status("De eerste owner heavenskill kan zichzelf niet verwijderen."); return; }
         panel.status("Managementrol opslaan...");
@@ -186,6 +198,36 @@ public class DutchNationsPlugin extends Plugin
 
     private void refresh() { refresh(true); }
 
+    private void refreshRole()
+    {
+        if (isOwner())
+        {
+            authenticatedRole = "OWNER";
+            if (panel != null) SwingUtilities.invokeLater(panel::permissionsChanged);
+            return;
+        }
+        if (service == null || config.managementToken().trim().isEmpty())
+        {
+            authenticatedRole = "";
+            if (panel != null) SwingUtilities.invokeLater(panel::permissionsChanged);
+            return;
+        }
+        service.fetchRole(config.rolesApiUrl(), config.managementToken(), new FeedService.RoleStatusListener()
+        {
+            @Override public void success(String rsn, String role)
+            {
+                Player local = client.getLocalPlayer();
+                String localRsn = local == null ? "" : normalize(local.getName());
+                authenticatedRole = localRsn.equals(normalize(rsn)) ? role.trim().toUpperCase() : "";
+                if (panel != null) SwingUtilities.invokeLater(panel::permissionsChanged);
+            }
+            @Override public void failure()
+            {
+                authenticatedRole = "";
+                if (panel != null) SwingUtilities.invokeLater(panel::permissionsChanged);
+            }
+        });
+    }
     private void refresh(boolean showStatus)
     {
         if (service == null) return;

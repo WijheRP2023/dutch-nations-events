@@ -106,7 +106,7 @@ public final class DutchNationsApi
     private void events(HttpExchange exchange) throws IOException
     {
         Actor actor = authenticate(exchange);
-        if (actor == null || !(actor.owner() || actor.manager())) { sendError(exchange, 403, "Geen eventrechten"); return; }
+        if (actor == null || !actor.canManageEvents()) { sendError(exchange, 403, "Geen eventrechten"); return; }
         if ("POST".equals(exchange.getRequestMethod()))
         {
             Event event = read(exchange, Event.class);
@@ -136,20 +136,33 @@ public final class DutchNationsApi
     private void roles(HttpExchange exchange) throws IOException
     {
         Actor actor = authenticate(exchange);
-        if (actor == null || !actor.owner()) { sendError(exchange, 403, "Alleen owners mogen rollen beheren"); return; }
+        if (actor == null) { sendError(exchange, 401, "Ongeldige management-token"); return; }
+        if ("GET".equals(exchange.getRequestMethod()))
+        {
+            Map<String, Object> response = new HashMap<>();
+            response.put("rsn", actor.rsn); response.put("role", actor.role);
+            send(exchange, 200, response);
+            return;
+        }
         if (!"POST".equals(exchange.getRequestMethod())) { methodNotAllowed(exchange); return; }
+        if (!(actor.owner() || actor.administrator())) { sendError(exchange, 403, "Geen rechten om rollen te beheren"); return; }
         RoleChange change = read(exchange, RoleChange.class);
         if (change == null || !valid(change.rsn, 12) || blank(change.role)) { sendError(exchange, 400, "Geldige RSN en rol zijn verplicht"); return; }
         String role = change.role.toUpperCase(Locale.ROOT);
-        if (OWNER_RSN.equals(normalize(change.rsn)) && "REMOVE".equals(role))
-        { sendError(exchange, 400, "De eerste owner kan niet worden verwijderd"); return; }
+        if (OWNER_RSN.equals(normalize(change.rsn)))
+        { sendError(exchange, 400, "De vaste owner heavenskill kan niet worden gewijzigd"); return; }
+        if (actor.administrator())
+        {
+            if (!"MANAGER".equals(role)) { sendError(exchange, 403, "Administrators mogen alleen managers toevoegen"); return; }
+            if (store.hasAssignedRole(change.rsn)) { sendError(exchange, 403, "Administrators mogen bestaande rollen niet wijzigen"); return; }
+        }
         if ("REMOVE".equals(role))
         {
             store.removeRole(change.rsn);
             send(exchange, 200, map("removed", true));
             return;
         }
-        if (!("OWNER".equals(role) || "MANAGER".equals(role) || "EVENT_HOST".equals(role)))
+        if (!("ADMINISTRATOR".equals(role) || "MANAGER".equals(role) || "EVENT_HOST".equals(role)))
         { sendError(exchange, 400, "Ongeldige rol"); return; }
         String newToken = randomToken();
         store.saveRole(change.rsn, role, sha256(newToken));
@@ -297,6 +310,11 @@ public final class DutchNationsApi
             ensureOwner();
             changed();
         }
+        synchronized boolean hasAssignedRole(String rsn)
+        {
+            String key = normalize(rsn);
+            return state.members.stream().anyMatch(member -> key.equals(normalize(member.rsn)));
+        }
         synchronized Actor actorForHash(String hash)
         {
             for (Member member : state.members)
@@ -427,6 +445,9 @@ public final class DutchNationsApi
         final String rsn; final String role;
         Actor(String rsn, String role) { this.rsn = rsn; this.role = role; }
         boolean owner() { return "OWNER".equalsIgnoreCase(role); }
+        boolean administrator() { return "ADMINISTRATOR".equalsIgnoreCase(role); }
         boolean manager() { return "MANAGER".equalsIgnoreCase(role); }
+        boolean eventHost() { return "EVENT_HOST".equalsIgnoreCase(role); }
+        boolean canManageEvents() { return owner() || administrator() || manager() || eventHost(); }
     }
 }

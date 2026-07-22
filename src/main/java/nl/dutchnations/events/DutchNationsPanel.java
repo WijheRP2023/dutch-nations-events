@@ -38,6 +38,8 @@ final class DutchNationsPanel extends PluginPanel
     private final Runnable refresh;
     private final BooleanSupplier canManage;
     private final BooleanSupplier isOwner;
+    private final BooleanSupplier isAdministrator;
+    private final BooleanSupplier canManageRoles;
     private final Consumer<EventDraft> saveEvent;
     private final Consumer<String> deleteEvent;
     private final Consumer<RoleDraft> saveRole;
@@ -45,9 +47,11 @@ final class DutchNationsPanel extends PluginPanel
     private String status = "Management-feed laden...";
 
     DutchNationsPanel(Runnable refresh, BooleanSupplier canManage, BooleanSupplier isOwner,
+        BooleanSupplier isAdministrator, BooleanSupplier canManageRoles,
         Consumer<EventDraft> saveEvent, Consumer<String> deleteEvent, Consumer<RoleDraft> saveRole)
     {
         this.refresh = refresh; this.canManage = canManage; this.isOwner = isOwner;
+        this.isAdministrator = isAdministrator; this.canManageRoles = canManageRoles;
         this.saveEvent = saveEvent; this.deleteEvent = deleteEvent; this.saveRole = saveRole;
         setLayout(new BoxLayout(this, BoxLayout.Y_AXIS)); render();
     }
@@ -81,7 +85,7 @@ final class DutchNationsPanel extends PluginPanel
             add(Box.createRigidArea(new Dimension(0, 14)));
             addSection("MASS-EVENTS", "Grootschalige clanactiviteiten", masses, MASS_COLOR);
 
-            if (isOwner.getAsBoolean())
+            if (canManageRoles.getAsBoolean())
             {
                 add(Box.createRigidArea(new Dimension(0, 14)));
                 addManagementSection();
@@ -96,6 +100,7 @@ final class DutchNationsPanel extends PluginPanel
         JLabel title = label("DUTCH NATIONS", Color.WHITE, Font.BOLD, 18f); panel.add(title);
         panel.add(label("Clan-eventkalender", new Color(255, 220, 220), Font.PLAIN, 11f));
         if (isOwner.getAsBoolean()) panel.add(label("Beheerstatus: OWNER", new Color(255, 225, 120), Font.BOLD, 11f));
+        else if (isAdministrator.getAsBoolean()) panel.add(label("Beheerstatus: ADMINISTRATOR", GOLD, Font.BOLD, 11f));
         else if (canManage.getAsBoolean()) panel.add(label("Beheerstatus: MANAGER", new Color(220, 235, 255), Font.BOLD, 11f));
         return panel;
     }
@@ -124,10 +129,10 @@ final class DutchNationsPanel extends PluginPanel
             actions.add(Box.createRigidArea(new Dimension(5, 0))); JButton create = button("+ Event maken");
             create.addActionListener(event -> { EventDraft draft = EventEditorDialog.show(); if (draft != null) saveEvent.accept(draft); }); actions.add(create);
         }
-        if (isOwner.getAsBoolean())
+        if (canManageRoles.getAsBoolean())
         {
             actions.add(Box.createRigidArea(new Dimension(5, 0))); JButton roles = button("Rollen");
-            roles.addActionListener(event -> { RoleDraft draft = RoleEditorDialog.show(); if (draft != null) saveRole.accept(draft); }); actions.add(roles);
+            roles.addActionListener(event -> { RoleDraft draft = RoleEditorDialog.show(isOwner.getAsBoolean()); if (draft != null) saveRole.accept(draft); }); actions.add(roles);
         }
         return actions;
     }

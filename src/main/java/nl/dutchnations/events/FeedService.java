@@ -21,6 +21,7 @@ final class FeedService
     interface Listener { void success(ClanFeed feed, String json); void failure(String message); }
     interface SaveListener { void success(); void failure(String message); }
     interface RoleSaveListener { void success(String managementToken); void failure(String message); }
+    interface RoleStatusListener { void success(String rsn, String role); void failure(); }
     private static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
     private final OkHttpClient client;
     private final Gson gson;
@@ -80,6 +81,25 @@ final class FeedService
         execute(request, "Event", listener);
     }
 
+    void fetchRole(String url, String token, RoleStatusListener listener)
+    {
+        HttpUrl parsed = https(url);
+        if (parsed == null || blank(token)) { listener.failure(); return; }
+        Request request = new Request.Builder().url(parsed).header("Authorization", "Bearer " + token.trim()).get().build();
+        client.newCall(request).enqueue(new Callback()
+        {
+            @Override public void onFailure(Call call, IOException e) { listener.failure(); }
+            @Override public void onResponse(Call call, Response response) throws IOException
+            {
+                try (Response ignored = response)
+                {
+                    if (!response.isSuccessful() || response.body() == null) { listener.failure(); return; }
+                    RoleResponse saved = gson.fromJson(response.body().string(), RoleResponse.class);
+                    if (saved == null || blank(saved.role)) listener.failure(); else listener.success(saved.rsn, saved.role);
+                }
+            }
+        });
+    }
     void saveRole(String url, String token, RoleDraft role, RoleSaveListener listener)
     {
         HttpUrl parsed = https(url);
@@ -99,7 +119,7 @@ final class FeedService
                         RoleResponse saved = gson.fromJson(body, RoleResponse.class);
                         listener.success(saved == null ? null : saved.managementToken);
                     }
-                    else if (response.code() == 401 || response.code() == 403) listener.failure("Geen toestemming: alleen een owner kan rollen beheren.");
+                    else if (response.code() == 401 || response.code() == 403) listener.failure("Geen toestemming om deze rolwijziging uit te voeren.");
                     else listener.failure("Rol opslaan gaf HTTP " + response.code() + ".");
                 }
             }
@@ -135,6 +155,8 @@ final class FeedService
     private static final class RoleResponse
     {
         String managementToken;
+        String rsn;
+        String role;
     }
 
     ClanFeed parse(String json)

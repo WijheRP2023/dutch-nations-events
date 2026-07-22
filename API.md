@@ -48,9 +48,10 @@ de RuneLite-configuratie in.
 
 - `GET /health`
 - `GET /feed.json` — openbaar, alleen events, codewoord alleen indien actief
-- `POST /api/events` — OWNER/MANAGER
-- `DELETE /api/events/{id}` — OWNER/MANAGER
-- `POST /api/roles` — uitsluitend OWNER
+- `POST /api/events` — OWNER/ADMINISTRATOR/MANAGER/EVENT_HOST
+- `DELETE /api/events/{id}` — OWNER/ADMINISTRATOR/MANAGER/EVENT_HOST
+- `GET /api/roles` — toont uitsluitend de eigen rol bij een geldige token
+- `POST /api/roles` — OWNER beheert alle niet-ownerrollen; ADMINISTRATOR mag alleen nieuwe MANAGER-rollen toevoegen
 
 Requestbody's zijn begrensd tot 16 KiB. Eventteksten, wereldnummers en RSN's worden
 server-side gevalideerd. Tokens worden met 256 bits entropie gemaakt en alleen als

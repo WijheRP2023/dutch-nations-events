@@ -18,7 +18,7 @@ public interface DutchNationsConfig extends Config
     default String managementApiUrl() { return "https://dutch-nations-events.onrender.com/api/events"; }
 
     @ConfigItem(keyName = "rolesApiUrl", name = "Rollen-API",
-        description = "Beveiligde owner-API voor managementrollen", position = 2)
+        description = "Beveiligde API voor eigen rol en rollenbeheer", position = 2)
     default String rolesApiUrl() { return "https://dutch-nations-events.onrender.com/api/roles"; }
 
     @ConfigItem(keyName = "managementToken", name = "Management-token",
