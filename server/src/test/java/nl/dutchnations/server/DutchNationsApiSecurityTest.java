@@ -30,6 +30,28 @@ public class DutchNationsApiSecurityTest
     }
 
     @Test
+    public void detectsOverlappingEventsButNotAdjacentEvents() throws Exception
+    {
+        Path directory = Files.createTempDirectory("dutch-nations-conflict-test");
+        DutchNationsApi.Store store = new DutchNationsApi.Store(directory.resolve("state.json"));
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC).plusHours(1);
+        DutchNationsApi.Event existing = event("existing", now, now.plusHours(2), "GEHEIM");
+        store.addEvent(existing);
+        assertEquals("existing", store.findConflict(event("overlap", now.plusMinutes(30), now.plusHours(3), "")).id);
+        assertEquals(null, store.findConflict(event("adjacent", now.plusHours(2), now.plusHours(3), "")));
+    }
+
+    @Test
+    public void roleOverviewContainsMetadataButNoTokenHashes() throws Exception
+    {
+        Path directory = Files.createTempDirectory("dutch-nations-role-overview-test");
+        DutchNationsApi.Store store = new DutchNationsApi.Store(directory.resolve("state.json"));
+        store.saveRole("Koenb1", "MANAGER", "secret-hash");
+        DutchNationsApi.Member member = store.roles().stream().filter(value -> "Koenb1".equals(value.rsn)).findFirst().get();
+        assertEquals("MANAGER", member.role);
+        assertTrue(member.updatedAt != null && !member.updatedAt.isEmpty());
+    }
+    @Test
     public void removesExpiredEventsRegardlessOfType() throws Exception
     {
         Path directory = Files.createTempDirectory("dutch-nations-expired-test");

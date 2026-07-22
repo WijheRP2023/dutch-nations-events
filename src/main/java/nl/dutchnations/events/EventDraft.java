@@ -10,4 +10,6 @@ final class EventDraft
     String host;
     String description;
     String codeword;
+    String checklist;
+    boolean allowConflict;
 }

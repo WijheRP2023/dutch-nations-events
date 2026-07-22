@@ -7,6 +7,7 @@ import java.io.InputStreamReader;
 import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
+import java.util.List;
 import okhttp3.Call;
 import okhttp3.Callback;
 import okhttp3.HttpUrl;
@@ -22,6 +23,7 @@ final class FeedService
     interface SaveListener { void success(); void failure(String message); }
     interface RoleSaveListener { void success(String managementToken); void failure(String message); }
     interface RoleStatusListener { void success(String rsn, String role); void failure(); }
+    interface RolesListener { void success(List<ManagementRole> roles); void failure(String message); }
     private static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
     private final OkHttpClient client;
     private final Gson gson;
@@ -100,6 +102,28 @@ final class FeedService
             }
         });
     }
+    void fetchRoles(String url, String token, RolesListener listener)
+    {
+        HttpUrl parsed = https(url);
+        if (parsed == null || blank(token)) { listener.failure("Rollen-API of owner-token ontbreekt."); return; }
+        HttpUrl target = parsed.newBuilder().addQueryParameter("all", "true").build();
+        Request request = new Request.Builder().url(target).header("Authorization", "Bearer " + token.trim()).get().build();
+        client.newCall(request).enqueue(new Callback()
+        {
+            @Override public void onFailure(Call call, IOException e) { listener.failure("Rollenoverzicht niet bereikbaar."); }
+            @Override public void onResponse(Call call, Response response) throws IOException
+            {
+                try (Response ignored = response)
+                {
+                    if (!response.isSuccessful() || response.body() == null)
+                    { listener.failure("Rollenoverzicht gaf HTTP " + response.code() + "."); return; }
+                    RolesResponse saved = gson.fromJson(response.body().string(), RolesResponse.class);
+                    if (saved == null || saved.roles == null) listener.failure("Ongeldig rollenoverzicht.");
+                    else listener.success(saved.roles);
+                }
+            }
+        });
+    }
     void saveRole(String url, String token, RoleDraft role, RoleSaveListener listener)
     {
         HttpUrl parsed = https(url);
@@ -146,12 +170,17 @@ final class FeedService
                 {
                     if (response.isSuccessful()) listener.success();
                     else if (response.code() == 401 || response.code() == 403) listener.failure("Geen toestemming: controleer je rol en token.");
+                    else if (response.code() == 409) listener.failure("Dit event overlapt met een bestaand event.");
                     else listener.failure("Actie gaf HTTP " + response.code() + ".");
                 }
             }
         });
     }
 
+    private static final class RolesResponse
+    {
+        List<ManagementRole> roles;
+    }
     private static final class RoleResponse
     {
         String managementToken;
@@ -174,7 +203,7 @@ final class FeedService
                 boolean needsWorld = learner || mass;
                 if (blank(event.id) || blank(event.title) || (needsWorld && blank(event.world)) ||
                     !event.end().isAfter(event.start()) || unsafe(event.title) || unsafe(event.world) ||
-                    unsafe(event.host) || unsafe(event.description) || unsafe(event.codeword)) return null;
+                    unsafe(event.host) || unsafe(event.description) || unsafe(event.codeword) || unsafe(event.checklist)) return null;
                 if (boss && !event.active(OffsetDateTime.now())) event.codeword = "";
             }
             return feed;

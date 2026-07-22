@@ -27,6 +27,7 @@ final class EventEditorDialog
         JTextField host = new JTextField();
         JTextField description = new JTextField();
         JTextField codeword = new JTextField();
+        JTextField checklist = new JTextField();
 
         type.addActionListener(e ->
         {
@@ -34,7 +35,9 @@ final class EventEditorDialog
             boolean boss = "BOSS".equals(type.getSelectedItem());
             world.setEnabled(!boss);
             codeword.setEnabled(boss);
+            checklist.setEnabled(learner);
             if (!boss) codeword.setText("");
+            if (!learner) checklist.setText("");
             if (boss) world.setText("");
             if ("MASS".equals(type.getSelectedItem()) && world.getText().trim().isEmpty()) world.setText("366");
         });
@@ -42,7 +45,8 @@ final class EventEditorDialog
         JPanel form = new JPanel(new GridLayout(0, 2, 6, 6));
         add(form, "Soort", type); add(form, "Titel", title); add(form, "Start (lokale tijd)", start);
         add(form, "Einde (lokale tijd)", end); add(form, "Wereld (learner/mass)", world); add(form, "Host", host);
-        add(form, "Omschrijving", description); add(form, "Codewoord (alleen boss)", codeword);
+        add(form, "Omschrijving", description); add(form, "Voorbereiding (learner; scheid met ;)", checklist);
+        add(form, "Codewoord (alleen boss)", codeword);
 
         if (JOptionPane.showConfirmDialog(null, form, "Dutch Nations - event maken",
             JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE) != JOptionPane.OK_OPTION) return null;
@@ -54,6 +58,7 @@ final class EventEditorDialog
             draft.endsAt = LocalDateTime.parse(end.getText().trim(), INPUT).atZone(ZoneId.systemDefault()).toOffsetDateTime().toString();
             draft.world = world.getText().trim(); draft.host = host.getText().trim();
             draft.description = description.getText().trim(); draft.codeword = codeword.getText().trim();
+            draft.checklist = checklist.getText().trim();
             boolean learner = "LEARNER".equals(draft.type);
             boolean boss = "BOSS".equals(draft.type);
             OffsetDateTime parsedStart = OffsetDateTime.parse(draft.startsAt);
@@ -77,6 +82,7 @@ final class EventEditorDialog
                 JOptionPane.showMessageDialog(null, "Een boss-event heeft een codewoord nodig.", "Controle", JOptionPane.WARNING_MESSAGE); return null;
             }
             if (!boss) draft.codeword = "";
+            if (!learner) draft.checklist = "";
             if (boss) draft.world = "";
             return draft;
         }

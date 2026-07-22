@@ -14,7 +14,7 @@ final class RoleEditorDialog
     static RoleDraft show(boolean owner)
     {
         JTextField rsn = new JTextField();
-        String[] choices = owner ? new String[]{"MANAGER", "ADMINISTRATOR", "EVENT_HOST", "REMOVE"} : new String[]{"MANAGER"};
+        String[] choices = owner ? new String[]{"MANAGER", "ADMINISTRATOR", "EVENT_HOST", "ROTATE", "REMOVE"} : new String[]{"MANAGER"};
         JComboBox<String> role = new JComboBox<>(choices);
         JPanel form = new JPanel(new GridLayout(0, 2, 6, 6));
         form.add(new JLabel("Exacte RuneScape-naam")); form.add(rsn);

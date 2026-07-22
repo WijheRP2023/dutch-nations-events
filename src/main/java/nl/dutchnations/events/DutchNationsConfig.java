@@ -3,6 +3,7 @@ package nl.dutchnations.events;
 import net.runelite.client.config.Config;
 import net.runelite.client.config.ConfigGroup;
 import net.runelite.client.config.ConfigItem;
+import net.runelite.client.config.Range;
 
 @ConfigGroup(DutchNationsConfig.GROUP)
 public interface DutchNationsConfig extends Config
@@ -28,4 +29,37 @@ public interface DutchNationsConfig extends Config
     @ConfigItem(keyName = "showOverlay", name = "Codewoord-popup", position = 4,
         description = "Toon het codewoord alleen tijdens een actief boss-event")
     default boolean showOverlay() { return true; }
+
+    @ConfigItem(keyName = "showLearner", name = "Toon learner-events", position = 5,
+        description = "Toon learner-events in de kalender")
+    default boolean showLearner() { return true; }
+
+    @ConfigItem(keyName = "showBoss", name = "Toon boss-events", position = 6,
+        description = "Toon boss-events in de kalender")
+    default boolean showBoss() { return true; }
+
+    @ConfigItem(keyName = "showMass", name = "Toon mass-events", position = 7,
+        description = "Toon mass-events in de kalender")
+    default boolean showMass() { return true; }
+
+    @ConfigItem(keyName = "notifyLearner", name = "Meld learner-events", position = 8,
+        description = "Toon lokale chatboxmeldingen voor learner-events")
+    default boolean notifyLearner() { return true; }
+
+    @ConfigItem(keyName = "notifyBoss", name = "Meld boss-events", position = 9,
+        description = "Toon lokale chatboxmeldingen voor boss-events")
+    default boolean notifyBoss() { return true; }
+
+    @ConfigItem(keyName = "notifyMass", name = "Meld mass-events", position = 10,
+        description = "Toon lokale chatboxmeldingen voor mass-events")
+    default boolean notifyMass() { return true; }
+
+    @Range(min = 1, max = 60)
+    @ConfigItem(keyName = "reminderMinutes", name = "Herinnering vooraf", position = 11,
+        description = "Aantal minuten voor de start voor de lokale melding")
+    default int reminderMinutes() { return 30; }
+
+    @ConfigItem(keyName = "notifyAtStart", name = "Melding bij start", position = 12,
+        description = "Toon een lokale chatboxmelding zodra het event start")
+    default boolean notifyAtStart() { return true; }
 }

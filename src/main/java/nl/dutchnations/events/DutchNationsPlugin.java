@@ -61,7 +61,7 @@ public class DutchNationsPlugin extends Plugin
     @Override protected void startUp()
     {
         service = new FeedService(http, gson);
-        panel = new DutchNationsPanel(this::refresh, this::canManage, this::isOwner,
+        panel = new DutchNationsPanel(config, this::refresh, this::canManage, this::isOwner,
             this::isAdministrator, this::canManageRoles,
             this::createEvent, this::deleteEvent, this::saveRole);
         ClanFeed cached = service.parse(configs.getConfiguration(DutchNationsConfig.GROUP, CACHE));
@@ -101,11 +101,12 @@ public class DutchNationsPlugin extends Plugin
         for (ClanFeed.ClanEvent event : current.events)
         {
             long secondsUntilStart = Duration.between(now, event.start()).getSeconds();
-            if (secondsUntilStart > 0 && secondsUntilStart <= 30 * 60 && remindedEvents.add(event.id))
+            if (shouldNotify(event) && secondsUntilStart > 0 && secondsUntilStart <= config.reminderMinutes() * 60L && remindedEvents.add(event.id))
             {
-                queueEventMessage(event, "start over 30 minuten");
+                long minutes = Math.max(1, (secondsUntilStart + 59) / 60);
+                queueEventMessage(event, "start over " + minutes + (minutes == 1 ? " minuut" : " minuten"));
             }
-            if (event.active(now) && announcedEvents.add(event.id))
+            if (config.notifyAtStart() && shouldNotify(event) && event.active(now) && announcedEvents.add(event.id))
             {
                 queueEventMessage(event, "is nu gestart");
             }
@@ -124,6 +125,13 @@ public class DutchNationsPlugin extends Plugin
             .runeLiteFormattedMessage("<col=ffbd45>Dutch Nations:</col> " + eventType +
                 " <col=ffffff>" + safeTitle + "</col> " + timing + world + "!")
             .build());
+    }
+
+    private boolean shouldNotify(ClanFeed.ClanEvent event)
+    {
+        if (event.learner()) return config.notifyLearner();
+        if ("BOSS".equalsIgnoreCase(event.type)) return config.notifyBoss();
+        return "MASS".equalsIgnoreCase(event.type) && config.notifyMass();
     }
 
     ClanFeed.ClanEvent activeEvent(OffsetDateTime now)
@@ -149,10 +157,24 @@ public class DutchNationsPlugin extends Plugin
     private void createEvent(EventDraft draft)
     {
         if (!canManage()) { panel.status("Je RuneScape-naam heeft geen managementrechten."); return; }
+        ClanFeed current = feed;
+        if (current != null)
+        {
+            ClanFeed.ClanEvent conflict = current.events.stream().filter(event ->
+                OffsetDateTime.parse(draft.startsAt).isBefore(event.end()) && OffsetDateTime.parse(draft.endsAt).isAfter(event.start()))
+                .findFirst().orElse(null);
+            if (conflict != null)
+            {
+                int answer = JOptionPane.showConfirmDialog(null,
+                    "Dit event overlapt met '" + conflict.title + "'. Toch opslaan?", "Eventconflict",
+                    JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+                if (answer != JOptionPane.YES_OPTION) { panel.status("Event niet opgeslagen vanwege tijdconflict."); return; }
+                draft.allowConflict = true;
+            }
+        }
         panel.status("Event opslaan...");
         service.createEvent(config.managementApiUrl(), config.managementToken(), draft, new SaveResult("Event opgeslagen."));
     }
-
     private void deleteEvent(String eventId)
     {
         if (!canManage()) { panel.status("Je RuneScape-naam heeft geen managementrechten."); return; }
@@ -231,6 +253,17 @@ public class DutchNationsPlugin extends Plugin
             }
         });
     }
+    private void fetchRoles()
+    {
+        if (!isOwner() || service == null || config.managementToken().trim().isEmpty()) return;
+        service.fetchRoles(config.rolesApiUrl(), config.managementToken(), new FeedService.RolesListener()
+        {
+            @Override public void success(java.util.List<ManagementRole> roles)
+            { if (panel != null) SwingUtilities.invokeLater(() -> panel.updateRoles(roles)); }
+            @Override public void failure(String message)
+            { if (panel != null) SwingUtilities.invokeLater(() -> panel.rolesStatus(message)); }
+        });
+    }
     private void refresh(boolean showStatus)
     {
         if (service == null) return;
@@ -240,11 +273,11 @@ public class DutchNationsPlugin extends Plugin
             @Override public void success(ClanFeed value, String json)
             {
                 feed = value; configs.setConfiguration(DutchNationsConfig.GROUP, CACHE, cacheWithoutCodewords(value));
-                SwingUtilities.invokeLater(() -> { if (panel != null) panel.update(value, "Actueel vanuit management."); });
+                SwingUtilities.invokeLater(() -> { if (panel != null) { panel.connectionChanged(true); panel.update(value, "Actueel vanuit management."); } });
             }
             @Override public void failure(String message)
             {
-                SwingUtilities.invokeLater(() -> { if (panel != null) panel.status(message + (feed == null ? "" : " Laatste geldige versie blijft actief.")); });
+                SwingUtilities.invokeLater(() -> { if (panel != null) { panel.connectionChanged(false); panel.status(message + (feed == null ? "" : " Laatste geldige versie blijft actief.")); } });
             }
         });
     }

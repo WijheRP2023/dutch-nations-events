@@ -6,6 +6,7 @@ import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.Image;
 import java.net.URL;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -41,6 +42,7 @@ final class DutchNationsPanel extends PluginPanel
     private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("EEE d MMM yyyy", new Locale("nl", "NL"));
     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm");
 
+    private final DutchNationsConfig config;
     private final Runnable refresh;
     private final BooleanSupplier canManage;
     private final BooleanSupplier isOwner;
@@ -50,13 +52,17 @@ final class DutchNationsPanel extends PluginPanel
     private final Consumer<String> deleteEvent;
     private final Consumer<RoleDraft> saveRole;
     private ClanFeed feed;
+    private List<ManagementRole> roles = new ArrayList<>();
+    private String rolesMessage = "Rollenoverzicht laden...";
+    private String viewMode = "LIJST";
+    private boolean serverOnline;
     private String status = "Management-feed laden...";
 
-    DutchNationsPanel(Runnable refresh, BooleanSupplier canManage, BooleanSupplier isOwner,
+    DutchNationsPanel(DutchNationsConfig config, Runnable refresh, BooleanSupplier canManage, BooleanSupplier isOwner,
         BooleanSupplier isAdministrator, BooleanSupplier canManageRoles,
         Consumer<EventDraft> saveEvent, Consumer<String> deleteEvent, Consumer<RoleDraft> saveRole)
     {
-        this.refresh = refresh; this.canManage = canManage; this.isOwner = isOwner;
+        this.config = config; this.refresh = refresh; this.canManage = canManage; this.isOwner = isOwner;
         this.isAdministrator = isAdministrator; this.canManageRoles = canManageRoles;
         this.saveEvent = saveEvent; this.deleteEvent = deleteEvent; this.saveRole = saveRole;
         setLayout(new BoxLayout(this, BoxLayout.Y_AXIS)); setBackground(BACKGROUND); render();
@@ -65,6 +71,9 @@ final class DutchNationsPanel extends PluginPanel
     void update(ClanFeed value, String message) { feed = value; status = message; render(); }
     void status(String message) { status = message; render(); }
     void permissionsChanged() { render(); }
+    void connectionChanged(boolean online) { serverOnline = online; render(); }
+    void updateRoles(List<ManagementRole> value) { roles = value == null ? new ArrayList<>() : new ArrayList<>(value); rolesMessage = ""; render(); }
+    void rolesStatus(String message) { rolesMessage = message; render(); }
 
     private void render()
     {
@@ -74,6 +83,8 @@ final class DutchNationsPanel extends PluginPanel
         add(statusCard());
         add(Box.createRigidArea(new Dimension(0, 7)));
         add(actionBar());
+        add(Box.createRigidArea(new Dimension(0, 7)));
+        add(viewBar());
         add(Box.createRigidArea(new Dimension(0, 14)));
 
         if (feed != null)
@@ -81,15 +92,21 @@ final class DutchNationsPanel extends PluginPanel
             List<ClanFeed.ClanEvent> upcoming = new ArrayList<>(feed.events);
             upcoming.removeIf(event -> event.end().isBefore(OffsetDateTime.now()));
             upcoming.sort(Comparator.comparing(ClanFeed.ClanEvent::start));
-            List<ClanFeed.ClanEvent> learners = upcoming.stream().filter(ClanFeed.ClanEvent::learner).collect(Collectors.toList());
-            List<ClanFeed.ClanEvent> bosses = upcoming.stream().filter(event -> "BOSS".equalsIgnoreCase(event.type)).collect(Collectors.toList());
-            List<ClanFeed.ClanEvent> masses = upcoming.stream().filter(event -> "MASS".equalsIgnoreCase(event.type)).collect(Collectors.toList());
-
-            addSection("LEARNER-EVENTS", "Leren met begeleiding", learners, LEARNER_COLOR);
-            add(Box.createRigidArea(new Dimension(0, 14)));
-            addSection("BOSS-EVENTS", "Bossen met tijdelijk codewoord", bosses, BOSS_COLOR);
-            add(Box.createRigidArea(new Dimension(0, 14)));
-            addSection("MASS-EVENTS", "Grootschalige clanactiviteiten", masses, MASS_COLOR);
+            upcoming.removeIf(event -> (event.learner() && !config.showLearner()) ||
+                ("BOSS".equalsIgnoreCase(event.type) && !config.showBoss()) ||
+                ("MASS".equalsIgnoreCase(event.type) && !config.showMass()));
+            if ("LIJST".equals(viewMode))
+            {
+                List<ClanFeed.ClanEvent> learners = upcoming.stream().filter(ClanFeed.ClanEvent::learner).collect(Collectors.toList());
+                List<ClanFeed.ClanEvent> bosses = upcoming.stream().filter(event -> "BOSS".equalsIgnoreCase(event.type)).collect(Collectors.toList());
+                List<ClanFeed.ClanEvent> masses = upcoming.stream().filter(event -> "MASS".equalsIgnoreCase(event.type)).collect(Collectors.toList());
+                addSection("LEARNER-EVENTS", "Leren met begeleiding", learners, LEARNER_COLOR);
+                add(Box.createRigidArea(new Dimension(0, 14)));
+                addSection("BOSS-EVENTS", "Bossen met tijdelijk codewoord", bosses, BOSS_COLOR);
+                add(Box.createRigidArea(new Dimension(0, 14)));
+                addSection("MASS-EVENTS", "Grootschalige clanactiviteiten", masses, MASS_COLOR);
+            }
+            else addCalendar(upcoming, "WEEK".equals(viewMode) ? 7 : 31);
 
             if (canManageRoles.getAsBoolean())
             {
@@ -128,7 +145,8 @@ final class DutchNationsPanel extends PluginPanel
         panel.setBorder(BorderFactory.createCompoundBorder(
             BorderFactory.createMatteBorder(0, 4, 0, 0, new Color(90, 185, 110)),
             BorderFactory.createEmptyBorder(8, 8, 8, 8)));
-        panel.add(bodyLabel("STATUS", new Color(120, 220, 140), Font.BOLD, 11f));
+        panel.add(bodyLabel((serverOnline ? "● SERVER ONLINE" : "● SERVER OFFLINE"),
+            serverOnline ? new Color(120, 220, 140) : new Color(255, 120, 100), Font.BOLD, 11f));
         JTextArea text = new JTextArea(status);
         text.setLineWrap(true); text.setWrapStyleWord(true); text.setEditable(false); text.setFocusable(false);
         text.setOpaque(false); text.setForeground(Color.WHITE); text.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 13));
@@ -155,6 +173,51 @@ final class DutchNationsPanel extends PluginPanel
         return actions;
     }
 
+    private JPanel viewBar()
+    {
+        JPanel views = new JPanel(new java.awt.GridLayout(1, 3, 5, 0));
+        views.setOpaque(false); views.setAlignmentX(Component.LEFT_ALIGNMENT);
+        addViewButton(views, "Lijst", "LIJST"); addViewButton(views, "7 dagen", "WEEK"); addViewButton(views, "31 dagen", "MAAND");
+        views.setMaximumSize(new Dimension(Integer.MAX_VALUE, views.getPreferredSize().height));
+        return views;
+    }
+    private void addViewButton(JPanel panel, String title, String mode)
+    {
+        JButton button = button(title);
+        if (mode.equals(viewMode)) button.setBackground(new Color(105, 75, 27));
+        button.addActionListener(event -> { viewMode = mode; render(); });
+        panel.add(button);
+    }
+    private void addCalendar(List<ClanFeed.ClanEvent> events, int days)
+    {
+        LocalDate today = LocalDate.now(); boolean found = false;
+        for (int offset = 0; offset < days; offset++)
+        {
+            LocalDate date = today.plusDays(offset);
+            List<ClanFeed.ClanEvent> dayEvents = events.stream().filter(event ->
+                event.start().atZoneSameInstant(ZoneId.systemDefault()).toLocalDate().equals(date)).collect(Collectors.toList());
+            if (dayEvents.isEmpty()) continue;
+            found = true;
+            JPanel heading = card(STONE);
+            heading.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, 5, 0, 0, GOLD), BorderFactory.createEmptyBorder(7, 8, 7, 8)));
+            heading.add(bodyLabel(DATE.format(date), GOLD, Font.BOLD, 13f)); add(heading);
+            add(Box.createRigidArea(new Dimension(0, 7)));
+            for (ClanFeed.ClanEvent event : dayEvents)
+            { add(eventCard(event, accentFor(event))); add(Box.createRigidArea(new Dimension(0, 8))); }
+        }
+        if (!found)
+        {
+            JPanel empty = card(DARK_STONE);
+            empty.add(bodyLabel("Geen events in de komende " + days + " dagen.", Color.LIGHT_GRAY, Font.ITALIC, 12f));
+            add(empty);
+        }
+    }
+    private static Color accentFor(ClanFeed.ClanEvent event)
+    {
+        if (event.learner()) return LEARNER_COLOR;
+        return "MASS".equalsIgnoreCase(event.type) ? MASS_COLOR : BOSS_COLOR;
+    }
     private void addSection(String title, String subtitle, List<ClanFeed.ClanEvent> events, Color accent)
     {
         JPanel heading = card(STONE);
@@ -197,6 +260,12 @@ final class DutchNationsPanel extends PluginPanel
         if (!"BOSS".equalsIgnoreCase(event.type)) panel.add(bodyLabel("Wereld: " + event.world, Color.WHITE, Font.PLAIN, 13f));
         if (!blank(event.host)) panel.add(bodyLabel("Host: " + event.host, Color.WHITE, Font.PLAIN, 13f));
         if (!blank(event.description)) panel.add(bodyLabel("Info: " + event.description, Color.WHITE, Font.PLAIN, 13f));
+        if (event.learner() && !blank(event.checklist))
+        {
+            panel.add(Box.createRigidArea(new Dimension(0, 5)));
+            panel.add(bodyLabel("VOORBEREIDING", GOLD, Font.BOLD, 12f));
+            panel.add(bodyText("• " + event.checklist.replace(";", "\n• "), Color.WHITE, Font.PLAIN, 12f));
+        }
         String codeInfo = "BOSS".equalsIgnoreCase(event.type) ? "Codewoord verschijnt tijdens het event" : "Geen codewoord nodig";
         panel.add(Box.createRigidArea(new Dimension(0, 5))); panel.add(bodyLabel(codeInfo, accent, Font.BOLD, 12f));
         if (canManage.getAsBoolean())
@@ -219,8 +288,52 @@ final class DutchNationsPanel extends PluginPanel
         heading.setBorder(BorderFactory.createCompoundBorder(
             BorderFactory.createMatteBorder(0, 5, 0, 0, GOLD), BorderFactory.createEmptyBorder(7, 8, 7, 8)));
         heading.add(label("MANAGEMENTROLLEN", GOLD, Font.BOLD, 13f));
-        heading.add(bodyText("Rollen zijn beveiligd en niet zichtbaar in de openbare feed.", Color.WHITE, Font.PLAIN, 12f));
+        heading.add(bodyText("Alleen beveiligd zichtbaar voor de owner.", Color.WHITE, Font.PLAIN, 12f));
         add(heading);
+        if (!isOwner.getAsBoolean()) return;
+        if (!blank(rolesMessage))
+        {
+            add(Box.createRigidArea(new Dimension(0, 7)));
+            JPanel message = card(DARK_STONE); message.add(bodyText(rolesMessage, Color.LIGHT_GRAY, Font.PLAIN, 12f)); add(message);
+        }
+        for (ManagementRole role : roles)
+        {
+            add(Box.createRigidArea(new Dimension(0, 7)));
+            JPanel roleCard = card(CARD_BROWN);
+            roleCard.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(1, 1, 1, 4, GOLD), BorderFactory.createEmptyBorder(8, 8, 8, 8)));
+            roleCard.add(bodyLabel(role.rsn, Color.WHITE, Font.BOLD, 14f));
+            roleCard.add(bodyLabel("Rol: " + role.role, GOLD, Font.BOLD, 12f));
+            if (!blank(role.updatedAt))
+            {
+                try
+                {
+                    java.time.ZonedDateTime changed = OffsetDateTime.parse(role.updatedAt).atZoneSameInstant(ZoneId.systemDefault());
+                    roleCard.add(bodyLabel("Gewijzigd: " + DATE.format(changed) + " " + TIME.format(changed), Color.LIGHT_GRAY, Font.PLAIN, 11f));
+                }
+                catch (RuntimeException ignored) { }
+            }
+            if (!"heavenskill".equalsIgnoreCase(role.rsn))
+            {
+                JButton rotate = button("Token vernieuwen");
+                rotate.addActionListener(event ->
+                {
+                    int answer = JOptionPane.showConfirmDialog(this, "Token van '" + role.rsn + "' vernieuwen? De oude token stopt direct.",
+                        "Token vernieuwen", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+                    if (answer == JOptionPane.YES_OPTION) saveRole.accept(new RoleDraft(role.rsn, "ROTATE"));
+                });
+                JButton remove = button("Rol intrekken"); remove.setBackground(new Color(105, 28, 31));
+                remove.addActionListener(event ->
+                {
+                    int answer = JOptionPane.showConfirmDialog(this, "Rol van '" + role.rsn + "' definitief intrekken?",
+                        "Rol intrekken", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+                    if (answer == JOptionPane.YES_OPTION) saveRole.accept(new RoleDraft(role.rsn, "REMOVE"));
+                });
+                roleCard.add(Box.createRigidArea(new Dimension(0, 6))); roleCard.add(rotate);
+                roleCard.add(Box.createRigidArea(new Dimension(0, 5))); roleCard.add(remove);
+            }
+            add(roleCard);
+        }
     }
 
     private static JButton button(String text)

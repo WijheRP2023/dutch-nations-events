@@ -116,6 +116,11 @@ public final class DutchNationsApi
             event.type = event.type.toUpperCase(Locale.ROOT);
             if ("LEARNER".equals(event.type) || "MASS".equals(event.type)) event.codeword = "";
             if ("BOSS".equals(event.type)) event.world = "";
+            Event conflict = store.findConflict(event);
+            if (conflict != null && !event.allowConflict)
+            {
+                sendError(exchange, 409, "Event overlapt met " + conflict.title); return;
+            }
             store.addEvent(event);
             send(exchange, 201, event);
             return;
@@ -139,6 +144,12 @@ public final class DutchNationsApi
         if (actor == null) { sendError(exchange, 401, "Ongeldige management-token"); return; }
         if ("GET".equals(exchange.getRequestMethod()))
         {
+            String query = exchange.getRequestURI().getRawQuery();
+            if (query != null && query.contains("all=true"))
+            {
+                if (!actor.owner()) { sendError(exchange, 403, "Alleen de owner mag het rollenoverzicht bekijken"); return; }
+                send(exchange, 200, map("roles", store.roles())); return;
+            }
             Map<String, Object> response = new HashMap<>();
             response.put("rsn", actor.rsn); response.put("role", actor.role);
             send(exchange, 200, response);
@@ -155,6 +166,17 @@ public final class DutchNationsApi
         {
             if (!"MANAGER".equals(role)) { sendError(exchange, 403, "Administrators mogen alleen managers toevoegen"); return; }
             if (store.hasAssignedRole(change.rsn)) { sendError(exchange, 403, "Administrators mogen bestaande rollen niet wijzigen"); return; }
+        }
+        if ("ROTATE".equals(role))
+        {
+            if (!actor.owner()) { sendError(exchange, 403, "Alleen de owner mag tokens vernieuwen"); return; }
+            Member existing = store.member(change.rsn);
+            if (existing == null) { sendError(exchange, 404, "Rol niet gevonden"); return; }
+            String newToken = randomToken();
+            store.saveRole(existing.rsn, existing.role, sha256(newToken));
+            Map<String, Object> response = new HashMap<>();
+            response.put("rsn", existing.rsn); response.put("role", existing.role); response.put("managementToken", newToken);
+            send(exchange, 200, response); return;
         }
         if ("REMOVE".equals(role))
         {
@@ -194,7 +216,8 @@ public final class DutchNationsApi
             if (!end.isAfter(start)) return "Eindtijd moet na starttijd liggen";
         }
         catch (RuntimeException ex) { return "Ongeldige ISO 8601-datum"; }
-        if (!valid(event.title, 80) || !validOptional(event.host, 20) || !validOptional(event.description, 240)) return "Eventtekst is te lang of bevat ongeldige tekens";
+        if (!valid(event.title, 80) || !validOptional(event.host, 20) || !validOptional(event.description, 240) ||
+            !validOptional(event.checklist, 400)) return "Eventtekst is te lang of bevat ongeldige tekens";
         if (("LEARNER".equals(type) || "MASS".equals(type)) && (blank(event.world) || !event.world.matches("\\d{3,4}"))) return "Geldig wereldnummer is verplicht";
         if ("BOSS".equals(type) && (!valid(event.codeword, 40))) return "Boss-event vereist een geldig codewoord van maximaal 40 tekens";
         return null;
@@ -286,6 +309,16 @@ public final class DutchNationsApi
             return feed;
         }
 
+        synchronized Event findConflict(Event candidate)
+        {
+            OffsetDateTime start = OffsetDateTime.parse(candidate.startsAt);
+            OffsetDateTime end = OffsetDateTime.parse(candidate.endsAt);
+            return state.events.stream().filter(event ->
+            {
+                try { return start.isBefore(OffsetDateTime.parse(event.endsAt)) && end.isAfter(OffsetDateTime.parse(event.startsAt)); }
+                catch (RuntimeException ex) { return false; }
+            }).findFirst().orElse(null);
+        }
         synchronized void addEvent(Event event) { state.events.add(event); changed(); }
         synchronized boolean deleteEvent(String id)
         {
@@ -298,7 +331,7 @@ public final class DutchNationsApi
             String key = normalize(rsn);
             Member member = state.members.stream().filter(m -> key.equals(normalize(m.rsn))).findFirst().orElse(null);
             if (member == null) { member = new Member(); member.rsn = rsn.trim(); state.members.add(member); }
-            member.role = role;
+            member.role = role; member.updatedAt = OffsetDateTime.now(ZoneOffset.UTC).toString();
             state.tokenHashes.put(key, tokenHash);
             changed();
         }
@@ -309,6 +342,18 @@ public final class DutchNationsApi
             state.tokenHashes.remove(key);
             ensureOwner();
             changed();
+        }
+        synchronized Member member(String rsn)
+        {
+            String key = normalize(rsn);
+            return state.members.stream().filter(value -> key.equals(normalize(value.rsn))).findFirst().orElse(null);
+        }
+        synchronized List<Member> roles()
+        {
+            List<Member> roles = new ArrayList<>();
+            for (Member member : state.members) roles.add(GSON.fromJson(GSON.toJson(member), Member.class));
+            roles.sort((left, right) -> left.rsn.compareToIgnoreCase(right.rsn));
+            return roles;
         }
         synchronized boolean hasAssignedRole(String rsn)
         {
@@ -369,8 +414,9 @@ public final class DutchNationsApi
             if (state.events == null) state.events = new ArrayList<>();
             if (state.tokenHashes == null) state.tokenHashes = new HashMap<>();
             if (state.members.stream().noneMatch(m -> OWNER_RSN.equals(normalize(m.rsn))))
-            { Member owner = new Member(); owner.rsn = OWNER_RSN; owner.role = "OWNER"; state.members.add(owner); }
+            { Member owner = new Member(); owner.rsn = OWNER_RSN; owner.role = "OWNER"; owner.updatedAt = OffsetDateTime.now(ZoneOffset.UTC).toString(); state.members.add(owner); }
             if (blank(state.updatedAt)) state.updatedAt = OffsetDateTime.now(ZoneOffset.UTC).toString();
+            for (Member member : state.members) if (blank(member.updatedAt)) member.updatedAt = state.updatedAt;
         }
 
         private void changed()
@@ -433,11 +479,12 @@ public final class DutchNationsApi
         Map<String, String> tokenHashes = new HashMap<>();
     }
     static final class Feed { String updatedAt; List<Event> events; }
-    static final class Member { String rsn; String role; }
+    static final class Member { String rsn; String role; String updatedAt; }
     static final class Event
     {
         String id; String startsAt; String endsAt; String type; String title;
-        String world; String host; String description; String codeword;
+        String world; String host; String description; String codeword; String checklist;
+        boolean allowConflict;
     }
     static final class RoleChange { String rsn; String role; }
     static final class Actor

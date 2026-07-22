@@ -49,3 +49,13 @@ worden.
 De rootbuild bevat alleen de RuneLite-plugin. De API in `server/` is bewust een apart
 Gradle-project en wordt apart gehost. Productie-adressen moeten HTTPS gebruiken;
 onversleuteld HTTP wordt door de plugin alleen voor `localhost` toegestaan.
+
+## Kalenderuitbreidingen
+
+- Lijst-, 7-dagen- en 31-dagenweergave
+- Lokale filters en meldingsvoorkeuren per eventtype
+- Werkelijke resterende minuten in lokale chatboxmeldingen
+- Centrale conflictcontrole met expliciete bevestiging
+- Learner-checklists voor voorbereiding
+- Live/offline serverstatus
+- Owner-only rollenoverzicht, tokenrotatie en rol intrekken
