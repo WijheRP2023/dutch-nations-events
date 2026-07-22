@@ -7,10 +7,13 @@ import java.awt.Graphics2D;
 import java.awt.Toolkit;
 import java.awt.datatransfer.StringSelection;
 import java.awt.image.BufferedImage;
+import java.io.IOException;
+import java.io.InputStream;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.HashSet;
 import java.util.Set;
+import javax.imageio.ImageIO;
 import javax.inject.Inject;
 import javax.swing.JOptionPane;
 import javax.swing.SwingUtilities;
@@ -258,8 +261,26 @@ public class DutchNationsPlugin extends Plugin
     private static String safeText(String value) { return value == null ? "" : value.replace("<", "").replace(">", ""); }
     private static BufferedImage icon()
     {
-        BufferedImage image = new BufferedImage(32, 32, BufferedImage.TYPE_INT_ARGB);
-        Graphics2D g = image.createGraphics(); g.setColor(new Color(174, 28, 40)); g.fillRoundRect(1, 1, 30, 30, 8, 8);
-        g.setColor(Color.WHITE); g.setFont(g.getFont().deriveFont(java.awt.Font.BOLD, 18f)); g.drawString("DN", 3, 23); g.dispose(); return image;
+        try (InputStream stream = DutchNationsPlugin.class.getResourceAsStream("/nl/dutchnations/events/dutch-nations-icon.png"))
+        {
+            BufferedImage source = stream == null ? null : ImageIO.read(stream);
+            if (source != null)
+            {
+                BufferedImage image = new BufferedImage(32, 32, BufferedImage.TYPE_INT_ARGB);
+                Graphics2D graphics = image.createGraphics();
+                graphics.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION,
+                    java.awt.RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+                graphics.drawImage(source, 0, 0, 32, 32, null);
+                graphics.dispose();
+                return image;
+            }
+        }
+        catch (IOException ignored) { }
+        BufferedImage fallback = new BufferedImage(32, 32, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D graphics = fallback.createGraphics();
+        graphics.setColor(new Color(174, 28, 40)); graphics.fillRoundRect(1, 1, 30, 30, 8, 8);
+        graphics.setColor(Color.WHITE); graphics.setFont(graphics.getFont().deriveFont(java.awt.Font.BOLD, 18f));
+        graphics.drawString("DN", 3, 23); graphics.dispose();
+        return fallback;
     }
 }

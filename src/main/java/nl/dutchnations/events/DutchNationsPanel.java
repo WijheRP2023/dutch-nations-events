@@ -4,6 +4,8 @@ import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.Font;
+import java.awt.Image;
+import java.net.URL;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -18,16 +20,20 @@ import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
+import javax.swing.ImageIcon;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JTextArea;
-import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.PluginPanel;
 
 final class DutchNationsPanel extends PluginPanel
 {
-    private static final Color RED = new Color(174, 28, 40);
+    private static final Color RED = new Color(142, 25, 32);
+    private static final Color BACKGROUND = new Color(20, 17, 15);
+    private static final Color STONE = new Color(48, 47, 50);
+    private static final Color DARK_STONE = new Color(35, 34, 36);
+    private static final Color CARD_BROWN = new Color(31, 25, 21);
     private static final Color LEARNER_COLOR = new Color(35, 220, 225);
     private static final Color BOSS_COLOR = new Color(255, 105, 105);
     private static final Color MASS_COLOR = new Color(195, 125, 255);
@@ -53,7 +59,7 @@ final class DutchNationsPanel extends PluginPanel
         this.refresh = refresh; this.canManage = canManage; this.isOwner = isOwner;
         this.isAdministrator = isAdministrator; this.canManageRoles = canManageRoles;
         this.saveEvent = saveEvent; this.deleteEvent = deleteEvent; this.saveRole = saveRole;
-        setLayout(new BoxLayout(this, BoxLayout.Y_AXIS)); render();
+        setLayout(new BoxLayout(this, BoxLayout.Y_AXIS)); setBackground(BACKGROUND); render();
     }
 
     void update(ClanFeed value, String message) { feed = value; status = message; render(); }
@@ -96,8 +102,19 @@ final class DutchNationsPanel extends PluginPanel
 
     private JPanel header()
     {
-        JPanel panel = card(RED);
-        JLabel title = label("DUTCH NATIONS", Color.WHITE, Font.BOLD, 18f); panel.add(title);
+        JPanel panel = card(BACKGROUND);
+        panel.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createMatteBorder(0, 0, 4, 0, RED), BorderFactory.createEmptyBorder(5, 5, 7, 5)));
+        URL logoResource = DutchNationsPanel.class.getResource("/nl/dutchnations/events/dutch-nations-header.png");
+        if (logoResource != null)
+        {
+            Image logoImage = new ImageIcon(logoResource).getImage().getScaledInstance(210, 79, Image.SCALE_SMOOTH);
+            JLabel logo = new JLabel(new ImageIcon(logoImage));
+            logo.setAlignmentX(Component.LEFT_ALIGNMENT);
+            panel.add(logo);
+        }
+        else panel.add(label("DUTCH NATIONS", Color.WHITE, Font.BOLD, 18f));
+        panel.add(Box.createRigidArea(new Dimension(0, 4)));
         panel.add(label("Clan-eventkalender", new Color(255, 235, 235), Font.PLAIN, 12f));
         if (isOwner.getAsBoolean()) panel.add(label("Beheerstatus: OWNER", new Color(255, 225, 120), Font.BOLD, 11f));
         else if (isAdministrator.getAsBoolean()) panel.add(label("Beheerstatus: ADMINISTRATOR", GOLD, Font.BOLD, 11f));
@@ -107,7 +124,7 @@ final class DutchNationsPanel extends PluginPanel
 
     private JPanel statusCard()
     {
-        JPanel panel = card(ColorScheme.DARKER_GRAY_COLOR);
+        JPanel panel = card(CARD_BROWN);
         panel.setBorder(BorderFactory.createCompoundBorder(
             BorderFactory.createMatteBorder(0, 4, 0, 0, new Color(90, 185, 110)),
             BorderFactory.createEmptyBorder(8, 8, 8, 8)));
@@ -121,25 +138,26 @@ final class DutchNationsPanel extends PluginPanel
 
     private JPanel actionBar()
     {
-        JPanel actions = new JPanel(); actions.setLayout(new BoxLayout(actions, BoxLayout.X_AXIS));
+        JPanel actions = new JPanel(); actions.setLayout(new BoxLayout(actions, BoxLayout.Y_AXIS));
         actions.setOpaque(false); actions.setAlignmentX(Component.LEFT_ALIGNMENT);
         JButton reload = button("Vernieuwen"); reload.addActionListener(event -> refresh.run()); actions.add(reload);
         if (canManage.getAsBoolean())
         {
-            actions.add(Box.createRigidArea(new Dimension(5, 0))); JButton create = button("+ Event maken");
+            actions.add(Box.createRigidArea(new Dimension(0, 5))); JButton create = button("+ Event maken");
             create.addActionListener(event -> { EventDraft draft = EventEditorDialog.show(); if (draft != null) saveEvent.accept(draft); }); actions.add(create);
         }
         if (canManageRoles.getAsBoolean())
         {
-            actions.add(Box.createRigidArea(new Dimension(5, 0))); JButton roles = button("Rollen");
+            actions.add(Box.createRigidArea(new Dimension(0, 5))); JButton roles = button("Managementrollen");
             roles.addActionListener(event -> { RoleDraft draft = RoleEditorDialog.show(isOwner.getAsBoolean()); if (draft != null) saveRole.accept(draft); }); actions.add(roles);
         }
+        actions.setMaximumSize(new Dimension(Integer.MAX_VALUE, actions.getPreferredSize().height));
         return actions;
     }
 
     private void addSection(String title, String subtitle, List<ClanFeed.ClanEvent> events, Color accent)
     {
-        JPanel heading = card(new Color(46, 46, 46));
+        JPanel heading = card(STONE);
         heading.setBorder(BorderFactory.createCompoundBorder(
             BorderFactory.createMatteBorder(0, 5, 0, 0, accent),
             BorderFactory.createEmptyBorder(7, 8, 7, 8)));
@@ -149,7 +167,7 @@ final class DutchNationsPanel extends PluginPanel
 
         if (events.isEmpty())
         {
-            JPanel empty = card(ColorScheme.DARKER_GRAY_COLOR);
+            JPanel empty = card(DARK_STONE);
             empty.add(label("Geen geplande events in deze categorie.", Color.LIGHT_GRAY, Font.ITALIC, 12f));
             add(empty); return;
         }
@@ -158,9 +176,9 @@ final class DutchNationsPanel extends PluginPanel
 
     private JPanel eventCard(ClanFeed.ClanEvent event, Color accent)
     {
-        JPanel panel = card(ColorScheme.DARKER_GRAY_COLOR);
+        JPanel panel = card(CARD_BROWN);
         panel.setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createMatteBorder(1, 1, 1, 1, new Color(65, 65, 65)),
+            BorderFactory.createMatteBorder(1, 1, 1, 4, GOLD),
             BorderFactory.createEmptyBorder(9, 9, 9, 9)));
         String badgeText = event.learner() ? " LEARNER " : ("MASS".equalsIgnoreCase(event.type) ? " MASS " : " BOSS ");
         JLabel badge = label(badgeText, Color.BLACK, Font.BOLD, 11f); badge.setOpaque(true); badge.setBackground(accent); panel.add(badge);
@@ -183,7 +201,7 @@ final class DutchNationsPanel extends PluginPanel
         panel.add(Box.createRigidArea(new Dimension(0, 5))); panel.add(label(codeInfo, accent, Font.BOLD, 11f));
         if (canManage.getAsBoolean())
         {
-            JButton remove = button("Event verwijderen"); remove.setForeground(new Color(255, 135, 135)); remove.setAlignmentX(Component.LEFT_ALIGNMENT);
+            JButton remove = button("Event verwijderen"); remove.setForeground(new Color(255, 205, 190)); remove.setBackground(new Color(105, 28, 31));
             remove.addActionListener(click ->
             {
                 int answer = JOptionPane.showConfirmDialog(this, "Event '" + event.title + "' definitief verwijderen?",
@@ -197,7 +215,7 @@ final class DutchNationsPanel extends PluginPanel
 
     private void addManagementSection()
     {
-        JPanel heading = card(new Color(46, 46, 46));
+        JPanel heading = card(STONE);
         heading.setBorder(BorderFactory.createCompoundBorder(
             BorderFactory.createMatteBorder(0, 5, 0, 0, GOLD), BorderFactory.createEmptyBorder(7, 8, 7, 8)));
         heading.add(label("MANAGEMENTROLLEN", GOLD, Font.BOLD, 13f));
@@ -205,7 +223,18 @@ final class DutchNationsPanel extends PluginPanel
         add(heading);
     }
 
-    private static JButton button(String text) { JButton button = new JButton(text); button.setFocusable(false); return button; }
+    private static JButton button(String text)
+    {
+        JButton button = new JButton(text);
+        button.setFocusable(false);
+        button.setForeground(new Color(255, 231, 170));
+        button.setBackground(RED);
+        button.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(new Color(176, 132, 48)), BorderFactory.createEmptyBorder(6, 10, 6, 10)));
+        button.setAlignmentX(Component.LEFT_ALIGNMENT);
+        button.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
+        return button;
+    }
     private static JPanel card(Color color)
     {
         JPanel panel = new JPanel(); panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS)); panel.setBackground(color);
