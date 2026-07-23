@@ -133,7 +133,9 @@ final class DutchNationsPanel extends PluginPanel
                 ("MASS".equalsIgnoreCase(event.type) && !config.showMass()));
             if ("LIJST".equals(viewMode))
             {
-                List<ClanFeed.ClanEvent> active = upcoming.stream().filter(event -> event.active(now)).collect(Collectors.toList());
+                List<ClanFeed.ClanEvent> active = upcoming.stream()
+                    .filter(event -> !event.start().isAfter(now.plusHours(2)))
+                    .collect(Collectors.toList());
                 addActiveSection(active);
             }
             else
@@ -355,7 +357,7 @@ final class DutchNationsPanel extends PluginPanel
             empty.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createMatteBorder(0, 5, 0, 0, new Color(120, 220, 140)),
                 BorderFactory.createEmptyBorder(7, 8, 7, 8)));
-            empty.add(bodyLabel("Geen actieve events op dit moment.", Color.LIGHT_GRAY, Font.ITALIC, 12f));
+            empty.add(bodyLabel("Geen actieve of binnenkort startende events.", Color.LIGHT_GRAY, Font.ITALIC, 12f));
             add(empty); return;
         }
         for (ClanFeed.ClanEvent event : events)
