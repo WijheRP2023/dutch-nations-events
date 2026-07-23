@@ -20,6 +20,7 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
+import java.util.function.BiConsumer;
 import java.util.stream.Collectors;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
@@ -54,6 +55,7 @@ final class DutchNationsPanel extends PluginPanel
     private final BooleanSupplier isAdministrator;
     private final BooleanSupplier canManageRoles;
     private final Runnable loadRoles;
+    private final BiConsumer<JLabel, Integer> loadRankIcon;
     private final Consumer<EventDraft> saveEvent;
     private final Consumer<String> deleteEvent;
     private final Consumer<RoleDraft> saveRole;
@@ -72,10 +74,12 @@ final class DutchNationsPanel extends PluginPanel
 
     DutchNationsPanel(DutchNationsConfig config, Runnable refresh, BooleanSupplier canManage, BooleanSupplier isOwner,
         BooleanSupplier isAdministrator, BooleanSupplier canManageRoles, Runnable loadRoles,
+        BiConsumer<JLabel, Integer> loadRankIcon,
         Consumer<EventDraft> saveEvent, Consumer<String> deleteEvent, Consumer<RoleDraft> saveRole)
     {
         this.config = config; this.refresh = refresh; this.canManage = canManage; this.isOwner = isOwner;
         this.isAdministrator = isAdministrator; this.canManageRoles = canManageRoles; this.loadRoles = loadRoles;
+        this.loadRankIcon = loadRankIcon;
         this.saveEvent = saveEvent; this.deleteEvent = deleteEvent; this.saveRole = saveRole;
         setLayout(new BoxLayout(this, BoxLayout.Y_AXIS)); setBackground(BACKGROUND); render();
     }
@@ -312,10 +316,10 @@ final class DutchNationsPanel extends PluginPanel
             memberCard.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createMatteBorder(0, 3, 0, 0, LEARNER_COLOR),
                 BorderFactory.createEmptyBorder(6, 8, 6, 8)));
-            memberCard.add(bodyLabel(member.name, Color.WHITE, Font.BOLD, 13f));
-            String details = "Wereld " + member.world;
-            if (!blank(member.rank)) details += "  •  " + member.rank;
-            memberCard.add(bodyLabel(details, Color.LIGHT_GRAY, Font.PLAIN, 11f));
+            JLabel name = bodyLabel(member.name, Color.WHITE, Font.BOLD, 13f);
+            if (member.rank >= 0 && member.rank <= 127) loadRankIcon.accept(name, member.rank);
+            memberCard.add(name);
+            memberCard.add(bodyLabel("Wereld " + member.world, Color.LIGHT_GRAY, Font.PLAIN, 11f));
             add(memberCard); add(Box.createRigidArea(new Dimension(0, 4)));
         }
     }

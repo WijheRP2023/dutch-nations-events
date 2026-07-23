@@ -5,10 +5,10 @@ import java.util.Objects;
 final class OnlineClanMember
 {
     final String name;
-    final String rank;
+    final int rank;
     final int world;
 
-    OnlineClanMember(String name, String rank, int world)
+    OnlineClanMember(String name, int rank, int world)
     {
         this.name = name;
         this.rank = rank;
