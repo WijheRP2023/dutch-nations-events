@@ -29,6 +29,7 @@ import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.externalplugins.ExternalPluginClient;
+import net.runelite.client.externalplugins.ExternalPluginManager;
 import net.runelite.client.externalplugins.PluginHubManifest;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
@@ -51,6 +52,7 @@ public class DutchNationsPlugin extends Plugin
     @Inject private OkHttpClient http;
     @Inject private Gson gson;
     @Inject private ExternalPluginClient pluginHubClient;
+    @Inject private ExternalPluginManager externalPluginManager;
     private FeedService service;
     private DutchNationsPanel panel;
     private NavigationButton button;
@@ -78,18 +80,29 @@ public class DutchNationsPlugin extends Plugin
     {
         new SwingWorker<java.util.List<String>, Void>()
         {
+            private java.util.Set<String> installedNames = java.util.Collections.emptySet();
+
             @Override protected java.util.List<String> doInBackground() throws Exception
             {
                 PluginHubManifest.ManifestFull manifest = pluginHubClient.downloadManifestFull();
+                java.util.Set<String> installedInternal = new java.util.HashSet<>(externalPluginManager.getInstalledExternalPlugins());
+                installedNames = manifest.getDisplay().stream()
+                    .filter(data -> installedInternal.contains(data.getInternalName()))
+                    .map(PluginHubManifest.DisplayData::getDisplayName)
+                    .collect(java.util.stream.Collectors.toSet());
                 return manifest.getDisplay().stream()
                     .map(PluginHubManifest.DisplayData::getDisplayName)
                     .filter(name -> name != null && !name.trim().isEmpty())
                     .distinct().sorted(String.CASE_INSENSITIVE_ORDER).collect(java.util.stream.Collectors.toList());
             }
+
             @Override protected void done()
             {
-                try { if (panel != null) panel.updatePluginCatalog(get()); }
-                catch (Exception ignored) { if (panel != null) panel.updatePluginCatalog(java.util.Collections.emptyList()); }
+                try { if (panel != null) panel.updatePluginCatalog(get(), installedNames); }
+                catch (Exception ignored)
+                {
+                    if (panel != null) panel.updatePluginCatalog(java.util.Collections.emptyList(), java.util.Collections.emptySet());
+                }
             }
         }.execute();
     }

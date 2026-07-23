@@ -5,6 +5,8 @@ import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.Image;
+import java.awt.Toolkit;
+import java.awt.datatransfer.StringSelection;
 import java.net.URL;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
@@ -14,6 +16,8 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
@@ -55,6 +59,7 @@ final class DutchNationsPanel extends PluginPanel
     private ClanFeed feed;
     private List<ManagementRole> roles = new ArrayList<>();
     private List<String> pluginCatalog = new ArrayList<>();
+    private Set<String> installedPluginNames = new HashSet<>();
     private String rolesMessage = "Rollenoverzicht laden...";
     private String viewMode = "LIJST";
     private boolean serverOnline;
@@ -156,9 +161,11 @@ final class DutchNationsPanel extends PluginPanel
         return panel;
     }
 
-    void updatePluginCatalog(List<String> names)
+    void updatePluginCatalog(List<String> names, Set<String> installedNames)
     {
         pluginCatalog = names == null ? new ArrayList<>() : new ArrayList<>(names);
+        installedPluginNames = installedNames == null ? new HashSet<>() : new HashSet<>(installedNames);
+        render();
     }
 
     private JPanel actionBar()
@@ -281,11 +288,20 @@ final class DutchNationsPanel extends PluginPanel
             {
                 String pluginName = value.trim();
                 if (pluginName.isEmpty()) continue;
-                JButton pluginLink = button("Plugin Hub: " + pluginName);
+                boolean installed = installedPluginNames.stream().anyMatch(name -> name.equalsIgnoreCase(pluginName));
+                panel.add(bodyLabel((installed ? "\u2713 Ge\u00efnstalleerd: " : "\u2717 Ontbreekt: ") + pluginName,
+                    installed ? new Color(120, 220, 140) : new Color(255, 125, 105), Font.BOLD, 12f));
+                if (installed) continue;
+                JButton pluginLink = button("Naam kopi\u00ebren: " + pluginName);
                 pluginLink.setForeground(new Color(180, 225, 255));
                 pluginLink.setBackground(new Color(32, 52, 66));
-                pluginLink.addActionListener(click -> LinkBrowser.browse(
-                    "https://runelite.net/plugin-hub/show/" + pluginSlug(pluginName)));
+                pluginLink.addActionListener(click ->
+                {
+                    Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(pluginName), null);
+                    JOptionPane.showMessageDialog(this,
+                        "Pluginnaam gekopieerd: " + pluginName + "\n\nOpen in RuneLite de steeksleutel, kies Plugin Hub en plak de naam in het zoekveld.",
+                        "Openen in Plugin Hub", JOptionPane.INFORMATION_MESSAGE);
+                });
                 panel.add(pluginLink);
                 panel.add(Box.createRigidArea(new Dimension(0, 3)));
             }
@@ -399,10 +415,5 @@ final class DutchNationsPanel extends PluginPanel
         JLabel label = new JLabel(text == null ? "" : text); label.setForeground(color);
         label.setFont(label.getFont().deriveFont(style, size)); label.setAlignmentX(Component.LEFT_ALIGNMENT); return label;
     }
-    private static String pluginSlug(String name)
-    {
-        return name.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "-").replaceAll("(^-|-$)", "");
-    }
-
     private static boolean blank(String value) { return value == null || value.trim().isEmpty(); }
 }
