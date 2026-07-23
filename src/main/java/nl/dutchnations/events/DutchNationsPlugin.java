@@ -16,13 +16,14 @@ import java.util.Set;
 import javax.imageio.ImageIO;
 import javax.inject.Inject;
 import javax.swing.JOptionPane;
-import javax.swing.JLabel;
 import javax.swing.SwingWorker;
 import javax.swing.SwingUtilities;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
 import net.runelite.api.clan.ClanChannel;
 import net.runelite.api.clan.ClanChannelMember;
+import net.runelite.api.clan.ClanSettings;
+import net.runelite.api.clan.ClanTitle;
 import net.runelite.api.Player;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
@@ -35,7 +36,7 @@ import net.runelite.client.events.ExternalPluginsChanged;
 import net.runelite.client.externalplugins.ExternalPluginClient;
 import net.runelite.client.externalplugins.ExternalPluginManager;
 import net.runelite.client.externalplugins.PluginHubManifest;
-import net.runelite.client.game.SpriteManager;
+import net.runelite.client.game.ChatIconManager;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.ui.ClientToolbar;
@@ -58,7 +59,7 @@ public class DutchNationsPlugin extends Plugin
     @Inject private Gson gson;
     @Inject private ExternalPluginClient pluginHubClient;
     @Inject private ExternalPluginManager externalPluginManager;
-    @Inject private SpriteManager spriteManager;
+    @Inject private ChatIconManager chatIconManager;
     private FeedService service;
     private WomCompetitionService womService;
     private DutchNationsPanel panel;
@@ -79,7 +80,7 @@ public class DutchNationsPlugin extends Plugin
         service = new FeedService(http, gson);
         womService = new WomCompetitionService(http, gson);
         panel = new DutchNationsPanel(config, this::refresh, this::canManage, this::isOwner,
-            this::isAdministrator, this::canManageRoles, this::fetchRoles, this::loadRankIcon,
+            this::isAdministrator, this::canManageRoles, this::fetchRoles,
             this::createEvent, this::deleteEvent, this::saveRole);
         ClanFeed cached = service.parse(configs.getConfiguration(DutchNationsConfig.GROUP, CACHE));
         if (cached != null) { feed = cached; panel.update(cached, "Opgeslagen versie; update wordt gecontroleerd."); }
@@ -178,12 +179,17 @@ public class DutchNationsPlugin extends Plugin
         java.util.List<OnlineClanMember> members = new java.util.ArrayList<>();
         if (channel != null)
         {
+            ClanSettings settings = client.getClanSettings();
             for (ClanChannelMember member : channel.getMembers())
             {
                 String name = member.getName();
                 if (name == null || name.trim().isEmpty()) continue;
                 int rank = member.getRank() == null ? -1 : member.getRank().getRank();
-                members.add(new OnlineClanMember(name, rank, member.getWorld()));
+                ClanTitle title = settings == null || member.getRank() == null ? null : settings.titleForRank(member.getRank());
+                java.awt.image.BufferedImage rankIcon = null;
+                try { if (title != null) rankIcon = chatIconManager.getRankImage(title); }
+                catch (RuntimeException ignored) { }
+                members.add(new OnlineClanMember(name, rank, member.getWorld(), rankIcon));
             }
             members.sort(java.util.Comparator.comparingInt((OnlineClanMember value) -> value.rank).reversed()
                 .thenComparing(value -> value.name.toLowerCase(java.util.Locale.ROOT)));
@@ -194,10 +200,6 @@ public class DutchNationsPlugin extends Plugin
         SwingUtilities.invokeLater(() -> { if (panel != null) panel.updateOnlineMembers(members, channel != null); });
     }
 
-    private void loadRankIcon(JLabel label, int rank)
-    {
-        spriteManager.addSpriteTo(label, net.runelite.api.gameval.SpriteID.ClanRankIcons._0 + rank, 0);
-    }
     private void queueEventMessage(ClanFeed.ClanEvent event, String timing)
     {
         String safeTitle = safeText(event.title);

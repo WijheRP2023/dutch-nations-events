@@ -1,18 +1,21 @@
 package nl.dutchnations.events;
 
 import java.util.Objects;
+import java.awt.image.BufferedImage;
 
 final class OnlineClanMember
 {
     final String name;
     final int rank;
     final int world;
+    final BufferedImage rankIcon;
 
-    OnlineClanMember(String name, int rank, int world)
+    OnlineClanMember(String name, int rank, int world, BufferedImage rankIcon)
     {
         this.name = name;
         this.rank = rank;
         this.world = world;
+        this.rankIcon = rankIcon;
     }
 
     @Override public boolean equals(Object other)
@@ -24,5 +27,5 @@ final class OnlineClanMember
     }
 
     @Override public int hashCode() { return Objects.hash(name, rank, world); }
-    @Override public String toString() { return name + ":" + rank + ":" + world; }
+    @Override public String toString() { return name + ":" + rank + ":" + world + ":" + (rankIcon != null); }
 }
