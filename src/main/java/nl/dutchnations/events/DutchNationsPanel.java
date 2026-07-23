@@ -53,6 +53,7 @@ final class DutchNationsPanel extends PluginPanel
     private final BooleanSupplier isOwner;
     private final BooleanSupplier isAdministrator;
     private final BooleanSupplier canManageRoles;
+    private final Runnable loadRoles;
     private final Consumer<EventDraft> saveEvent;
     private final Consumer<String> deleteEvent;
     private final Consumer<RoleDraft> saveRole;
@@ -68,11 +69,11 @@ final class DutchNationsPanel extends PluginPanel
     private boolean competitionLoaded;
 
     DutchNationsPanel(DutchNationsConfig config, Runnable refresh, BooleanSupplier canManage, BooleanSupplier isOwner,
-        BooleanSupplier isAdministrator, BooleanSupplier canManageRoles,
+        BooleanSupplier isAdministrator, BooleanSupplier canManageRoles, Runnable loadRoles,
         Consumer<EventDraft> saveEvent, Consumer<String> deleteEvent, Consumer<RoleDraft> saveRole)
     {
         this.config = config; this.refresh = refresh; this.canManage = canManage; this.isOwner = isOwner;
-        this.isAdministrator = isAdministrator; this.canManageRoles = canManageRoles;
+        this.isAdministrator = isAdministrator; this.canManageRoles = canManageRoles; this.loadRoles = loadRoles;
         this.saveEvent = saveEvent; this.deleteEvent = deleteEvent; this.saveRole = saveRole;
         setLayout(new BoxLayout(this, BoxLayout.Y_AXIS)); setBackground(BACKGROUND); render();
     }
@@ -95,6 +96,11 @@ final class DutchNationsPanel extends PluginPanel
         add(Box.createRigidArea(new Dimension(0, 7)));
         add(actionBar());
         add(Box.createRigidArea(new Dimension(0, 7)));
+        if ("ROLLEN".equals(viewMode))
+        {
+            addManagementSection();
+            add(Box.createVerticalGlue()); revalidate(); repaint(); return;
+        }
         add(viewBar());
         add(Box.createRigidArea(new Dimension(0, 14)));
         if (config.showWomCompetition())
@@ -105,29 +111,22 @@ final class DutchNationsPanel extends PluginPanel
 
         if (feed != null)
         {
+            OffsetDateTime now = OffsetDateTime.now();
             List<ClanFeed.ClanEvent> upcoming = new ArrayList<>(feed.events);
-            upcoming.removeIf(event -> event.end().isBefore(OffsetDateTime.now()));
+            upcoming.removeIf(event -> event.end().isBefore(now));
             upcoming.sort(Comparator.comparing(ClanFeed.ClanEvent::start));
             upcoming.removeIf(event -> (event.learner() && !config.showLearner()) ||
                 ("BOSS".equalsIgnoreCase(event.type) && !config.showBoss()) ||
                 ("MASS".equalsIgnoreCase(event.type) && !config.showMass()));
             if ("LIJST".equals(viewMode))
             {
-                List<ClanFeed.ClanEvent> learners = upcoming.stream().filter(ClanFeed.ClanEvent::learner).collect(Collectors.toList());
-                List<ClanFeed.ClanEvent> bosses = upcoming.stream().filter(event -> "BOSS".equalsIgnoreCase(event.type)).collect(Collectors.toList());
-                List<ClanFeed.ClanEvent> masses = upcoming.stream().filter(event -> "MASS".equalsIgnoreCase(event.type)).collect(Collectors.toList());
-                addSection("LEARNER-EVENTS", "Leren met begeleiding", learners, LEARNER_COLOR);
-                add(Box.createRigidArea(new Dimension(0, 14)));
-                addSection("BOSS-EVENTS", "Bossen met tijdelijk codewoord", bosses, BOSS_COLOR);
-                add(Box.createRigidArea(new Dimension(0, 14)));
-                addSection("MASS-EVENTS", "Grootschalige clanactiviteiten", masses, MASS_COLOR);
+                List<ClanFeed.ClanEvent> active = upcoming.stream().filter(event -> event.active(now)).collect(Collectors.toList());
+                addActiveSection(active);
             }
-            else addCalendar(upcoming, "WEEK".equals(viewMode) ? 7 : 31);
-
-            if (canManageRoles.getAsBoolean())
+            else
             {
-                add(Box.createRigidArea(new Dimension(0, 14)));
-                addManagementSection();
+                List<ClanFeed.ClanEvent> planned = upcoming.stream().filter(event -> event.start().isAfter(now)).collect(Collectors.toList());
+                addCalendar(planned, "WEEK".equals(viewMode) ? 7 : 31);
             }
         }
         add(Box.createVerticalGlue()); revalidate(); repaint();
@@ -189,8 +188,15 @@ final class DutchNationsPanel extends PluginPanel
         }
         if (canManageRoles.getAsBoolean())
         {
-            actions.add(Box.createRigidArea(new Dimension(0, 5))); JButton roles = button("Managementrollen");
-            roles.addActionListener(event -> { RoleDraft draft = RoleEditorDialog.show(isOwner.getAsBoolean()); if (draft != null) saveRole.accept(draft); }); actions.add(roles);
+            actions.add(Box.createRigidArea(new Dimension(0, 5)));
+            JButton roles = button("ROLLEN".equals(viewMode) ? "Terug naar events" : "Managementrollen");
+            roles.addActionListener(event ->
+            {
+                viewMode = "ROLLEN".equals(viewMode) ? "LIJST" : "ROLLEN";
+                if ("ROLLEN".equals(viewMode)) loadRoles.run();
+                render();
+            });
+            actions.add(roles);
         }
         actions.setMaximumSize(new Dimension(Integer.MAX_VALUE, actions.getPreferredSize().height));
         return actions;
@@ -220,16 +226,10 @@ final class DutchNationsPanel extends PluginPanel
         competitionCard.add(bodyLabel(active ? "● NU ACTIEF" : "VOLGENDE WEEKCOMPETITIE",
             active ? new Color(120, 220, 140) : GOLD, Font.BOLD, 11f));
         competitionCard.add(Box.createRigidArea(new Dimension(0, 4)));
-        competitionCard.add(label(competition.title, Color.WHITE, Font.BOLD, 15f));
+        competitionCard.add(bodyText(competition.title, Color.WHITE, Font.BOLD, 14f));
         String metric = readableMetric(competition.metric);
         if (!blank(metric)) competitionCard.add(bodyLabel("Onderdeel: " + metric, GOLD, Font.BOLD, 12f));
-        java.time.ZonedDateTime start = competition.start().atZoneSameInstant(ZoneId.systemDefault());
-        java.time.ZonedDateTime end = competition.end().atZoneSameInstant(ZoneId.systemDefault());
-        competitionCard.add(bodyLabel("Start: " + DATE.format(start) + " " + TIME.format(start), Color.WHITE, Font.PLAIN, 12f));
-        competitionCard.add(bodyLabel("Einde: " + DATE.format(end) + " " + TIME.format(end), Color.WHITE, Font.PLAIN, 12f));
         competitionCard.add(bodyLabel(timeStatus(competition, now), active ? new Color(120, 220, 140) : GOLD, Font.BOLD, 12f));
-        if (competition.participantCount > 0)
-            competitionCard.add(bodyLabel("Deelnemers: " + competition.participantCount, Color.WHITE, Font.PLAIN, 12f));
         JButton open = button("Open Dutch Nations op WOM");
         open.addActionListener(event -> LinkBrowser.browse(WomCompetitionService.GROUP_URL));
         competitionCard.add(Box.createRigidArea(new Dimension(0, 7))); competitionCard.add(open); add(competitionCard);
@@ -298,6 +298,22 @@ final class DutchNationsPanel extends PluginPanel
     {
         if (event.learner()) return LEARNER_COLOR;
         return "MASS".equalsIgnoreCase(event.type) ? MASS_COLOR : BOSS_COLOR;
+    }
+    private void addActiveSection(List<ClanFeed.ClanEvent> events)
+    {
+        if (events.isEmpty())
+        {
+            JPanel empty = card(DARK_STONE);
+            empty.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, 5, 0, 0, new Color(120, 220, 140)),
+                BorderFactory.createEmptyBorder(7, 8, 7, 8)));
+            empty.add(bodyLabel("Geen actieve events op dit moment.", Color.LIGHT_GRAY, Font.ITALIC, 12f));
+            add(empty); return;
+        }
+        for (ClanFeed.ClanEvent event : events)
+        {
+            add(eventCard(event, accentFor(event))); add(Box.createRigidArea(new Dimension(0, 8)));
+        }
     }
     private void addSection(String title, String subtitle, List<ClanFeed.ClanEvent> events, Color accent)
     {
@@ -397,7 +413,20 @@ final class DutchNationsPanel extends PluginPanel
         heading.add(label("MANAGEMENTROLLEN", GOLD, Font.BOLD, 13f));
         heading.add(bodyText("Alleen beveiligd zichtbaar voor de owner.", Color.WHITE, Font.PLAIN, 12f));
         add(heading);
-        if (!isOwner.getAsBoolean()) return;
+        JButton addRole = button("+ Managementrol toevoegen");
+        addRole.addActionListener(event ->
+        {
+            RoleDraft draft = RoleEditorDialog.show(isOwner.getAsBoolean());
+            if (draft != null) saveRole.accept(draft);
+        });
+        add(Box.createRigidArea(new Dimension(0, 7))); add(addRole);
+        if (!isOwner.getAsBoolean())
+        {
+            add(Box.createRigidArea(new Dimension(0, 7)));
+            JPanel message = card(DARK_STONE);
+            message.add(bodyText("Administrators kunnen managers toevoegen. Alleen de owner kan de volledige rollenlijst beheren.", Color.LIGHT_GRAY, Font.PLAIN, 12f));
+            add(message); return;
+        }
         if (!blank(rolesMessage))
         {
             add(Box.createRigidArea(new Dimension(0, 7)));

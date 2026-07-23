@@ -72,7 +72,7 @@ public class DutchNationsPlugin extends Plugin
         service = new FeedService(http, gson);
         womService = new WomCompetitionService(http, gson);
         panel = new DutchNationsPanel(config, this::refresh, this::canManage, this::isOwner,
-            this::isAdministrator, this::canManageRoles,
+            this::isAdministrator, this::canManageRoles, this::fetchRoles,
             this::createEvent, this::deleteEvent, this::saveRole);
         ClanFeed cached = service.parse(configs.getConfiguration(DutchNationsConfig.GROUP, CACHE));
         if (cached != null) { feed = cached; panel.update(cached, "Opgeslagen versie; update wordt gecontroleerd."); }
