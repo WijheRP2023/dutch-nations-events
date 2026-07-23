@@ -20,6 +20,8 @@ import javax.swing.SwingWorker;
 import javax.swing.SwingUtilities;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
+import net.runelite.api.clan.ClanChannel;
+import net.runelite.api.clan.ClanChannelMember;
 import net.runelite.api.Player;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
@@ -63,6 +65,8 @@ public class DutchNationsPlugin extends Plugin
     private final Set<String> remindedEvents = new HashSet<>();
     private final Set<String> announcedEvents = new HashSet<>();
     private int ticksUntilRefresh;
+    private int ticksUntilClanRefresh;
+    private String clanMembersSignature = "";
     private long lastWomRefresh;
 
     @Provides DutchNationsConfig config(ConfigManager manager) { return manager.getConfig(DutchNationsConfig.class); }
@@ -136,6 +140,11 @@ public class DutchNationsPlugin extends Plugin
     @Subscribe
     public void onGameTick(GameTick ignored)
     {
+        if (--ticksUntilClanRefresh <= 0)
+        {
+            ticksUntilClanRefresh = 10;
+            updateOnlineClanMembers();
+        }
         ClanFeed current = feed;
         if (current == null) return;
         if (--ticksUntilRefresh <= 0)
@@ -160,6 +169,33 @@ public class DutchNationsPlugin extends Plugin
         }
     }
 
+    private void updateOnlineClanMembers()
+    {
+        ClanChannel channel = client.getClanChannel();
+        java.util.List<OnlineClanMember> members = new java.util.ArrayList<>();
+        if (channel != null)
+        {
+            for (ClanChannelMember member : channel.getMembers())
+            {
+                String name = member.getName();
+                if (name == null || name.trim().isEmpty()) continue;
+                String rank = member.getRank() == null ? "" : readableRank(member.getRank().toString());
+                members.add(new OnlineClanMember(name, rank, member.getWorld()));
+            }
+            members.sort(java.util.Comparator.comparing(value -> value.name.toLowerCase(java.util.Locale.ROOT)));
+        }
+        String signature = (channel != null) + ":" + members.toString();
+        if (signature.equals(clanMembersSignature)) return;
+        clanMembersSignature = signature;
+        SwingUtilities.invokeLater(() -> { if (panel != null) panel.updateOnlineMembers(members, channel != null); });
+    }
+
+    private static String readableRank(String value)
+    {
+        if (value == null || value.isEmpty()) return "";
+        String lower = value.replace('_', ' ').toLowerCase(java.util.Locale.ROOT);
+        return Character.toUpperCase(lower.charAt(0)) + lower.substring(1);
+    }
     private void queueEventMessage(ClanFeed.ClanEvent event, String timing)
     {
         String safeTitle = safeText(event.title);

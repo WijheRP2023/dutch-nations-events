@@ -60,6 +60,8 @@ final class DutchNationsPanel extends PluginPanel
     private ClanFeed feed;
     private List<ManagementRole> roles = new ArrayList<>();
     private List<String> pluginCatalog = new ArrayList<>();
+    private List<OnlineClanMember> onlineMembers = new ArrayList<>();
+    private boolean clanChannelAvailable;
     private Set<String> installedPluginNames = new HashSet<>();
     private String rolesMessage = "Rollenoverzicht laden...";
     private String viewMode = "LIJST";
@@ -86,6 +88,12 @@ final class DutchNationsPanel extends PluginPanel
     void rolesStatus(String message) { rolesMessage = message; render(); }
     void updateCompetition(WomCompetition value, boolean loaded) { competition = value; competitionLoaded = loaded; render(); }
     void competitionUnavailable() { competitionLoaded = false; render(); }
+    void updateOnlineMembers(List<OnlineClanMember> members, boolean available)
+    {
+        onlineMembers = members == null ? new ArrayList<>() : new ArrayList<>(members);
+        clanChannelAvailable = available;
+        if ("ONLINE".equals(viewMode)) render();
+    }
 
     private void render()
     {
@@ -103,6 +111,11 @@ final class DutchNationsPanel extends PluginPanel
         }
         add(viewBar());
         add(Box.createRigidArea(new Dimension(0, 14)));
+        if ("ONLINE".equals(viewMode))
+        {
+            addOnlineMembersSection();
+            add(Box.createVerticalGlue()); revalidate(); repaint(); return;
+        }
         if (config.showWomCompetition())
         {
             addCompetitionSection();
@@ -256,9 +269,10 @@ final class DutchNationsPanel extends PluginPanel
     }
     private JPanel viewBar()
     {
-        JPanel views = new JPanel(new java.awt.GridLayout(1, 3, 5, 0));
+        JPanel views = new JPanel(new java.awt.GridLayout(2, 2, 5, 5));
         views.setOpaque(false); views.setAlignmentX(Component.LEFT_ALIGNMENT);
-        addViewButton(views, "Lijst", "LIJST"); addViewButton(views, "7 dagen", "WEEK"); addViewButton(views, "31 dagen", "MAAND");
+        addViewButton(views, "Actief", "LIJST"); addViewButton(views, "7 dagen", "WEEK");
+        addViewButton(views, "31 dagen", "MAAND"); addViewButton(views, "Online", "ONLINE");
         views.setMaximumSize(new Dimension(Integer.MAX_VALUE, views.getPreferredSize().height));
         return views;
     }
@@ -268,6 +282,40 @@ final class DutchNationsPanel extends PluginPanel
         if (mode.equals(viewMode)) button.setBackground(new Color(105, 75, 27));
         button.addActionListener(event -> { viewMode = mode; render(); });
         panel.add(button);
+    }
+    private void addOnlineMembersSection()
+    {
+        JPanel heading = card(STONE);
+        heading.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createMatteBorder(0, 5, 0, 0, LEARNER_COLOR),
+            BorderFactory.createEmptyBorder(7, 8, 7, 8)));
+        heading.add(label("ONLINE CLANLEDEN  (" + onlineMembers.size() + ")", LEARNER_COLOR, Font.BOLD, 13f));
+        heading.add(bodyLabel("Alleen lokaal uit jouw clan-channel", Color.WHITE, Font.PLAIN, 12f));
+        add(heading); add(Box.createRigidArea(new Dimension(0, 7)));
+        if (!clanChannelAvailable)
+        {
+            JPanel message = card(DARK_STONE);
+            message.add(bodyText("Log in en open de primaire clan-chat om online leden te zien.", Color.LIGHT_GRAY, Font.PLAIN, 12f));
+            add(message); return;
+        }
+        if (onlineMembers.isEmpty())
+        {
+            JPanel message = card(DARK_STONE);
+            message.add(bodyText("Er zijn momenteel geen online clanleden zichtbaar.", Color.LIGHT_GRAY, Font.PLAIN, 12f));
+            add(message); return;
+        }
+        for (OnlineClanMember member : onlineMembers)
+        {
+            JPanel memberCard = card(CARD_BROWN);
+            memberCard.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, 3, 0, 0, LEARNER_COLOR),
+                BorderFactory.createEmptyBorder(6, 8, 6, 8)));
+            memberCard.add(bodyLabel(member.name, Color.WHITE, Font.BOLD, 13f));
+            String details = "Wereld " + member.world;
+            if (!blank(member.rank)) details += "  •  " + member.rank;
+            memberCard.add(bodyLabel(details, Color.LIGHT_GRAY, Font.PLAIN, 11f));
+            add(memberCard); add(Box.createRigidArea(new Dimension(0, 4)));
+        }
     }
     private void addCalendar(List<ClanFeed.ClanEvent> events, int days)
     {
