@@ -28,5 +28,6 @@ final class ClanFeed
         OffsetDateTime end() { return OffsetDateTime.parse(endsAt); }
         boolean active(OffsetDateTime now) { return !now.isBefore(start()) && now.isBefore(end()); }
         boolean learner() { return "LEARNER".equalsIgnoreCase(type); }
+        boolean supportsPreparation() { return learner() || "MASS".equalsIgnoreCase(type); }
     }
 }

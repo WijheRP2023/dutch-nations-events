@@ -19,6 +19,13 @@ public class FeedServiceTest
         assertNotNull(feed); assertEquals("Gear;Voice-chat", feed.events.get(0).checklist);
         assertEquals("Tile Packs;Quest Helper", feed.events.get(0).requiredPlugins);
     }
+    @Test public void acceptsMassPreparationAndPlugins()
+    {
+        ClanFeed feed = service.parse("{\"updatedAt\":\"2026-07-20T18:00:00Z\",\"events\":[{\"id\":\"mass-1\",\"type\":\"MASS\",\"title\":\"Clan mass\",\"world\":\"366\",\"checklist\":\"Voice-chat;Gear\",\"requiredPlugins\":\"Tile Packs\",\"startsAt\":\"2026-08-03T20:00:00+02:00\",\"endsAt\":\"2026-08-03T22:00:00+02:00\"}]}");
+        assertNotNull(feed); assertTrue(feed.events.get(0).supportsPreparation());
+        assertEquals("Voice-chat;Gear", feed.events.get(0).checklist);
+        assertEquals("Tile Packs", feed.events.get(0).requiredPlugins);
+    }
     @Test public void rejectsEndBeforeStart()
     {
         assertNull(service.parse("{\"updatedAt\":\"2026-07-20T18:00:00Z\",\"events\":[{\"id\":\"1\",\"type\":\"BOSS\",\"title\":\"CoX\",\"codeword\":\"X\",\"startsAt\":\"2026-08-02T22:00:00+02:00\",\"endsAt\":\"2026-08-02T20:00:00+02:00\"}]}"));

@@ -274,13 +274,13 @@ final class DutchNationsPanel extends PluginPanel
         if (!"BOSS".equalsIgnoreCase(event.type)) panel.add(bodyLabel("Wereld: " + event.world, Color.WHITE, Font.PLAIN, 13f));
         if (!blank(event.host)) panel.add(bodyLabel("Host: " + event.host, Color.WHITE, Font.PLAIN, 13f));
         if (!blank(event.description)) panel.add(bodyLabel("Info: " + event.description, Color.WHITE, Font.PLAIN, 13f));
-        if (event.learner() && !blank(event.checklist))
+        if (event.supportsPreparation() && !blank(event.checklist))
         {
             panel.add(Box.createRigidArea(new Dimension(0, 5)));
             panel.add(bodyLabel("VOORBEREIDING", GOLD, Font.BOLD, 12f));
             panel.add(bodyText("• " + event.checklist.replace(";", "\n• "), Color.WHITE, Font.PLAIN, 12f));
         }
-        if (event.learner() && !blank(event.requiredPlugins))
+        if (event.supportsPreparation() && !blank(event.requiredPlugins))
         {
             panel.add(Box.createRigidArea(new Dimension(0, 5)));
             panel.add(bodyLabel("BENODIGDE PLUGINS", new Color(120, 210, 255), Font.BOLD, 12f));

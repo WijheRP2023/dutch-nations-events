@@ -80,16 +80,17 @@ final class EventEditorDialog
         {
             boolean learner = "LEARNER".equals(type.getSelectedItem());
             boolean boss = "BOSS".equals(type.getSelectedItem());
+            boolean supportsPreparation = !boss;
             world.setEnabled(!boss);
             codeword.setEnabled(boss);
-            checklist.setEnabled(learner);
-            requiredPlugins.setEnabled(learner);
-            pluginSearch.setEnabled(learner);
-            pluginResults.setEnabled(learner);
-            addPlugin.setEnabled(learner);
+            checklist.setEnabled(supportsPreparation);
+            requiredPlugins.setEnabled(supportsPreparation);
+            pluginSearch.setEnabled(supportsPreparation);
+            pluginResults.setEnabled(supportsPreparation);
+            addPlugin.setEnabled(supportsPreparation);
             if (!boss) codeword.setText("");
-            if (!learner) checklist.setText("");
-            if (!learner) requiredPlugins.setText("");
+            if (!supportsPreparation) checklist.setText("");
+            if (!supportsPreparation) requiredPlugins.setText("");
             if (boss) world.setText("");
             if ("MASS".equals(type.getSelectedItem()) && world.getText().trim().isEmpty()) world.setText("366");
         });
@@ -97,7 +98,7 @@ final class EventEditorDialog
         JPanel form = new JPanel(new GridLayout(0, 2, 6, 6));
         add(form, "Soort", type); add(form, "Titel", title); add(form, "Start (bijv. 2026-08-01 20:00)", start);
         add(form, "Einde (bijv. 2026-08-01 22:00)", end); add(form, "Wereld (learner/mass)", world); add(form, "Host", host);
-        add(form, "Omschrijving", description); add(form, "Voorbereiding (learner; scheid met ;)", checklist);
+        add(form, "Omschrijving", description); add(form, "Voorbereiding (learner/mass; scheid met ;)", checklist);
         add(form, "Plugin zoeken (minimaal 2 letters)", pluginSearch);
         add(form, "Gevonden Plugin Hub-plugin", pluginResults);
         add(form, "", addPlugin);
@@ -137,6 +138,7 @@ final class EventEditorDialog
             draft.requiredPlugins = requiredPlugins.getText().trim();
             boolean learner = "LEARNER".equals(draft.type);
             boolean boss = "BOSS".equals(draft.type);
+            boolean supportsPreparation = !boss;
             OffsetDateTime parsedStart = OffsetDateTime.parse(draft.startsAt);
             OffsetDateTime parsedEnd = OffsetDateTime.parse(draft.endsAt);
             if (draft.title.isEmpty()) throw new IllegalArgumentException("Vul een titel in.");
@@ -159,8 +161,8 @@ final class EventEditorDialog
                 JOptionPane.showMessageDialog(null, "Een boss-event heeft een codewoord nodig.", "Controle", JOptionPane.WARNING_MESSAGE); continue;
             }
             if (!boss) draft.codeword = "";
-            if (!learner) draft.checklist = "";
-            if (!learner) draft.requiredPlugins = "";
+            if (!supportsPreparation) draft.checklist = "";
+            if (!supportsPreparation) draft.requiredPlugins = "";
             if (boss) draft.world = "";
             return draft;
         }

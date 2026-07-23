@@ -115,7 +115,7 @@ public final class DutchNationsApi
             event.id = UUID.randomUUID().toString();
             event.type = event.type.toUpperCase(Locale.ROOT);
             if ("LEARNER".equals(event.type) || "MASS".equals(event.type)) event.codeword = "";
-            if (!"LEARNER".equals(event.type)) { event.checklist = ""; event.requiredPlugins = ""; }
+            if ("BOSS".equals(event.type)) { event.checklist = ""; event.requiredPlugins = ""; }
             if ("BOSS".equals(event.type)) event.world = "";
             Event conflict = store.findConflict(event);
             if (conflict != null && !event.allowConflict)
