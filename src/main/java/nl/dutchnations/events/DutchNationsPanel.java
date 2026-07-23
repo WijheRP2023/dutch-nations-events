@@ -389,6 +389,15 @@ final class DutchNationsPanel extends PluginPanel
                 panel.add(Box.createRigidArea(new Dimension(0, 3)));
             }
         }
+        if (event.supportsPreparation() && !blank(event.strategyWikiUrl))
+        {
+            JButton wiki = button("Strategie op OSRS Wiki");
+            wiki.setForeground(new Color(180, 225, 255));
+            wiki.setBackground(new Color(32, 52, 66));
+            wiki.addActionListener(click -> LinkBrowser.browse(event.strategyWikiUrl));
+            panel.add(Box.createRigidArea(new Dimension(0, 6)));
+            panel.add(wiki);
+        }
         String codeInfo = "BOSS".equalsIgnoreCase(event.type) ? "Codewoord verschijnt tijdens het event" : "Geen codewoord nodig";
         panel.add(Box.createRigidArea(new Dimension(0, 5))); panel.add(bodyLabel(codeInfo, accent, Font.BOLD, 12f));
         if (canManage.getAsBoolean())

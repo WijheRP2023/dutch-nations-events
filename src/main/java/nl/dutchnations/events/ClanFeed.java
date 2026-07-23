@@ -23,6 +23,7 @@ final class ClanFeed
         String codeword;
         String checklist;
         String requiredPlugins;
+        String strategyWikiUrl;
 
         OffsetDateTime start() { return OffsetDateTime.parse(startsAt); }
         OffsetDateTime end() { return OffsetDateTime.parse(endsAt); }

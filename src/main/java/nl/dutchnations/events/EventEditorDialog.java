@@ -42,6 +42,12 @@ final class EventEditorDialog
         JTextField codeword = new JTextField();
         JTextField checklist = new JTextField();
         JTextField requiredPlugins = new JTextField();
+        JComboBox<String> strategyWiki = new JComboBox<>(new String[]{
+            "", "https://oldschool.runescape.wiki/w/Tombs_of_Amascut/Strategies", "https://oldschool.runescape.wiki/w/Theatre_of_Blood/Strategies",
+            "https://oldschool.runescape.wiki/w/Chambers_of_Xeric/Strategies", "https://oldschool.runescape.wiki/w/Nex/Strategies", "https://oldschool.runescape.wiki/w/God_Wars_Dungeon",
+            "https://oldschool.runescape.wiki/w/The_Nightmare/Strategies", "https://oldschool.runescape.wiki/w/Corporeal_Beast/Strategies", "https://oldschool.runescape.wiki/w/Wilderness_bosses"
+        });
+        strategyWiki.setEditable(true);
         JTextField pluginSearch = new JTextField();
         DefaultComboBoxModel<String> pluginResultsModel = new DefaultComboBoxModel<>();
         JComboBox<String> pluginResults = new JComboBox<>(pluginResultsModel);
@@ -85,12 +91,14 @@ final class EventEditorDialog
             codeword.setEnabled(boss);
             checklist.setEnabled(supportsPreparation);
             requiredPlugins.setEnabled(supportsPreparation);
+            strategyWiki.setEnabled(supportsPreparation);
             pluginSearch.setEnabled(supportsPreparation);
             pluginResults.setEnabled(supportsPreparation);
             addPlugin.setEnabled(supportsPreparation);
             if (!boss) codeword.setText("");
             if (!supportsPreparation) checklist.setText("");
             if (!supportsPreparation) requiredPlugins.setText("");
+            if (!supportsPreparation) strategyWiki.setSelectedItem("");
             if (boss) world.setText("");
             if ("MASS".equals(type.getSelectedItem()) && world.getText().trim().isEmpty()) world.setText("366");
         });
@@ -103,6 +111,7 @@ final class EventEditorDialog
         add(form, "Gevonden Plugin Hub-plugin", pluginResults);
         add(form, "", addPlugin);
         add(form, "Gekozen plugins", requiredPlugins);
+        add(form, "Strategie-wikilink (kies of plak)", strategyWiki);
         add(form, "Codewoord (alleen boss)", codeword);
 
         while (true)
@@ -136,12 +145,16 @@ final class EventEditorDialog
             draft.description = description.getText().trim(); draft.codeword = codeword.getText().trim();
             draft.checklist = checklist.getText().trim();
             draft.requiredPlugins = requiredPlugins.getText().trim();
+            Object selectedStrategy = strategyWiki.getEditor().getItem();
+            draft.strategyWikiUrl = selectedStrategy == null ? "" : selectedStrategy.toString().trim();
             boolean learner = "LEARNER".equals(draft.type);
             boolean boss = "BOSS".equals(draft.type);
             boolean supportsPreparation = !boss;
             OffsetDateTime parsedStart = OffsetDateTime.parse(draft.startsAt);
             OffsetDateTime parsedEnd = OffsetDateTime.parse(draft.endsAt);
             if (draft.title.isEmpty()) throw new IllegalArgumentException("Vul een titel in.");
+            if (!draft.strategyWikiUrl.isEmpty() && !draft.strategyWikiUrl.startsWith("https://oldschool.runescape.wiki/"))
+                throw new IllegalArgumentException("Gebruik een geldige link van https://oldschool.runescape.wiki/.");
             if (!parsedEnd.isAfter(parsedStart)) throw new IllegalArgumentException("De einddatum en eindtijd moeten na de start liggen.");
             long durationHours = Duration.between(parsedStart, parsedEnd).toHours();
             if (!parsedStart.toLocalDate().equals(parsedEnd.toLocalDate()) || durationHours >= 12)
@@ -163,6 +176,7 @@ final class EventEditorDialog
             if (!boss) draft.codeword = "";
             if (!supportsPreparation) draft.checklist = "";
             if (!supportsPreparation) draft.requiredPlugins = "";
+            if (!supportsPreparation) draft.strategyWikiUrl = "";
             if (boss) draft.world = "";
             return draft;
         }

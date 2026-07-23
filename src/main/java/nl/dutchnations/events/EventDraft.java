@@ -12,5 +12,6 @@ final class EventDraft
     String codeword;
     String checklist;
     String requiredPlugins;
+    String strategyWikiUrl;
     boolean allowConflict;
 }

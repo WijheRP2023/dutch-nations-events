@@ -21,10 +21,11 @@ public class FeedServiceTest
     }
     @Test public void acceptsMassPreparationAndPlugins()
     {
-        ClanFeed feed = service.parse("{\"updatedAt\":\"2026-07-20T18:00:00Z\",\"events\":[{\"id\":\"mass-1\",\"type\":\"MASS\",\"title\":\"Clan mass\",\"world\":\"366\",\"checklist\":\"Voice-chat;Gear\",\"requiredPlugins\":\"Tile Packs\",\"startsAt\":\"2026-08-03T20:00:00+02:00\",\"endsAt\":\"2026-08-03T22:00:00+02:00\"}]}");
+        ClanFeed feed = service.parse("{\"updatedAt\":\"2026-07-20T18:00:00Z\",\"events\":[{\"id\":\"mass-1\",\"type\":\"MASS\",\"title\":\"Clan mass\",\"world\":\"366\",\"checklist\":\"Voice-chat;Gear\",\"requiredPlugins\":\"Tile Packs\",\"strategyWikiUrl\":\"https://oldschool.runescape.wiki/w/Tombs_of_Amascut/Strategies\",\"startsAt\":\"2026-08-03T20:00:00+02:00\",\"endsAt\":\"2026-08-03T22:00:00+02:00\"}]}");
         assertNotNull(feed); assertTrue(feed.events.get(0).supportsPreparation());
         assertEquals("Voice-chat;Gear", feed.events.get(0).checklist);
         assertEquals("Tile Packs", feed.events.get(0).requiredPlugins);
+        assertEquals("https://oldschool.runescape.wiki/w/Tombs_of_Amascut/Strategies", feed.events.get(0).strategyWikiUrl);
     }
     @Test public void rejectsEndBeforeStart()
     {
