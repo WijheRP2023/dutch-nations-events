@@ -77,7 +77,9 @@ final class FeedService
     {
         if (isExample(url)) { listener.failure("GitHub/testfeed actief: verwijder het event uit feed.json."); return; }
         HttpUrl base = https(url);
-        if (base == null || blank(token) || blank(eventId)) { listener.failure("API-adres, token of event-id ontbreekt."); return; }
+        if (base == null) { listener.failure("Event-API-adres ontbreekt of is ongeldig."); return; }
+        if (blank(token)) { listener.failure("Management-token ontbreekt. Vul deze opnieuw in bij de plugininstellingen."); return; }
+        if (blank(eventId)) { listener.failure("Event-id ontbreekt; vernieuw eerst de kalender."); return; }
         HttpUrl target = base.newBuilder().addPathSegment(eventId).build();
         Request request = new Request.Builder().url(target).header("Authorization", "Bearer " + token.trim()).delete().build();
         execute(request, "Event", listener);
@@ -153,7 +155,8 @@ final class FeedService
     private void post(String url, String token, String json, String subject, SaveListener listener)
     {
         HttpUrl parsed = https(url);
-        if (parsed == null || blank(token)) { listener.failure("API-adres of persoonlijke management-token ontbreekt."); return; }
+        if (parsed == null) { listener.failure("Event-API-adres ontbreekt of is ongeldig."); return; }
+        if (blank(token)) { listener.failure("Management-token ontbreekt. Vul deze opnieuw in bij de plugininstellingen."); return; }
         Request request = new Request.Builder().url(parsed).header("Authorization", "Bearer " + token.trim())
             .post(RequestBody.create(JSON, json)).build();
         execute(request, subject, listener);
@@ -203,7 +206,8 @@ final class FeedService
                 boolean needsWorld = learner || mass;
                 if (blank(event.id) || blank(event.title) || (needsWorld && blank(event.world)) ||
                     !event.end().isAfter(event.start()) || unsafe(event.title) || unsafe(event.world) ||
-                    unsafe(event.host) || unsafe(event.description) || unsafe(event.codeword) || unsafe(event.checklist)) return null;
+                    unsafe(event.host) || unsafe(event.description) || unsafe(event.codeword) || unsafe(event.checklist) ||
+                    unsafe(event.requiredPlugins)) return null;
                 if (boss && !event.active(OffsetDateTime.now())) event.codeword = "";
             }
             return feed;

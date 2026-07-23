@@ -11,5 +11,6 @@ final class EventDraft
     String description;
     String codeword;
     String checklist;
+    String requiredPlugins;
     boolean allowConflict;
 }

@@ -22,6 +22,7 @@ final class ClanFeed
         String description;
         String codeword;
         String checklist;
+        String requiredPlugins;
 
         OffsetDateTime start() { return OffsetDateTime.parse(startsAt); }
         OffsetDateTime end() { return OffsetDateTime.parse(endsAt); }

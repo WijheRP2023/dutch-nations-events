@@ -27,6 +27,7 @@ import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JTextArea;
 import net.runelite.client.ui.PluginPanel;
+import net.runelite.client.util.LinkBrowser;
 
 final class DutchNationsPanel extends PluginPanel
 {
@@ -53,6 +54,7 @@ final class DutchNationsPanel extends PluginPanel
     private final Consumer<RoleDraft> saveRole;
     private ClanFeed feed;
     private List<ManagementRole> roles = new ArrayList<>();
+    private List<String> pluginCatalog = new ArrayList<>();
     private String rolesMessage = "Rollenoverzicht laden...";
     private String viewMode = "LIJST";
     private boolean serverOnline;
@@ -154,6 +156,11 @@ final class DutchNationsPanel extends PluginPanel
         return panel;
     }
 
+    void updatePluginCatalog(List<String> names)
+    {
+        pluginCatalog = names == null ? new ArrayList<>() : new ArrayList<>(names);
+    }
+
     private JPanel actionBar()
     {
         JPanel actions = new JPanel(); actions.setLayout(new BoxLayout(actions, BoxLayout.Y_AXIS));
@@ -162,7 +169,7 @@ final class DutchNationsPanel extends PluginPanel
         if (canManage.getAsBoolean())
         {
             actions.add(Box.createRigidArea(new Dimension(0, 5))); JButton create = button("+ Event maken");
-            create.addActionListener(event -> { EventDraft draft = EventEditorDialog.show(); if (draft != null) saveEvent.accept(draft); }); actions.add(create);
+            create.addActionListener(event -> { EventDraft draft = EventEditorDialog.show(pluginCatalog); if (draft != null) saveEvent.accept(draft); }); actions.add(create);
         }
         if (canManageRoles.getAsBoolean())
         {
@@ -265,6 +272,23 @@ final class DutchNationsPanel extends PluginPanel
             panel.add(Box.createRigidArea(new Dimension(0, 5)));
             panel.add(bodyLabel("VOORBEREIDING", GOLD, Font.BOLD, 12f));
             panel.add(bodyText("• " + event.checklist.replace(";", "\n• "), Color.WHITE, Font.PLAIN, 12f));
+        }
+        if (event.learner() && !blank(event.requiredPlugins))
+        {
+            panel.add(Box.createRigidArea(new Dimension(0, 5)));
+            panel.add(bodyLabel("BENODIGDE PLUGINS", new Color(120, 210, 255), Font.BOLD, 12f));
+            for (String value : event.requiredPlugins.split(";"))
+            {
+                String pluginName = value.trim();
+                if (pluginName.isEmpty()) continue;
+                JButton pluginLink = button("Plugin Hub: " + pluginName);
+                pluginLink.setForeground(new Color(180, 225, 255));
+                pluginLink.setBackground(new Color(32, 52, 66));
+                pluginLink.addActionListener(click -> LinkBrowser.browse(
+                    "https://runelite.net/plugin-hub/show/" + pluginSlug(pluginName)));
+                panel.add(pluginLink);
+                panel.add(Box.createRigidArea(new Dimension(0, 3)));
+            }
         }
         String codeInfo = "BOSS".equalsIgnoreCase(event.type) ? "Codewoord verschijnt tijdens het event" : "Geen codewoord nodig";
         panel.add(Box.createRigidArea(new Dimension(0, 5))); panel.add(bodyLabel(codeInfo, accent, Font.BOLD, 12f));
@@ -375,5 +399,10 @@ final class DutchNationsPanel extends PluginPanel
         JLabel label = new JLabel(text == null ? "" : text); label.setForeground(color);
         label.setFont(label.getFont().deriveFont(style, size)); label.setAlignmentX(Component.LEFT_ALIGNMENT); return label;
     }
+    private static String pluginSlug(String name)
+    {
+        return name.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "-").replaceAll("(^-|-$)", "");
+    }
+
     private static boolean blank(String value) { return value == null || value.trim().isEmpty(); }
 }

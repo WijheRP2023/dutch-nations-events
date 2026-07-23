@@ -115,6 +115,7 @@ public final class DutchNationsApi
             event.id = UUID.randomUUID().toString();
             event.type = event.type.toUpperCase(Locale.ROOT);
             if ("LEARNER".equals(event.type) || "MASS".equals(event.type)) event.codeword = "";
+            if (!"LEARNER".equals(event.type)) { event.checklist = ""; event.requiredPlugins = ""; }
             if ("BOSS".equals(event.type)) event.world = "";
             Event conflict = store.findConflict(event);
             if (conflict != null && !event.allowConflict)
@@ -217,7 +218,7 @@ public final class DutchNationsApi
         }
         catch (RuntimeException ex) { return "Ongeldige ISO 8601-datum"; }
         if (!valid(event.title, 80) || !validOptional(event.host, 20) || !validOptional(event.description, 240) ||
-            !validOptional(event.checklist, 400)) return "Eventtekst is te lang of bevat ongeldige tekens";
+            !validOptional(event.checklist, 400) || !validOptional(event.requiredPlugins, 300)) return "Eventtekst is te lang of bevat ongeldige tekens";
         if (("LEARNER".equals(type) || "MASS".equals(type)) && (blank(event.world) || !event.world.matches("\\d{3,4}"))) return "Geldig wereldnummer is verplicht";
         if ("BOSS".equals(type) && (!valid(event.codeword, 40))) return "Boss-event vereist een geldig codewoord van maximaal 40 tekens";
         return null;
@@ -483,7 +484,7 @@ public final class DutchNationsApi
     static final class Event
     {
         String id; String startsAt; String endsAt; String type; String title;
-        String world; String host; String description; String codeword; String checklist;
+        String world; String host; String description; String codeword; String checklist; String requiredPlugins;
         boolean allowConflict;
     }
     static final class RoleChange { String rsn; String role; }

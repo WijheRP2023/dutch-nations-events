@@ -57,5 +57,6 @@ onversleuteld HTTP wordt door de plugin alleen voor `localhost` toegestaan.
 - Werkelijke resterende minuten in lokale chatboxmeldingen
 - Centrale conflictcontrole met expliciete bevestiging
 - Learner-checklists voor voorbereiding
+- Apart overzicht van benodigde RuneLite-plugins per learner-event
 - Live/offline serverstatus
 - Owner-only rollenoverzicht, tokenrotatie en rol intrekken

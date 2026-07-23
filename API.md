@@ -54,7 +54,7 @@ de RuneLite-configuratie in.
 - `GET /api/roles?all=true` — uitsluitend OWNER; toont RSN, rol en wijzigingsdatum, nooit tokens of hashes
 - `POST /api/roles` — OWNER beheert alle niet-ownerrollen; ADMINISTRATOR mag alleen nieuwe MANAGER-rollen toevoegen
 
-Overlappende events geven HTTP 409 tenzij management de conflictwaarschuwing expliciet bevestigt. Learner-events kunnen een informatieve checklist bevatten.
+Overlappende events geven HTTP 409 tenzij management de conflictwaarschuwing expliciet bevestigt. Learner-events kunnen een informatieve checklist en een aparte lijst met benodigde RuneLite-plugins bevatten.
 
 Requestbody's zijn begrensd tot 16 KiB. Eventteksten, wereldnummers en RSN's worden
 server-side gevalideerd. Tokens worden met 256 bits entropie gemaakt en alleen als

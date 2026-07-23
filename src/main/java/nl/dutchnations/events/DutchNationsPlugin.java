@@ -16,6 +16,7 @@ import java.util.Set;
 import javax.imageio.ImageIO;
 import javax.inject.Inject;
 import javax.swing.JOptionPane;
+import javax.swing.SwingWorker;
 import javax.swing.SwingUtilities;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
@@ -27,6 +28,8 @@ import net.runelite.client.chat.QueuedMessage;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.events.ConfigChanged;
+import net.runelite.client.externalplugins.ExternalPluginClient;
+import net.runelite.client.externalplugins.PluginHubManifest;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.ui.ClientToolbar;
@@ -47,6 +50,7 @@ public class DutchNationsPlugin extends Plugin
     @Inject private ConfigManager configs;
     @Inject private OkHttpClient http;
     @Inject private Gson gson;
+    @Inject private ExternalPluginClient pluginHubClient;
     private FeedService service;
     private DutchNationsPanel panel;
     private NavigationButton button;
@@ -67,7 +71,27 @@ public class DutchNationsPlugin extends Plugin
         ClanFeed cached = service.parse(configs.getConfiguration(DutchNationsConfig.GROUP, CACHE));
         if (cached != null) { feed = cached; panel.update(cached, "Opgeslagen versie; update wordt gecontroleerd."); }
         button = NavigationButton.builder().tooltip("Dutch Nations").icon(icon()).priority(6).panel(panel).build();
-        toolbar.addNavigation(button); overlays.add(overlay); refresh();
+        toolbar.addNavigation(button); overlays.add(overlay); loadPluginCatalog(); refresh();
+    }
+
+    private void loadPluginCatalog()
+    {
+        new SwingWorker<java.util.List<String>, Void>()
+        {
+            @Override protected java.util.List<String> doInBackground() throws Exception
+            {
+                PluginHubManifest.ManifestFull manifest = pluginHubClient.downloadManifestFull();
+                return manifest.getDisplay().stream()
+                    .map(PluginHubManifest.DisplayData::getDisplayName)
+                    .filter(name -> name != null && !name.trim().isEmpty())
+                    .distinct().sorted(String.CASE_INSENSITIVE_ORDER).collect(java.util.stream.Collectors.toList());
+            }
+            @Override protected void done()
+            {
+                try { if (panel != null) panel.updatePluginCatalog(get()); }
+                catch (Exception ignored) { if (panel != null) panel.updatePluginCatalog(java.util.Collections.emptyList()); }
+            }
+        }.execute();
     }
 
     @Override protected void shutDown()
