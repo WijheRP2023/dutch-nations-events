@@ -28,6 +28,7 @@ import net.runelite.client.chat.QueuedMessage;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.events.ConfigChanged;
+import net.runelite.client.events.ExternalPluginsChanged;
 import net.runelite.client.externalplugins.ExternalPluginClient;
 import net.runelite.client.externalplugins.ExternalPluginManager;
 import net.runelite.client.externalplugins.PluginHubManifest;
@@ -110,6 +111,11 @@ public class DutchNationsPlugin extends Plugin
     @Override protected void shutDown()
     {
         overlays.remove(overlay); toolbar.removeNavigation(button); feed = null; authenticatedRole = ""; panel = null; service = null;
+    }
+
+    @Subscribe public void onExternalPluginsChanged(ExternalPluginsChanged ignored)
+    {
+        loadPluginCatalog();
     }
 
     @Subscribe public void onConfigChanged(ConfigChanged e)
