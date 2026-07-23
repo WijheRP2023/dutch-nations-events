@@ -55,6 +55,7 @@ public class DutchNationsPlugin extends Plugin
     @Inject private ExternalPluginClient pluginHubClient;
     @Inject private ExternalPluginManager externalPluginManager;
     private FeedService service;
+    private WomCompetitionService womService;
     private DutchNationsPanel panel;
     private NavigationButton button;
     private volatile ClanFeed feed;
@@ -62,12 +63,14 @@ public class DutchNationsPlugin extends Plugin
     private final Set<String> remindedEvents = new HashSet<>();
     private final Set<String> announcedEvents = new HashSet<>();
     private int ticksUntilRefresh;
+    private long lastWomRefresh;
 
     @Provides DutchNationsConfig config(ConfigManager manager) { return manager.getConfig(DutchNationsConfig.class); }
 
     @Override protected void startUp()
     {
         service = new FeedService(http, gson);
+        womService = new WomCompetitionService(http, gson);
         panel = new DutchNationsPanel(config, this::refresh, this::canManage, this::isOwner,
             this::isAdministrator, this::canManageRoles,
             this::createEvent, this::deleteEvent, this::saveRole);
@@ -110,7 +113,7 @@ public class DutchNationsPlugin extends Plugin
 
     @Override protected void shutDown()
     {
-        overlays.remove(overlay); toolbar.removeNavigation(button); feed = null; authenticatedRole = ""; panel = null; service = null;
+        overlays.remove(overlay); toolbar.removeNavigation(button); feed = null; authenticatedRole = ""; panel = null; service = null; womService = null;
     }
 
     @Subscribe public void onExternalPluginsChanged(ExternalPluginsChanged ignored)
@@ -138,6 +141,7 @@ public class DutchNationsPlugin extends Plugin
         if (--ticksUntilRefresh <= 0)
         {
             ticksUntilRefresh = 50;
+            refreshWom(false);
             refresh(false);
         }
         OffsetDateTime now = OffsetDateTime.now();
@@ -264,7 +268,22 @@ public class DutchNationsPlugin extends Plugin
         @Override public void failure(String message) { SwingUtilities.invokeLater(() -> { if (panel != null) panel.status(message); }); }
     }
 
-    private void refresh() { refresh(true); }
+    private void refresh() { refreshWom(true); refresh(true); }
+
+    private void refreshWom(boolean force)
+    {
+        if (womService == null || panel == null || !config.showWomCompetition()) return;
+        long now = System.currentTimeMillis();
+        if (!force && now - lastWomRefresh < Duration.ofHours(1).toMillis()) return;
+        lastWomRefresh = now;
+        womService.fetch(new WomCompetitionService.Listener()
+        {
+            @Override public void success(WomCompetition competition)
+            { SwingUtilities.invokeLater(() -> { if (panel != null) panel.updateCompetition(competition, true); }); }
+            @Override public void failure()
+            { SwingUtilities.invokeLater(() -> { if (panel != null) panel.competitionUnavailable(); }); }
+        });
+    }
 
     private void refreshRole()
     {

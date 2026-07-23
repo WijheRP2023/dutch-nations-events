@@ -64,6 +64,8 @@ final class DutchNationsPanel extends PluginPanel
     private String viewMode = "LIJST";
     private boolean serverOnline;
     private String status = "Management-feed laden...";
+    private WomCompetition competition;
+    private boolean competitionLoaded;
 
     DutchNationsPanel(DutchNationsConfig config, Runnable refresh, BooleanSupplier canManage, BooleanSupplier isOwner,
         BooleanSupplier isAdministrator, BooleanSupplier canManageRoles,
@@ -81,6 +83,8 @@ final class DutchNationsPanel extends PluginPanel
     void connectionChanged(boolean online) { serverOnline = online; render(); }
     void updateRoles(List<ManagementRole> value) { roles = value == null ? new ArrayList<>() : new ArrayList<>(value); rolesMessage = ""; render(); }
     void rolesStatus(String message) { rolesMessage = message; render(); }
+    void updateCompetition(WomCompetition value, boolean loaded) { competition = value; competitionLoaded = loaded; render(); }
+    void competitionUnavailable() { competitionLoaded = false; render(); }
 
     private void render()
     {
@@ -93,6 +97,11 @@ final class DutchNationsPanel extends PluginPanel
         add(Box.createRigidArea(new Dimension(0, 7)));
         add(viewBar());
         add(Box.createRigidArea(new Dimension(0, 14)));
+        if (config.showWomCompetition())
+        {
+            addCompetitionSection();
+            add(Box.createRigidArea(new Dimension(0, 14)));
+        }
 
         if (feed != null)
         {
@@ -187,6 +196,64 @@ final class DutchNationsPanel extends PluginPanel
         return actions;
     }
 
+
+    private void addCompetitionSection()
+    {
+        JPanel heading = card(STONE);
+        heading.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createMatteBorder(0, 5, 0, 0, GOLD), BorderFactory.createEmptyBorder(7, 8, 7, 8)));
+        heading.add(label("WISE OLD MAN", GOLD, Font.BOLD, 13f));
+        heading.add(bodyLabel("Skill- en bossweek automatisch om en om", Color.WHITE, Font.PLAIN, 12f));
+        add(heading); add(Box.createRigidArea(new Dimension(0, 7)));
+        JPanel competitionCard = card(CARD_BROWN);
+        competitionCard.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createMatteBorder(1, 1, 1, 4, GOLD), BorderFactory.createEmptyBorder(9, 9, 9, 9)));
+        if (competition == null)
+        {
+            competitionCard.add(bodyText(competitionLoaded ? "Er is momenteel geen actieve of geplande WOM-competitie."
+                : "Wise Old Man-competitie wordt geladen of is tijdelijk niet bereikbaar.",
+                Color.LIGHT_GRAY, Font.PLAIN, 12f));
+            add(competitionCard); return;
+        }
+        OffsetDateTime now = OffsetDateTime.now();
+        boolean active = competition.active(now);
+        competitionCard.add(bodyLabel(active ? "● NU ACTIEF" : "VOLGENDE WEEKCOMPETITIE",
+            active ? new Color(120, 220, 140) : GOLD, Font.BOLD, 11f));
+        competitionCard.add(Box.createRigidArea(new Dimension(0, 4)));
+        competitionCard.add(label(competition.title, Color.WHITE, Font.BOLD, 15f));
+        String metric = readableMetric(competition.metric);
+        if (!blank(metric)) competitionCard.add(bodyLabel("Onderdeel: " + metric, GOLD, Font.BOLD, 12f));
+        java.time.ZonedDateTime start = competition.start().atZoneSameInstant(ZoneId.systemDefault());
+        java.time.ZonedDateTime end = competition.end().atZoneSameInstant(ZoneId.systemDefault());
+        competitionCard.add(bodyLabel("Start: " + DATE.format(start) + " " + TIME.format(start), Color.WHITE, Font.PLAIN, 12f));
+        competitionCard.add(bodyLabel("Einde: " + DATE.format(end) + " " + TIME.format(end), Color.WHITE, Font.PLAIN, 12f));
+        competitionCard.add(bodyLabel(timeStatus(competition, now), active ? new Color(120, 220, 140) : GOLD, Font.BOLD, 12f));
+        if (competition.participantCount > 0)
+            competitionCard.add(bodyLabel("Deelnemers: " + competition.participantCount, Color.WHITE, Font.PLAIN, 12f));
+        JButton open = button("Open Dutch Nations op WOM");
+        open.addActionListener(event -> LinkBrowser.browse(WomCompetitionService.GROUP_URL));
+        competitionCard.add(Box.createRigidArea(new Dimension(0, 7))); competitionCard.add(open); add(competitionCard);
+    }
+
+    private static String timeStatus(WomCompetition competition, OffsetDateTime now)
+    {
+        java.time.Duration duration = java.time.Duration.between(now, competition.active(now) ? competition.end() : competition.start());
+        long days = duration.toDays(); long hours = duration.minusDays(days).toHours();
+        return (competition.active(now) ? "Resterend: " : "Begint over: ") + days + "d " + hours + "u";
+    }
+
+    private static String readableMetric(String metric)
+    {
+        if (blank(metric)) return "";
+        StringBuilder result = new StringBuilder();
+        for (String word : metric.replace('_', ' ').split(" "))
+        {
+            if (word.isEmpty()) continue;
+            if (result.length() > 0) result.append(' ');
+            result.append(Character.toUpperCase(word.charAt(0))).append(word.substring(1));
+        }
+        return result.toString();
+    }
     private JPanel viewBar()
     {
         JPanel views = new JPanel(new java.awt.GridLayout(1, 3, 5, 0));

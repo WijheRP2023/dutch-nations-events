@@ -62,4 +62,8 @@ public interface DutchNationsConfig extends Config
     @ConfigItem(keyName = "notifyAtStart", name = "Melding bij start", position = 12,
         description = "Toon een lokale chatboxmelding zodra het event start")
     default boolean notifyAtStart() { return true; }
+
+    @ConfigItem(keyName = "showWomCompetition", name = "WOM weekcompetitie", position = 13,
+        description = "Toon automatisch de actieve of eerstvolgende Dutch Nations-competitie van Wise Old Man")
+    default boolean showWomCompetition() { return true; }
 }
