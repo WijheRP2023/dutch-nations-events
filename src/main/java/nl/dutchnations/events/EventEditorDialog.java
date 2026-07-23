@@ -43,11 +43,13 @@ final class EventEditorDialog
         JTextField checklist = new JTextField();
         JTextField requiredPlugins = new JTextField();
         JComboBox<String> strategyWiki = new JComboBox<>(new String[]{
-            "", "https://oldschool.runescape.wiki/w/Tombs_of_Amascut/Strategies", "https://oldschool.runescape.wiki/w/Theatre_of_Blood/Strategies",
-            "https://oldschool.runescape.wiki/w/Chambers_of_Xeric/Strategies", "https://oldschool.runescape.wiki/w/Nex/Strategies", "https://oldschool.runescape.wiki/w/God_Wars_Dungeon",
-            "https://oldschool.runescape.wiki/w/The_Nightmare/Strategies", "https://oldschool.runescape.wiki/w/Corporeal_Beast/Strategies", "https://oldschool.runescape.wiki/w/Wilderness_bosses"
+            "", "Chambers of Xeric (CoX)", "Theatre of Blood (ToB)", "Tombs of Amascut (ToA)",
+            "General Graardor (Bandos)", "Commander Zilyana (Saradomin)", "Kree'arra (Armadyl)",
+            "K'ril Tsutsaroth (Zamorak)", "Callisto", "Vet'ion", "Venenatis", "Artio", "Calvar'ion",
+            "Spindel", "King Black Dragon (KBD)", "Nex", "Dagannoth Kings", "Corporeal Beast",
+            "Sarachnis", "The Nightmare", "Hueycoatl", "Royal Titans", "Scurrius",
+            "God Wars Dungeon", "Wilderness bosses"
         });
-        strategyWiki.setEditable(true);
         JTextField pluginSearch = new JTextField();
         DefaultComboBoxModel<String> pluginResultsModel = new DefaultComboBoxModel<>();
         JComboBox<String> pluginResults = new JComboBox<>(pluginResultsModel);
@@ -111,7 +113,7 @@ final class EventEditorDialog
         add(form, "Gevonden Plugin Hub-plugin", pluginResults);
         add(form, "", addPlugin);
         add(form, "Gekozen plugins", requiredPlugins);
-        add(form, "Strategie-wikilink (kies of plak)", strategyWiki);
+        add(form, "Strategie (snelkeuze)", strategyWiki);
         add(form, "Codewoord (alleen boss)", codeword);
 
         while (true)
@@ -146,15 +148,13 @@ final class EventEditorDialog
             draft.checklist = checklist.getText().trim();
             draft.requiredPlugins = requiredPlugins.getText().trim();
             Object selectedStrategy = strategyWiki.getEditor().getItem();
-            draft.strategyWikiUrl = selectedStrategy == null ? "" : selectedStrategy.toString().trim();
+            draft.strategyWikiUrl = selectedStrategy == null ? "" : strategyWikiUrl(selectedStrategy.toString());
             boolean learner = "LEARNER".equals(draft.type);
             boolean boss = "BOSS".equals(draft.type);
             boolean supportsPreparation = !boss;
             OffsetDateTime parsedStart = OffsetDateTime.parse(draft.startsAt);
             OffsetDateTime parsedEnd = OffsetDateTime.parse(draft.endsAt);
             if (draft.title.isEmpty()) throw new IllegalArgumentException("Vul een titel in.");
-            if (!draft.strategyWikiUrl.isEmpty() && !draft.strategyWikiUrl.startsWith("https://oldschool.runescape.wiki/"))
-                throw new IllegalArgumentException("Gebruik een geldige link van https://oldschool.runescape.wiki/.");
             if (!parsedEnd.isAfter(parsedStart)) throw new IllegalArgumentException("De einddatum en eindtijd moeten na de start liggen.");
             long durationHours = Duration.between(parsedStart, parsedEnd).toHours();
             if (!parsedStart.toLocalDate().equals(parsedEnd.toLocalDate()) || durationHours >= 12)
@@ -184,6 +184,39 @@ final class EventEditorDialog
             {
                 JOptionPane.showMessageDialog(null, e.getMessage(), "Ongeldige invoer", JOptionPane.ERROR_MESSAGE);
             }
+        }
+    }
+
+    static String strategyWikiUrl(String name)
+    {
+        if (name == null) return "";
+        switch (name.trim())
+        {
+            case "Chambers of Xeric (CoX)": return "https://oldschool.runescape.wiki/w/Chambers_of_Xeric/Strategies";
+            case "Theatre of Blood (ToB)": return "https://oldschool.runescape.wiki/w/Theatre_of_Blood/Strategies";
+            case "Tombs of Amascut (ToA)": return "https://oldschool.runescape.wiki/w/Tombs_of_Amascut/Strategies";
+            case "General Graardor (Bandos)": return "https://oldschool.runescape.wiki/w/General_Graardor/Strategies";
+            case "Commander Zilyana (Saradomin)": return "https://oldschool.runescape.wiki/w/Commander_Zilyana/Strategies";
+            case "Kree'arra (Armadyl)": return "https://oldschool.runescape.wiki/w/Kree%27arra/Strategies";
+            case "K'ril Tsutsaroth (Zamorak)": return "https://oldschool.runescape.wiki/w/K%27ril_Tsutsaroth/Strategies";
+            case "Callisto": return "https://oldschool.runescape.wiki/w/Callisto/Strategies";
+            case "Vet'ion": return "https://oldschool.runescape.wiki/w/Vet%27ion/Strategies";
+            case "Venenatis": return "https://oldschool.runescape.wiki/w/Venenatis/Strategies";
+            case "Artio": return "https://oldschool.runescape.wiki/w/Artio/Strategies";
+            case "Calvar'ion": return "https://oldschool.runescape.wiki/w/Calvar%27ion/Strategies";
+            case "Spindel": return "https://oldschool.runescape.wiki/w/Spindel/Strategies";
+            case "King Black Dragon (KBD)": return "https://oldschool.runescape.wiki/w/King_Black_Dragon/Strategies";
+            case "Nex": return "https://oldschool.runescape.wiki/w/Nex/Strategies";
+            case "Dagannoth Kings": return "https://oldschool.runescape.wiki/w/Dagannoth_Kings/Strategies";
+            case "Corporeal Beast": return "https://oldschool.runescape.wiki/w/Corporeal_Beast/Strategies";
+            case "Sarachnis": return "https://oldschool.runescape.wiki/w/Sarachnis/Strategies";
+            case "The Nightmare": return "https://oldschool.runescape.wiki/w/The_Nightmare/Strategies";
+            case "Hueycoatl": return "https://oldschool.runescape.wiki/w/The_Hueycoatl/Strategies";
+            case "Royal Titans": return "https://oldschool.runescape.wiki/w/Royal_Titans/Strategies";
+            case "Scurrius": return "https://oldschool.runescape.wiki/w/Scurrius/Strategies";
+            case "God Wars Dungeon": return "https://oldschool.runescape.wiki/w/God_Wars_Dungeon";
+            case "Wilderness bosses": return "https://oldschool.runescape.wiki/w/Wilderness_bosses";
+            default: return "";
         }
     }
 
