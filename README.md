@@ -60,3 +60,15 @@ onversleuteld HTTP wordt door de plugin alleen voor `localhost` toegestaan.
 - Apart overzicht van benodigde RuneLite-plugins per learner-event
 - Live/offline serverstatus
 - Owner-only rollenoverzicht, tokenrotatie en rol intrekken
+
+## Privacy en externe diensten
+
+- De kalender gebruikt uitsluitend de vaste, openbare Dutch Nations API op
+  `https://dutch-nations-events.onrender.com`.
+- De actieve Wise Old Man-competitie wordt gelezen via de openbare API van
+  `https://api.wiseoldman.net` voor groep 1476.
+- Online clanleden worden alleen uit de ingelogde RuneLite-client gelezen en uitsluitend
+  lokaal in het zijpaneel getoond. Namen, werelden en clanrangen worden niet verzonden.
+- De plugin verzendt nooit automatisch de naam van de ingelogde speler.
+- Alleen managementacties verzenden de handmatig ingevoerde event- of rolgegevens met
+  een persoonlijke Bearer-token. De API-broncode staat controleerbaar in `server/`.

@@ -19,6 +19,9 @@ import okhttp3.Response;
 
 final class FeedService
 {
+    static final String FEED_URL = "https://dutch-nations-events.onrender.com/feed.json";
+    static final String EVENTS_URL = "https://dutch-nations-events.onrender.com/api/events";
+    static final String ROLES_URL = "https://dutch-nations-events.onrender.com/api/roles";
     interface Listener { void success(ClanFeed feed, String json); void failure(String message); }
     interface SaveListener { void success(); void failure(String message); }
     interface RoleSaveListener { void success(String managementToken); void failure(String message); }

@@ -1,9 +1,8 @@
 package nl.dutchnations.events;
 
 import com.google.gson.Gson;
-import com.google.gson.reflect.TypeToken;
 import java.io.IOException;
-import java.lang.reflect.Type;
+import java.util.Arrays;
 import java.util.List;
 import okhttp3.Call;
 import okhttp3.Callback;
@@ -15,7 +14,6 @@ final class WomCompetitionService
 {
     static final String GROUP_URL = "https://wiseoldman.net/groups/1476";
     private static final String API_URL = "https://api.wiseoldman.net/v2/groups/1476/competitions?limit=50";
-    private static final Type LIST_TYPE = new TypeToken<List<WomCompetition>>() { }.getType();
     private final OkHttpClient client;
     private final Gson gson;
 
@@ -33,7 +31,10 @@ final class WomCompetitionService
                 try (Response closeable = response)
                 {
                     if (!response.isSuccessful() || response.body() == null) { listener.failure(); return; }
-                    List<WomCompetition> values = gson.fromJson(response.body().charStream(), LIST_TYPE);
+                    WomCompetition[] responseValues = gson.fromJson(response.body().charStream(), WomCompetition[].class);
+                    List<WomCompetition> values = responseValues == null
+                        ? java.util.Collections.emptyList()
+                        : Arrays.asList(responseValues);
                     listener.success(WomCompetition.currentOrNext(values, java.time.OffsetDateTime.now()));
                 }
                 catch (RuntimeException exception) { listener.failure(); }

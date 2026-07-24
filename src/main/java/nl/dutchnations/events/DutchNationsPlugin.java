@@ -260,13 +260,13 @@ public class DutchNationsPlugin extends Plugin
             }
         }
         panel.status("Event opslaan...");
-        service.createEvent(config.managementApiUrl(), config.managementToken(), draft, new SaveResult("Event opgeslagen."));
+        service.createEvent(FeedService.EVENTS_URL, config.managementToken(), draft, new SaveResult("Event opgeslagen."));
     }
     private void deleteEvent(String eventId)
     {
         if (!canManage()) { panel.status("Je RuneScape-naam heeft geen managementrechten."); return; }
         panel.status("Event verwijderen...");
-        service.deleteEvent(config.managementApiUrl(), config.managementToken(), eventId, new SaveResult("Event verwijderd."));
+        service.deleteEvent(FeedService.EVENTS_URL, config.managementToken(), eventId, new SaveResult("Event verwijderd."));
     }
 
     private void saveRole(RoleDraft draft)
@@ -277,7 +277,7 @@ public class DutchNationsPlugin extends Plugin
         if ("heavenskill".equals(normalize(draft.rsn)) && "REMOVE".equals(draft.role))
         { panel.status("De eerste owner heavenskill kan zichzelf niet verwijderen."); return; }
         panel.status("Managementrol opslaan...");
-        service.saveRole(config.rolesApiUrl(), config.managementToken(), draft, new FeedService.RoleSaveListener()
+        service.saveRole(FeedService.ROLES_URL, config.managementToken(), draft, new FeedService.RoleSaveListener()
         {
             @Override public void success(String token)
             {
@@ -339,7 +339,7 @@ public class DutchNationsPlugin extends Plugin
             if (panel != null) SwingUtilities.invokeLater(panel::permissionsChanged);
             return;
         }
-        service.fetchRole(config.rolesApiUrl(), config.managementToken(), new FeedService.RoleStatusListener()
+        service.fetchRole(FeedService.ROLES_URL, config.managementToken(), new FeedService.RoleStatusListener()
         {
             @Override public void success(String rsn, String role)
             {
@@ -358,7 +358,7 @@ public class DutchNationsPlugin extends Plugin
     private void fetchRoles()
     {
         if (!isOwner() || service == null || config.managementToken().trim().isEmpty()) return;
-        service.fetchRoles(config.rolesApiUrl(), config.managementToken(), new FeedService.RolesListener()
+        service.fetchRoles(FeedService.ROLES_URL, config.managementToken(), new FeedService.RolesListener()
         {
             @Override public void success(java.util.List<ManagementRole> roles)
             { if (panel != null) SwingUtilities.invokeLater(() -> panel.updateRoles(roles)); }
@@ -370,7 +370,7 @@ public class DutchNationsPlugin extends Plugin
     {
         if (service == null) return;
         if (showStatus) panel.status("Controleren op management-updates...");
-        service.fetch(config.feedUrl(), new FeedService.Listener()
+        service.fetch(FeedService.FEED_URL, new FeedService.Listener()
         {
             @Override public void success(ClanFeed value, String json)
             {
