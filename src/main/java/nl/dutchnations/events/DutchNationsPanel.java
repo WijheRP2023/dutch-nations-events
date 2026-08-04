@@ -448,7 +448,7 @@ final class DutchNationsPanel extends PluginPanel
             panel.add(Box.createRigidArea(new Dimension(0, 6)));
             panel.add(wiki);
         }
-        String codeInfo = "BOSS".equalsIgnoreCase(event.type) ? "Codewoord verschijnt tijdens het event" : "Geen codewoord nodig";
+        String codeInfo = "BOSS".equalsIgnoreCase(event.type) ? "Codewoord verschijnt in popup" : "Geen codewoord nodig";
         panel.add(Box.createRigidArea(new Dimension(0, 5))); panel.add(bodyLabel(codeInfo, accent, Font.BOLD, 12f));
         if (canManage.getAsBoolean())
         {
