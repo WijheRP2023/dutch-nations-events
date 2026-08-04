@@ -4,7 +4,7 @@ import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Graphics2D;
 import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import javax.inject.Inject;
 import net.runelite.client.ui.overlay.OverlayPanel;
@@ -14,7 +14,8 @@ import net.runelite.client.ui.overlay.components.TitleComponent;
 
 final class CodewordOverlay extends OverlayPanel
 {
-    private static final DateTimeFormatter UTC_TIME = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm 'UTC'");
+    private static final ZoneId DUTCH_TIME_ZONE = ZoneId.of("Europe/Amsterdam");
+    private static final DateTimeFormatter DUTCH_TIME = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm z");
     private static final Color TITLE_COLOR = new Color(255, 190, 70);
     private static final Color CODEWORD_COLOR = new Color(40, 255, 80);
     private final DutchNationsPlugin plugin;
@@ -33,10 +34,10 @@ final class CodewordOverlay extends OverlayPanel
     {
         OffsetDateTime currentMoment = OffsetDateTime.now();
         ClanFeed.ClanEvent event = plugin.activeEvent(currentMoment);
-        if (!config.showOverlay() || event == null) return null;
+        if (!config.showOverlay() || event == null || event.codeword == null || event.codeword.trim().isEmpty()) return null;
 
-        String title = "DUTCH NATIONS - " + event.title;
-        String timestamp = UTC_TIME.format(currentMoment.withOffsetSameInstant(ZoneOffset.UTC));
+        String title = "DUTCH NATION - " + event.title;
+        String timestamp = DUTCH_TIME.format(currentMoment.atZoneSameInstant(DUTCH_TIME_ZONE));
         int titleWidth = graphics.getFontMetrics().stringWidth(title);
         int detailWidth = graphics.getFontMetrics().stringWidth(event.codeword + "    " + timestamp);
         int requiredWidth = Math.max(250, Math.min(500, Math.max(titleWidth, detailWidth) + 28));

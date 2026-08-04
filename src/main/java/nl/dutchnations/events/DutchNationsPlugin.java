@@ -209,7 +209,7 @@ public class DutchNationsPlugin extends Plugin
             ? " op wereld <col=40e0e5>" + event.world + "</col>" : "";
         chatMessages.queue(QueuedMessage.builder()
             .type(ChatMessageType.GAMEMESSAGE)
-            .runeLiteFormattedMessage("<col=ffbd45>Dutch Nations:</col> " + eventType +
+            .runeLiteFormattedMessage("<col=ffbd45>Dutch Nation:</col> " + eventType +
                 " <col=ffffff>" + safeTitle + "</col> " + timing + world + "!")
             .build());
     }
