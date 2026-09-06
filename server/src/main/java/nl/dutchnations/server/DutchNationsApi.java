@@ -115,8 +115,10 @@ public final class DutchNationsApi
             event.id = UUID.randomUUID().toString();
             event.type = event.type.toUpperCase(Locale.ROOT);
             if (!actor.canManageEventType(event.type)) { sendError(exchange, 403, "Deze rol mag alleen learner-events beheren"); return; }
-            if ("LEARNER".equals(event.type) || "MASS".equals(event.type)) event.codeword = "";
-            if ("BOSS".equals(event.type)) { event.checklist = ""; event.requiredPlugins = ""; event.strategyWikiUrl = ""; }
+            if ("BOSS".equals(event.type)) event.codewordRequired = true;
+            if ("LEARNER".equals(event.type)) { event.codeword = ""; event.codewordRequired = false; }
+            if ("MASS".equals(event.type) && !event.codewordRequired) event.codeword = "";
+            if ("BOSS".equals(event.type)) { event.checklist = ""; event.requiredPlugins = ""; event.strategyWikiUrl = ""; } else event.driveUrl = "";
             if ("BOSS".equals(event.type)) event.world = "";
             Event conflict = store.findConflict(event);
             if (conflict != null && !event.allowConflict)
@@ -140,11 +142,13 @@ public final class DutchNationsApi
             event.id = existing.id;
             event.type = event.type == null ? "" : event.type.toUpperCase(Locale.ROOT);
             if (!actor.canManageEventType(event.type)) { sendError(exchange, 403, "Deze rol mag alleen learner-events beheren"); return; }
-            if ("BOSS".equals(event.type) && blank(event.codeword)) event.codeword = existing.codeword;
+            if (("BOSS".equals(event.type) || ("MASS".equals(event.type) && event.codewordRequired)) && blank(event.codeword)) event.codeword = existing.codeword;
             String error = validateEvent(event);
             if (error != null) { sendError(exchange, 400, error); return; }
-            if ("LEARNER".equals(event.type) || "MASS".equals(event.type)) event.codeword = "";
-            if ("BOSS".equals(event.type)) { event.checklist = ""; event.requiredPlugins = ""; event.strategyWikiUrl = ""; event.world = ""; }
+            if ("BOSS".equals(event.type)) event.codewordRequired = true;
+            if ("LEARNER".equals(event.type)) { event.codeword = ""; event.codewordRequired = false; }
+            if ("MASS".equals(event.type) && !event.codewordRequired) event.codeword = "";
+            if ("BOSS".equals(event.type)) { event.checklist = ""; event.requiredPlugins = ""; event.strategyWikiUrl = ""; event.world = ""; } else event.driveUrl = "";
             Event conflict = store.findConflict(event, existing.id);
             if (conflict != null && !event.allowConflict) { sendError(exchange, 409, "Event overlapt met " + conflict.title); return; }
             store.updateEvent(existing.id, event);
@@ -255,11 +259,11 @@ public final class DutchNationsApi
             if (!end.isAfter(start)) return "Eindtijd moet na starttijd liggen";
         }
         catch (RuntimeException ex) { return "Ongeldige ISO 8601-datum"; }
-        if (!valid(event.title, 80) || !validOptional(event.host, 20) || !validOptional(event.description, 240) ||
+        if (!valid(event.title, 80) || !valid(event.host, 20) || !validOptional(event.description, 240) ||
             !validOptional(event.checklist, 400) || !validOptional(event.requiredPlugins, 300) ||
-            !validWikiUrl(event.strategyWikiUrl)) return "Eventtekst is te lang of bevat ongeldige tekens";
+            !validWikiUrl(event.strategyWikiUrl) || !validDriveUrl(event.driveUrl)) return "Eventtekst of link is ongeldig";
         if (("LEARNER".equals(type) || "MASS".equals(type)) && (blank(event.world) || !event.world.matches("\\d{3,4}"))) return "Geldig wereldnummer is verplicht";
-        if ("BOSS".equals(type) && (!valid(event.codeword, 40))) return "Boss-event vereist een geldig codewoord van maximaal 40 tekens";
+        if (("BOSS".equals(type) || ("MASS".equals(type) && event.codewordRequired)) && !valid(event.codeword, 40)) return "Dit event vereist een geldig codewoord van maximaal 40 tekens";
         return null;
     }
 
@@ -305,6 +309,19 @@ public final class DutchNationsApi
             URI uri = URI.create(value);
             return "https".equalsIgnoreCase(uri.getScheme()) &&
                 "oldschool.runescape.wiki".equalsIgnoreCase(uri.getHost()) && uri.getUserInfo() == null;
+        }
+        catch (RuntimeException exception) { return false; }
+    }
+    private static boolean validDriveUrl(String value)
+    {
+        if (blank(value)) return true;
+        if (!validOptional(value, 500)) return false;
+        try
+        {
+            URI uri = URI.create(value);
+            String host = uri.getHost();
+            return "https".equalsIgnoreCase(uri.getScheme()) && uri.getUserInfo() == null &&
+                ("drive.google.com".equalsIgnoreCase(host) || "docs.google.com".equalsIgnoreCase(host));
         }
         catch (RuntimeException exception) { return false; }
     }
@@ -548,7 +565,8 @@ public final class DutchNationsApi
     static final class Event
     {
         String id; String startsAt; String endsAt; String type; String title;
-        String world; String host; String description; String codeword; String checklist; String requiredPlugins; String strategyWikiUrl;
+        String world; String host; String description; String codeword; String checklist; String requiredPlugins; String strategyWikiUrl; String driveUrl;
+        boolean codewordRequired;
         boolean allowConflict;
     }
     static final class RoleChange { String rsn; String role; }
