@@ -75,7 +75,7 @@ public class DutchNationsApiSecurityTest
     @Test
     public void learnerHostCanOnlyManageLearnerEvents()
     {
-        DutchNationsApi.Actor learnerHost = new DutchNationsApi.Actor("learner", "LEARNER_HOST");
+        DutchNationsApi.Actor learnerHost = new DutchNationsApi.Actor("teacher", "TEACHER");
         assertTrue(learnerHost.canManageEvents());
         assertTrue(learnerHost.canManageEventType("LEARNER"));
         assertFalse(learnerHost.canManageEventType("BOSS"));

@@ -239,10 +239,10 @@ public class DutchNationsPlugin extends Plugin
     private boolean canManage()
     {
         return isOwner() || "OWNER".equals(authenticatedRole) || "ADMINISTRATOR".equals(authenticatedRole) ||
-            "MANAGER".equals(authenticatedRole) || "EVENT_HOST".equals(authenticatedRole) || "LEARNER_HOST".equals(authenticatedRole);
+            "MANAGER".equals(authenticatedRole) || "EVENT_HOST".equals(authenticatedRole) || "TEACHER".equals(authenticatedRole) || "LEARNER_HOST".equals(authenticatedRole);
     }
     private boolean isAdministrator() { return "ADMINISTRATOR".equals(authenticatedRole); }
-    private boolean isLearnerHost() { return "LEARNER_HOST".equals(authenticatedRole); }
+    private boolean isLearnerHost() { return "TEACHER".equals(authenticatedRole) || "LEARNER_HOST".equals(authenticatedRole); }
     private boolean canManageRoles() { return isOwner() || isAdministrator(); }
     private boolean isOwner()
     {
@@ -253,7 +253,7 @@ public class DutchNationsPlugin extends Plugin
     private void createEvent(EventDraft draft)
     {
         if (!canManage()) { panel.status("Je RuneScape-naam heeft geen managementrechten."); return; }
-        if (isLearnerHost() && !"LEARNER".equalsIgnoreCase(draft.type)) { panel.status("Learner Hosts mogen alleen learner-events maken."); return; }
+        if (isLearnerHost() && !"LEARNER".equalsIgnoreCase(draft.type)) { panel.status("Teachers mogen alleen learner-events maken."); return; }
         ClanFeed current = feed;
         if (current != null)
         {
@@ -280,7 +280,7 @@ public class DutchNationsPlugin extends Plugin
         if (isLearnerHost())
         {
             if (existing == null || !existing.learner() || !normalize(localPlayerName()).equals(normalize(existing.host)) || !"LEARNER".equalsIgnoreCase(draft.type))
-            { panel.status("Learner Hosts mogen alleen hun eigen learner-event aanpassen."); return; }
+            { panel.status("Teachers mogen alleen hun eigen learner-event aanpassen."); return; }
         }
         if (current != null)
         {

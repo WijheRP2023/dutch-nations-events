@@ -170,6 +170,7 @@ final class DutchNationsPanel extends PluginPanel
         panel.add(bodyLabel("Clan-eventkalender", new Color(255, 235, 235), Font.PLAIN, 13f));
         if (isOwner.getAsBoolean()) panel.add(bodyLabel("Beheerstatus: OWNER", new Color(255, 225, 120), Font.BOLD, 12f));
         else if (isAdministrator.getAsBoolean()) panel.add(bodyLabel("Beheerstatus: ADMINISTRATOR", GOLD, Font.BOLD, 12f));
+        else if (isLearnerHost.getAsBoolean()) panel.add(bodyLabel("Beheerstatus: TEACHER", new Color(220, 235, 255), Font.BOLD, 12f));
         else if (canManage.getAsBoolean()) panel.add(bodyLabel("Beheerstatus: MANAGER", new Color(220, 235, 255), Font.BOLD, 12f));
         return panel;
     }
@@ -510,7 +511,7 @@ final class DutchNationsPanel extends PluginPanel
             roleCard.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createMatteBorder(1, 1, 1, 4, GOLD), BorderFactory.createEmptyBorder(8, 8, 8, 8)));
             roleCard.add(bodyLabel(role.rsn, Color.WHITE, Font.BOLD, 14f));
-            roleCard.add(bodyLabel("Rol: " + role.role, GOLD, Font.BOLD, 12f));
+            roleCard.add(bodyLabel("Rol: " + roleLabel(role.role), GOLD, Font.BOLD, 12f));
             if (!blank(role.updatedAt))
             {
                 try
@@ -521,7 +522,7 @@ final class DutchNationsPanel extends PluginPanel
                 catch (RuntimeException ignored) { }
             }
             boolean owner = isOwner.getAsBoolean();
-            boolean lowerRole = "MANAGER".equalsIgnoreCase(role.role) || "EVENT_HOST".equalsIgnoreCase(role.role) || "LEARNER_HOST".equalsIgnoreCase(role.role);
+            boolean lowerRole = "MANAGER".equalsIgnoreCase(role.role) || "EVENT_HOST".equalsIgnoreCase(role.role) || "LEARNER_HOST".equalsIgnoreCase(role.role) || "TEACHER".equalsIgnoreCase(role.role);
             if (owner && !"heavenskill".equalsIgnoreCase(role.rsn))
             {
                 JButton rotate = button("Token vernieuwen");
@@ -556,6 +557,10 @@ final class DutchNationsPanel extends PluginPanel
         }
     }
 
+    private static String roleLabel(String role)
+    {
+        return "LEARNER_HOST".equalsIgnoreCase(role) ? "TEACHER" : role;
+    }
     private boolean canEdit(ClanFeed.ClanEvent event)
     {
         if (!canManage.getAsBoolean()) return false;

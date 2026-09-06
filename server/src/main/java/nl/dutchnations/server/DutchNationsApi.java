@@ -197,7 +197,7 @@ public final class DutchNationsApi
             if ("REMOVE".equals(role))
             {
                 if (target == null) { sendError(exchange, 404, "Rol niet gevonden"); return; }
-                if (!("MANAGER".equalsIgnoreCase(target.role) || "EVENT_HOST".equalsIgnoreCase(target.role) || "LEARNER_HOST".equalsIgnoreCase(target.role)))
+                if (!("MANAGER".equalsIgnoreCase(target.role) || "EVENT_HOST".equalsIgnoreCase(target.role) || "LEARNER_HOST".equalsIgnoreCase(target.role) || "TEACHER".equalsIgnoreCase(target.role)))
                 { sendError(exchange, 403, "Administrators mogen alleen lagere rollen intrekken"); return; }
             }
             else
@@ -223,7 +223,7 @@ public final class DutchNationsApi
             send(exchange, 200, map("removed", true));
             return;
         }
-        if (!("ADMINISTRATOR".equals(role) || "MANAGER".equals(role) || "EVENT_HOST".equals(role) || "LEARNER_HOST".equals(role)))
+        if (!("ADMINISTRATOR".equals(role) || "MANAGER".equals(role) || "EVENT_HOST".equals(role) || "TEACHER".equals(role) || "LEARNER_HOST".equals(role)))
         { sendError(exchange, 400, "Ongeldige rol"); return; }
         String newToken = randomToken();
         store.saveRole(change.rsn, role, sha256(newToken));
@@ -560,7 +560,7 @@ public final class DutchNationsApi
         boolean administrator() { return "ADMINISTRATOR".equalsIgnoreCase(role); }
         boolean manager() { return "MANAGER".equalsIgnoreCase(role); }
         boolean eventHost() { return "EVENT_HOST".equalsIgnoreCase(role); }
-        boolean learnerHost() { return "LEARNER_HOST".equalsIgnoreCase(role); }
+        boolean learnerHost() { return "TEACHER".equalsIgnoreCase(role) || "LEARNER_HOST".equalsIgnoreCase(role); }
         boolean canManageEvents() { return owner() || administrator() || manager() || eventHost() || learnerHost(); }
         boolean canManageEventType(String type) { return !learnerHost() || "LEARNER".equalsIgnoreCase(type); }
         boolean canEdit(Event event) { return !learnerHost() || ("LEARNER".equalsIgnoreCase(event.type) && normalize(rsn).equals(normalize(event.host))); }
