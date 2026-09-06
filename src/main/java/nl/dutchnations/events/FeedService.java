@@ -76,6 +76,19 @@ final class FeedService
         post(url, token, gson.toJson(event), "Event", listener);
     }
 
+    void updateEvent(String url, String token, String eventId, EventDraft event, SaveListener listener)
+    {
+        if (isExample(url)) { listener.failure("Testfeed actief: pas feed.json aan om een event te wijzigen."); return; }
+        HttpUrl base = https(url);
+        if (base == null) { listener.failure("Event-API-adres ontbreekt of is ongeldig."); return; }
+        if (blank(token)) { listener.failure("Management-token ontbreekt. Vul deze opnieuw in bij de plugininstellingen."); return; }
+        if (blank(eventId)) { listener.failure("Event-id ontbreekt; vernieuw eerst de kalender."); return; }
+        HttpUrl target = base.newBuilder().addPathSegment(eventId).build();
+        Request request = new Request.Builder().url(target).header("Authorization", "Bearer " + token.trim())
+            .put(RequestBody.create(JSON, gson.toJson(event))).build();
+        execute(request, "Event", listener);
+    }
+
     void deleteEvent(String url, String token, String eventId, SaveListener listener)
     {
         if (isExample(url)) { listener.failure("GitHub/testfeed actief: verwijder het event uit feed.json."); return; }

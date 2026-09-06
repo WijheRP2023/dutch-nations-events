@@ -30,8 +30,16 @@ final class EventEditorDialog
     );
     private EventEditorDialog() { }
 
-    static EventDraft show(List<String> pluginCatalog, boolean learnerOnly)
+    static EventDraft show(List<String> pluginCatalog, boolean learnerOnly) { return show(pluginCatalog, learnerOnly, null); }
+
+    static EventDraft edit(List<String> pluginCatalog, boolean learnerOnly, ClanFeed.ClanEvent existing)
     {
+        return show(pluginCatalog, learnerOnly, existing);
+    }
+
+    private static EventDraft show(List<String> pluginCatalog, boolean learnerOnly, ClanFeed.ClanEvent existing)
+    {
+        boolean editing = existing != null;
         JComboBox<String> type = new JComboBox<>(learnerOnly ? new String[]{"LEARNER"} : new String[]{"LEARNER", "BOSS", "MASS"});
         JTextField title = new JTextField();
         JTextField start = new JTextField(LocalDateTime.now().plusDays(1).withSecond(0).withNano(0).format(INPUT));
@@ -84,6 +92,25 @@ final class EventEditorDialog
             pluginSearch.setText("");
         });
 
+        if (editing)
+        {
+            type.setSelectedItem(existing.type.toUpperCase(java.util.Locale.ROOT));
+            type.setEnabled(false);
+            title.setText(existing.title == null ? "" : existing.title);
+            start.setText(existing.start().atZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime().format(INPUT));
+            end.setText(existing.end().atZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime().format(INPUT));
+            world.setText(existing.world == null ? "" : existing.world);
+            host.setText(existing.host == null ? "" : existing.host);
+            description.setText(existing.description == null ? "" : existing.description);
+            checklist.setText(existing.checklist == null ? "" : existing.checklist);
+            requiredPlugins.setText(existing.requiredPlugins == null ? "" : existing.requiredPlugins);
+            for (int i = 0; i < strategyWiki.getItemCount(); i++)
+            {
+                String name = strategyWiki.getItemAt(i);
+                if (strategyWikiUrl(name).equals(existing.strategyWikiUrl)) { strategyWiki.setSelectedItem(name); break; }
+            }
+        }
+
         type.addActionListener(e ->
         {
             boolean learner = "LEARNER".equals(type.getSelectedItem());
@@ -114,11 +141,11 @@ final class EventEditorDialog
         add(form, "", addPlugin);
         add(form, "Gekozen plugins", requiredPlugins);
         add(form, "Strategie (snelkeuze)", strategyWiki);
-        add(form, "Codewoord (alleen boss)", codeword);
+        add(form, editing ? "Codewoord (boss; leeg = behouden)" : "Codewoord (alleen boss)", codeword);
 
         while (true)
         {
-            if (JOptionPane.showConfirmDialog(null, form, "Dutch Nations - event maken",
+            if (JOptionPane.showConfirmDialog(null, form, editing ? "Dutch Nations - event aanpassen" : "Dutch Nations - event maken",
             JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE) != JOptionPane.OK_OPTION) return null;
         try
         {
@@ -169,7 +196,7 @@ final class EventEditorDialog
             {
                 JOptionPane.showMessageDialog(null, "Een learner- of mass-event heeft een wereld nodig.", "Controle", JOptionPane.WARNING_MESSAGE); continue;
             }
-            if (boss && draft.codeword.isEmpty())
+            if (boss && draft.codeword.isEmpty() && !editing)
             {
                 JOptionPane.showMessageDialog(null, "Een boss-event heeft een codewoord nodig.", "Controle", JOptionPane.WARNING_MESSAGE); continue;
             }

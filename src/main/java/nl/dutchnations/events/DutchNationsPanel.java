@@ -20,6 +20,8 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
+import java.util.function.BiConsumer;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
@@ -56,6 +58,8 @@ final class DutchNationsPanel extends PluginPanel
     private final BooleanSupplier canManageRoles;
     private final Runnable loadRoles;
     private final Consumer<EventDraft> saveEvent;
+    private final BiConsumer<String, EventDraft> updateEvent;
+    private final Supplier<String> currentRsn;
     private final Consumer<String> deleteEvent;
     private final Consumer<RoleDraft> saveRole;
     private ClanFeed feed;
@@ -73,11 +77,11 @@ final class DutchNationsPanel extends PluginPanel
 
     DutchNationsPanel(DutchNationsConfig config, Runnable refresh, BooleanSupplier canManage, BooleanSupplier isOwner,
         BooleanSupplier isAdministrator, BooleanSupplier isLearnerHost, BooleanSupplier canManageRoles, Runnable loadRoles,
-        Consumer<EventDraft> saveEvent, Consumer<String> deleteEvent, Consumer<RoleDraft> saveRole)
+        Consumer<EventDraft> saveEvent, BiConsumer<String, EventDraft> updateEvent, Consumer<String> deleteEvent, Consumer<RoleDraft> saveRole, Supplier<String> currentRsn)
     {
         this.config = config; this.refresh = refresh; this.canManage = canManage; this.isOwner = isOwner;
         this.isAdministrator = isAdministrator; this.isLearnerHost = isLearnerHost; this.canManageRoles = canManageRoles; this.loadRoles = loadRoles;
-        this.saveEvent = saveEvent; this.deleteEvent = deleteEvent; this.saveRole = saveRole;
+        this.saveEvent = saveEvent; this.updateEvent = updateEvent; this.deleteEvent = deleteEvent; this.saveRole = saveRole; this.currentRsn = currentRsn;
         setLayout(new BoxLayout(this, BoxLayout.Y_AXIS)); setBackground(BACKGROUND); render();
     }
 
@@ -451,8 +455,15 @@ final class DutchNationsPanel extends PluginPanel
         }
         String codeInfo = "BOSS".equalsIgnoreCase(event.type) ? "Codewoord verschijnt in popup" : "Geen codewoord nodig";
         panel.add(Box.createRigidArea(new Dimension(0, 5))); panel.add(bodyLabel(codeInfo, accent, Font.BOLD, 12f));
-        if (canManage.getAsBoolean())
+        if (canEdit(event))
         {
+            JButton edit = button("Event aanpassen");
+            edit.addActionListener(click ->
+            {
+                EventDraft draft = EventEditorDialog.edit(pluginCatalog, isLearnerHost.getAsBoolean(), event);
+                if (draft != null) updateEvent.accept(event.id, draft);
+            });
+            panel.add(Box.createRigidArea(new Dimension(0, 7))); panel.add(edit);
             JButton remove = button("Event verwijderen"); remove.setForeground(new Color(255, 205, 190)); remove.setBackground(new Color(105, 28, 31));
             remove.addActionListener(click ->
             {
@@ -545,6 +556,13 @@ final class DutchNationsPanel extends PluginPanel
         }
     }
 
+    private boolean canEdit(ClanFeed.ClanEvent event)
+    {
+        if (!canManage.getAsBoolean()) return false;
+        if (!isLearnerHost.getAsBoolean()) return true;
+        String rsn = currentRsn.get();
+        return event.learner() && rsn != null && rsn.trim().equalsIgnoreCase(event.host == null ? "" : event.host.trim());
+    }
     private static JButton button(String text)
     {
         JButton button = new JButton(text);

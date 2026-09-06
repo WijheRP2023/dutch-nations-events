@@ -127,6 +127,30 @@ public final class DutchNationsApi
             send(exchange, 201, event);
             return;
         }
+        if ("PUT".equals(exchange.getRequestMethod()))
+        {
+            String prefix = "/api/events/";
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith(prefix) || path.length() <= prefix.length()) { sendError(exchange, 400, "Event-id ontbreekt"); return; }
+            Event existing = store.event(path.substring(prefix.length()));
+            if (existing == null) { sendError(exchange, 404, "Event niet gevonden"); return; }
+            if (!actor.canManageEventType(existing.type) || !actor.canEdit(existing)) { sendError(exchange, 403, "Geen rechten om dit event aan te passen"); return; }
+            Event event = read(exchange, Event.class);
+            if (event == null) { sendError(exchange, 400, "Ongeldige eventgegevens"); return; }
+            event.id = existing.id;
+            event.type = event.type == null ? "" : event.type.toUpperCase(Locale.ROOT);
+            if (!actor.canManageEventType(event.type)) { sendError(exchange, 403, "Deze rol mag alleen learner-events beheren"); return; }
+            if ("BOSS".equals(event.type) && blank(event.codeword)) event.codeword = existing.codeword;
+            String error = validateEvent(event);
+            if (error != null) { sendError(exchange, 400, error); return; }
+            if ("LEARNER".equals(event.type) || "MASS".equals(event.type)) event.codeword = "";
+            if ("BOSS".equals(event.type)) { event.checklist = ""; event.requiredPlugins = ""; event.strategyWikiUrl = ""; event.world = ""; }
+            Event conflict = store.findConflict(event, existing.id);
+            if (conflict != null && !event.allowConflict) { sendError(exchange, 409, "Event overlapt met " + conflict.title); return; }
+            store.updateEvent(existing.id, event);
+            send(exchange, 200, event);
+            return;
+        }
         if ("DELETE".equals(exchange.getRequestMethod()))
         {
             String prefix = "/api/events/";
@@ -337,17 +361,26 @@ public final class DutchNationsApi
             return feed;
         }
 
-        synchronized Event findConflict(Event candidate)
+        synchronized Event findConflict(Event candidate) { return findConflict(candidate, null); }
+        synchronized Event findConflict(Event candidate, String ignoredId)
         {
             OffsetDateTime start = OffsetDateTime.parse(candidate.startsAt);
             OffsetDateTime end = OffsetDateTime.parse(candidate.endsAt);
             return state.events.stream().filter(event ->
             {
-                try { return start.isBefore(OffsetDateTime.parse(event.endsAt)) && end.isAfter(OffsetDateTime.parse(event.startsAt)); }
+                try { return !event.id.equals(ignoredId) && start.isBefore(OffsetDateTime.parse(event.endsAt)) && end.isAfter(OffsetDateTime.parse(event.startsAt)); }
                 catch (RuntimeException ex) { return false; }
             }).findFirst().orElse(null);
         }
         synchronized void addEvent(Event event) { state.events.add(event); changed(); }
+        synchronized boolean updateEvent(String id, Event replacement)
+        {
+            for (int i = 0; i < state.events.size(); i++)
+            {
+                if (id.equals(state.events.get(i).id)) { state.events.set(i, replacement); changed(); return true; }
+            }
+            return false;
+        }
         synchronized boolean deleteEvent(String id)
         {
             boolean removed = state.events.removeIf(event -> id.equals(event.id));
@@ -530,5 +563,6 @@ public final class DutchNationsApi
         boolean learnerHost() { return "LEARNER_HOST".equalsIgnoreCase(role); }
         boolean canManageEvents() { return owner() || administrator() || manager() || eventHost() || learnerHost(); }
         boolean canManageEventType(String type) { return !learnerHost() || "LEARNER".equalsIgnoreCase(type); }
+        boolean canEdit(Event event) { return !learnerHost() || ("LEARNER".equalsIgnoreCase(event.type) && normalize(rsn).equals(normalize(event.host))); }
     }
 }

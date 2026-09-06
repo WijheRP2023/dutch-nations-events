@@ -82,7 +82,7 @@ public class DutchNationsPlugin extends Plugin
         womService = new WomCompetitionService(http, gson);
         panel = new DutchNationsPanel(config, this::refresh, this::canManage, this::isOwner,
             this::isAdministrator, this::isLearnerHost, this::canManageRoles, this::fetchRoles,
-            this::createEvent, this::deleteEvent, this::saveRole);
+            this::createEvent, this::updateEvent, this::deleteEvent, this::saveRole, this::localPlayerName);
         ClanFeed cached = service.parse(configs.getConfiguration(DutchNationsConfig.GROUP, CACHE));
         if (cached != null) { feed = cached; panel.update(cached, "Opgeslagen versie; update wordt gecontroleerd."); }
         button = NavigationButton.builder().tooltip("Dutch Nations").icon(icon()).priority(6).panel(panel).build();
@@ -271,6 +271,39 @@ public class DutchNationsPlugin extends Plugin
         }
         panel.status("Event opslaan...");
         service.createEvent(FeedService.EVENTS_URL, config.managementToken(), draft, new SaveResult("Event opgeslagen."));
+    }
+    private void updateEvent(String eventId, EventDraft draft)
+    {
+        if (!canManage()) { panel.status("Je RuneScape-naam heeft geen managementrechten."); return; }
+        ClanFeed current = feed;
+        ClanFeed.ClanEvent existing = current == null ? null : current.events.stream().filter(event -> eventId.equals(event.id)).findFirst().orElse(null);
+        if (isLearnerHost())
+        {
+            if (existing == null || !existing.learner() || !normalize(localPlayerName()).equals(normalize(existing.host)) || !"LEARNER".equalsIgnoreCase(draft.type))
+            { panel.status("Learner Hosts mogen alleen hun eigen learner-event aanpassen."); return; }
+        }
+        if (current != null)
+        {
+            ClanFeed.ClanEvent conflict = current.events.stream().filter(event -> !eventId.equals(event.id) &&
+                OffsetDateTime.parse(draft.startsAt).isBefore(event.end()) && OffsetDateTime.parse(draft.endsAt).isAfter(event.start()))
+                .findFirst().orElse(null);
+            if (conflict != null)
+            {
+                int answer = JOptionPane.showConfirmDialog(null,
+                    "Dit event overlapt met '" + conflict.title + "'. Toch opslaan?", "Eventconflict",
+                    JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+                if (answer != JOptionPane.YES_OPTION) { panel.status("Event niet aangepast vanwege tijdconflict."); return; }
+                draft.allowConflict = true;
+            }
+        }
+        panel.status("Event aanpassen...");
+        service.updateEvent(FeedService.EVENTS_URL, config.managementToken(), eventId, draft, new SaveResult("Event aangepast."));
+    }
+
+    private String localPlayerName()
+    {
+        Player local = client.getLocalPlayer();
+        return local == null ? "" : local.getName();
     }
     private void deleteEvent(String eventId)
     {
