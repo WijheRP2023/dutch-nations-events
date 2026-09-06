@@ -1,6 +1,6 @@
-# Dutch Nations Events
+# Dutch Nation Events
 
-RuneLite-plugin voor de centrale Dutch Nations-eventkalender.
+RuneLite-plugin voor de centrale Dutch Nation-eventkalender.
 
 ## Rechten
 
@@ -9,7 +9,7 @@ welke beheerknoppen zichtbaar zijn. Iedere wijziging wordt daarnaast door de API
 gecontroleerd met een persoonlijke Bearer-token; de client is nooit de bron van
 waarheid voor rechten.
 
-Een owner kan via **Rollen** een `MANAGER`, `EVENT_HOST` of extra `OWNER` toevoegen.
+Een owner kan via **Rollen** een `ADMINISTRATOR`, `MANAGER`, `EVENT_HOST` of `TEACHER` toevoegen.
 De API geeft daarbij een nieuwe persoonlijke token terug. Die token wordt eenmalig
 getoond en moet privé aan het betreffende lid worden gegeven. Ingetrokken of opnieuw
 uitgedeelde rollen maken de vorige token ongeldig.
@@ -18,8 +18,9 @@ Managementrollen en RuneScape-namen staan niet in de openbare kalenderfeed.
 
 ## Codewoorden en chatbox
 
-- Learner- en mass-events hebben geen codewoord.
-- Een boss-codewoord wordt door de API pas tijdens de start- en eindtijd vrijgegeven.
+- Een boss-event vereist altijd een codewoord.
+- Een mass-event heeft alleen een codewoord wanneer de organisator dit aanvinkt.
+- Het codewoord wordt door de API pas tijdens de start- en eindtijd vrijgegeven.
 - De plugin ververst de feed ongeveer iedere 30 seconden.
 - Meldingen 30 minuten voor aanvang en bij de start verschijnen uitsluitend lokaal
   als RuneLite-gamebericht; de plugin verzendt geen clan-chat.
@@ -40,9 +41,7 @@ Losse API:
 .\gradlew.bat -p server runLocal
 ```
 
-Voor lokaal beheer vul je in RuneLite bij **Management-token** uitsluitend voor de
-lokale API `dutch-nations-local-owner` in. Deze testtoken mag nooit online gebruikt
-worden.
+De gewone ontwikkelaarsstart `run` gebruikt de online API. Voor een volledig lokale test start je `runLocal` in de root én `runLocal` in `server/`. Vul dan in RuneLite bij **Management-token** alleen `dutch-nations-local-owner` in. Deze testtoken mag nooit online gebruikt worden.
 
 ## Publicatie
 
@@ -63,7 +62,7 @@ onversleuteld HTTP wordt door de plugin alleen voor `localhost` toegestaan.
 
 ## Privacy en externe diensten
 
-- De kalender gebruikt uitsluitend de vaste, openbare Dutch Nations API op
+- De kalender gebruikt uitsluitend de vaste, openbare Dutch Nation API op
   `https://dutch-nations-events.onrender.com`.
 - De actieve Wise Old Man-competitie wordt gelezen via de openbare API van
   `https://api.wiseoldman.net` voor groep 1476.

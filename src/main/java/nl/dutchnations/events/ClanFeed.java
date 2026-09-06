@@ -24,6 +24,8 @@ final class ClanFeed
         String checklist;
         String requiredPlugins;
         String strategyWikiUrl;
+        String driveUrl;
+        boolean codewordRequired;
 
         OffsetDateTime start() { return OffsetDateTime.parse(startsAt); }
         OffsetDateTime end() { return OffsetDateTime.parse(endsAt); }

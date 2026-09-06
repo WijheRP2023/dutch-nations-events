@@ -19,9 +19,12 @@ import okhttp3.Response;
 
 final class FeedService
 {
-    static final String FEED_URL = "https://dutch-nations-events.onrender.com/feed.json";
-    static final String EVENTS_URL = "https://dutch-nations-events.onrender.com/api/events";
-    static final String ROLES_URL = "https://dutch-nations-events.onrender.com/api/roles";
+    private static final String PRODUCTION_URL = "https://dutch-nations-events.onrender.com";
+    private static final String LOCAL_URL = "http://127.0.0.1:8787";
+    private static final String API_BASE_URL = Boolean.getBoolean("dutch.nations.local") ? LOCAL_URL : PRODUCTION_URL;
+    static final String FEED_URL = API_BASE_URL + "/feed.json";
+    static final String EVENTS_URL = API_BASE_URL + "/api/events";
+    static final String ROLES_URL = API_BASE_URL + "/api/roles";
     interface Listener { void success(ClanFeed feed, String json); void failure(String message); }
     interface SaveListener { void success(); void failure(String message); }
     interface RoleSaveListener { void success(String managementToken); void failure(String message); }
@@ -223,8 +226,8 @@ final class FeedService
                 if (blank(event.id) || blank(event.title) || (needsWorld && blank(event.world)) ||
                     !event.end().isAfter(event.start()) || unsafe(event.title) || unsafe(event.world) ||
                     unsafe(event.host) || unsafe(event.description) || unsafe(event.codeword) || unsafe(event.checklist) ||
-                    unsafe(event.requiredPlugins)) return null;
-                if (boss && !event.active(OffsetDateTime.now())) event.codeword = "";
+                    unsafe(event.requiredPlugins) || unsafe(event.driveUrl)) return null;
+                if ((boss || (mass && event.codewordRequired)) && !event.active(OffsetDateTime.now())) event.codeword = "";
             }
             return feed;
         }

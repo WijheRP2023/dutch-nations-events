@@ -45,7 +45,7 @@ import net.runelite.client.ui.NavigationButton;
 import net.runelite.client.ui.overlay.OverlayManager;
 import okhttp3.OkHttpClient;
 
-@PluginDescriptor(name = "Dutch Nations Events", description = "Centrale eventkalender met tijdelijke codewoord-popup")
+@PluginDescriptor(name = "Dutch Nation Events", description = "Centrale eventkalender met tijdelijke codewoord-popup")
 public class DutchNationsPlugin extends Plugin
 {
     private static final String CACHE = "cachedFeed";
@@ -85,7 +85,7 @@ public class DutchNationsPlugin extends Plugin
             this::createEvent, this::updateEvent, this::deleteEvent, this::saveRole, this::localPlayerName);
         ClanFeed cached = service.parse(configs.getConfiguration(DutchNationsConfig.GROUP, CACHE));
         if (cached != null) { feed = cached; panel.update(cached, "Opgeslagen versie; update wordt gecontroleerd."); }
-        button = NavigationButton.builder().tooltip("Dutch Nations").icon(icon()).priority(6).panel(panel).build();
+        button = NavigationButton.builder().tooltip("Dutch Nation").icon(icon()).priority(6).panel(panel).build();
         toolbar.addNavigation(button); overlays.add(overlay); loadPluginCatalog(); refresh();
     }
 
@@ -233,7 +233,7 @@ public class DutchNationsPlugin extends Plugin
     {
         ClanFeed current = feed;
         if (current == null) return null;
-        return current.events.stream().filter(e -> "BOSS".equalsIgnoreCase(e.type) && e.active(now)).findFirst().orElse(null);
+        return current.events.stream().filter(e -> ("BOSS".equalsIgnoreCase(e.type) || ("MASS".equalsIgnoreCase(e.type) && e.codewordRequired)) && e.active(now)).findFirst().orElse(null);
     }
 
     private boolean canManage()
@@ -418,7 +418,7 @@ public class DutchNationsPlugin extends Plugin
             @Override public void success(ClanFeed value, String json)
             {
                 feed = value; configs.setConfiguration(DutchNationsConfig.GROUP, CACHE, cacheWithoutCodewords(value));
-                SwingUtilities.invokeLater(() -> { if (panel != null) { panel.connectionChanged(true); panel.update(value, "Actueel vanuit management."); } });
+                SwingUtilities.invokeLater(() -> { if (panel != null) { panel.connectionChanged(true); panel.update(value, ""); } });
             }
             @Override public void failure(String message)
             {

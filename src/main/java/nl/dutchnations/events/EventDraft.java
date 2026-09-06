@@ -13,5 +13,7 @@ final class EventDraft
     String checklist;
     String requiredPlugins;
     String strategyWikiUrl;
+    String driveUrl;
+    boolean codewordRequired;
     boolean allowConflict;
 }

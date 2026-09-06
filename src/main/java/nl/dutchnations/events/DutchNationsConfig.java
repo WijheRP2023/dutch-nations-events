@@ -11,11 +11,11 @@ public interface DutchNationsConfig extends Config
     String GROUP = "dutchnationsevents";
 
     @ConfigItem(keyName = "managementToken", name = "Management-token",
-        description = "Persoonlijke token; deel deze nooit met anderen", secret = true, position = 0)
+        description = "Persoonlijk token; deel dit nooit met anderen", secret = true, position = 0)
     default String managementToken() { return ""; }
 
     @ConfigItem(keyName = "showOverlay", name = "Codewoord-popup", position = 1,
-        description = "Toon het codewoord alleen tijdens een actief boss-event")
+        description = "Toon het codewoord alleen tijdens een actief boss- of mass-event")
     default boolean showOverlay() { return true; }
 
     @ConfigItem(keyName = "showLearner", name = "Toon learner-events", position = 2,
@@ -51,7 +51,7 @@ public interface DutchNationsConfig extends Config
         description = "Toon een lokale chatboxmelding zodra het event start")
     default boolean notifyAtStart() { return true; }
 
-    @ConfigItem(keyName = "showWomCompetition", name = "WOM weekcompetitie", position = 10,
-        description = "Toon automatisch de actieve of eerstvolgende Dutch Nations-competitie van Wise Old Man")
+    @ConfigItem(keyName = "showWomCompetition", name = "WOM-weekcompetitie", position = 10,
+        description = "Toon automatisch de actieve of eerstvolgende Dutch Nation-competitie van Wise Old Man")
     default boolean showWomCompetition() { return true; }
 }

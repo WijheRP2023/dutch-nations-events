@@ -18,3 +18,11 @@ tasks.register('run', JavaExec) {
     jvmArgs '-ea'
     args '--developer-mode'
 }
+
+tasks.register('runLocal', JavaExec) {
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = pluginMainClass
+    jvmArgs '-ea'
+    systemProperty 'dutch.nations.local', 'true'
+    args '--developer-mode'
+}

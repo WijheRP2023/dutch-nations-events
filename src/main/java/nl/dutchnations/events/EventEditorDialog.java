@@ -1,6 +1,9 @@
 package nl.dutchnations.events;
 
+import java.awt.Color;
+import java.awt.Dimension;
 import java.awt.GridLayout;
+import java.awt.Window;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
@@ -9,12 +12,16 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.Arrays;
 import java.util.List;
+import javax.swing.BorderFactory;
 import javax.swing.JButton;
+import javax.swing.BoxLayout;
+import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
 import javax.swing.DefaultComboBoxModel;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
+import javax.swing.SwingUtilities;
 import javax.swing.JTextField;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
@@ -42,12 +49,17 @@ final class EventEditorDialog
         boolean editing = existing != null;
         JComboBox<String> type = new JComboBox<>(learnerOnly ? new String[]{"LEARNER"} : new String[]{"LEARNER", "BOSS", "MASS"});
         JTextField title = new JTextField();
-        JTextField start = new JTextField(LocalDateTime.now().plusDays(1).withSecond(0).withNano(0).format(INPUT));
-        JTextField end = new JTextField(LocalDateTime.now().plusDays(1).plusHours(2).withSecond(0).withNano(0).format(INPUT));
+        LocalDateTime defaultStart = LocalDateTime.now().plusDays(1).withSecond(0).withNano(0);
+        LocalDateTime defaultEnd = defaultStart.plusHours(2);
+        JTextField startDate = new JTextField(defaultStart.toLocalDate().toString());
+        JTextField startTime = new JTextField(defaultStart.toLocalTime().format(DateTimeFormatter.ofPattern("HH:mm")));
+        JTextField endDate = new JTextField(defaultEnd.toLocalDate().toString());
+        JTextField endTime = new JTextField(defaultEnd.toLocalTime().format(DateTimeFormatter.ofPattern("HH:mm")));
         JTextField world = new JTextField("366");
         JTextField host = new JTextField();
         JTextField description = new JTextField();
         JTextField codeword = new JTextField();
+        JTextField driveUrl = new JTextField();
         JTextField checklist = new JTextField();
         JTextField requiredPlugins = new JTextField();
         JComboBox<String> strategyWiki = new JComboBox<>(new String[]{
@@ -97,11 +109,14 @@ final class EventEditorDialog
             type.setSelectedItem(existing.type.toUpperCase(java.util.Locale.ROOT));
             type.setEnabled(false);
             title.setText(existing.title == null ? "" : existing.title);
-            start.setText(existing.start().atZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime().format(INPUT));
-            end.setText(existing.end().atZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime().format(INPUT));
+            LocalDateTime existingStart = existing.start().atZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime();
+            LocalDateTime existingEnd = existing.end().atZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime();
+            startDate.setText(existingStart.toLocalDate().toString()); startTime.setText(existingStart.toLocalTime().format(DateTimeFormatter.ofPattern("HH:mm")));
+            endDate.setText(existingEnd.toLocalDate().toString()); endTime.setText(existingEnd.toLocalTime().format(DateTimeFormatter.ofPattern("HH:mm")));
             world.setText(existing.world == null ? "" : existing.world);
             host.setText(existing.host == null ? "" : existing.host);
             description.setText(existing.description == null ? "" : existing.description);
+            driveUrl.setText(existing.driveUrl == null ? "" : existing.driveUrl);
             checklist.setText(existing.checklist == null ? "" : existing.checklist);
             requiredPlugins.setText(existing.requiredPlugins == null ? "" : existing.requiredPlugins);
             for (int i = 0; i < strategyWiki.getItemCount(); i++)
@@ -111,48 +126,61 @@ final class EventEditorDialog
             }
         }
 
-        type.addActionListener(e ->
-        {
-            boolean learner = "LEARNER".equals(type.getSelectedItem());
-            boolean boss = "BOSS".equals(type.getSelectedItem());
-            boolean supportsPreparation = !boss;
-            world.setEnabled(!boss);
-            codeword.setEnabled(boss);
-            checklist.setEnabled(supportsPreparation);
-            requiredPlugins.setEnabled(supportsPreparation);
-            strategyWiki.setEnabled(supportsPreparation);
-            pluginSearch.setEnabled(supportsPreparation);
-            pluginResults.setEnabled(supportsPreparation);
-            addPlugin.setEnabled(supportsPreparation);
-            if (!boss) codeword.setText("");
-            if (!supportsPreparation) checklist.setText("");
-            if (!supportsPreparation) requiredPlugins.setText("");
-            if (!supportsPreparation) strategyWiki.setSelectedItem("");
-            if (boss) world.setText("");
-            if ("MASS".equals(type.getSelectedItem()) && world.getText().trim().isEmpty()) world.setText("366");
-        });
+        JCheckBox massCodewordRequired = new JCheckBox("Codewoord nodig");
+        if (editing) massCodewordRequired.setSelected(existing.codewordRequired);
 
-        JPanel form = new JPanel(new GridLayout(0, 2, 6, 6));
-        add(form, "Soort", type); add(form, "Titel", title); add(form, "Start (bijv. 2026-08-01 20:00)", start);
-        add(form, "Einde (bijv. 2026-08-01 22:00)", end); add(form, "Wereld (learner/mass)", world); add(form, "Host", host);
-        add(form, "Omschrijving", description); add(form, "Voorbereiding (learner/mass; scheid met ;)", checklist);
-        add(form, "Plugin zoeken (minimaal 2 letters)", pluginSearch);
-        add(form, "Gevonden Plugin Hub-plugin", pluginResults);
-        add(form, "", addPlugin);
-        add(form, "Gekozen plugins", requiredPlugins);
-        add(form, "Strategie (snelkeuze)", strategyWiki);
-        add(form, editing ? "Codewoord (boss; leeg = behouden)" : "Codewoord (alleen boss)", codeword);
+        JPanel form = new JPanel();
+        form.setLayout(new BoxLayout(form, BoxLayout.Y_AXIS));
+        JPanel worldRow = row("Wereld (learner/mass)", world);
+        JPanel preparationRow = row("Voorbereiding (; gescheiden)", checklist);
+        JPanel pluginSearchRow = row("Plugin zoeken (min. 2 tekens)", pluginSearch);
+        JPanel pluginResultsRow = row("Gevonden Plugin Hub-plugin", pluginResults);
+        JPanel addPluginRow = row("", addPlugin);
+        JPanel selectedPluginsRow = row("Gekozen plug-ins", requiredPlugins);
+        JPanel strategyRow = row("Strategie (snelkeuze)", strategyWiki);
+        JPanel massCodewordRow = row("Mass-event", massCodewordRequired);
+        JPanel driveRow = row("Drive-link (optioneel)", driveUrl);
+        JPanel codewordRow = row(editing ? "Codewoord (leeg = behouden)" : "Codewoord", codeword);
+        form.add(row("Eventtype", type)); form.add(row("Titel", title));
+        form.add(row("Startdatum/tijd", dateTimeFields(startDate, startTime))); form.add(row("Einddatum/tijd", dateTimeFields(endDate, endTime)));
+        form.add(worldRow); form.add(row("Host (RSN)", host)); form.add(row("Beschrijving", description));
+        form.add(preparationRow); form.add(pluginSearchRow); form.add(pluginResultsRow); form.add(addPluginRow);
+        form.add(selectedPluginsRow); form.add(strategyRow); form.add(massCodewordRow); form.add(driveRow); form.add(codewordRow);
+
+        Runnable applyTypeRules = () ->
+        {
+            boolean boss = "BOSS".equals(type.getSelectedItem());
+            boolean mass = "MASS".equals(type.getSelectedItem());
+            boolean learner = "LEARNER".equals(type.getSelectedItem());
+            boolean supportsResources = learner || mass;
+            boolean needsCodeword = boss || (mass && massCodewordRequired.isSelected());
+            worldRow.setVisible(!boss);
+            preparationRow.setVisible(learner);
+            pluginSearchRow.setVisible(supportsResources); pluginResultsRow.setVisible(supportsResources);
+            addPluginRow.setVisible(supportsResources); selectedPluginsRow.setVisible(supportsResources); strategyRow.setVisible(supportsResources);
+            massCodewordRow.setVisible(mass); driveRow.setVisible(boss); codewordRow.setVisible(needsCodeword);
+            if (!needsCodeword) codeword.setText("");
+            if (!boss) driveUrl.setText("");
+            if (!learner) checklist.setText("");
+            if (!supportsResources) { requiredPlugins.setText(""); strategyWiki.setSelectedItem(""); }
+            if (boss) world.setText("");
+            if (mass && world.getText().trim().isEmpty()) world.setText("366");
+            form.revalidate(); form.repaint();
+        };
+        type.addActionListener(e -> applyTypeRules.run());
+        massCodewordRequired.addActionListener(e -> applyTypeRules.run());
+        applyTypeRules.run();
 
         while (true)
         {
-            if (JOptionPane.showConfirmDialog(null, form, editing ? "Dutch Nations - event aanpassen" : "Dutch Nations - event maken",
+            if (JOptionPane.showConfirmDialog(null, form, editing ? "Dutch Nation - event aanpassen" : "Dutch Nation - event maken",
             JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE) != JOptionPane.OK_OPTION) return null;
         try
         {
             EventDraft draft = new EventDraft();
             draft.type = (String) type.getSelectedItem(); draft.title = title.getText().trim();
-            LocalDateTime localStart = parseDateTime(start.getText(), "startdatum en starttijd");
-            LocalDateTime localEnd = parseDateTime(end.getText(), "einddatum en eindtijd");
+            LocalDateTime localStart = parseDateTime(startDate.getText() + " " + startTime.getText(), "startdatum en starttijd");
+            LocalDateTime localEnd = parseDateTime(endDate.getText() + " " + endTime.getText(), "einddatum en eindtijd");
             if (!localEnd.isAfter(localStart) && localEnd.toLocalDate().isBefore(localStart.toLocalDate()))
             {
                 LocalDateTime suggestedEnd = LocalDateTime.of(localStart.toLocalDate(), localEnd.toLocalTime());
@@ -164,21 +192,24 @@ final class EventEditorDialog
                     if (choice == JOptionPane.YES_OPTION)
                     {
                         localEnd = suggestedEnd;
-                        end.setText(suggestedEnd.format(INPUT));
+                        endDate.setText(suggestedEnd.toLocalDate().toString()); endTime.setText(suggestedEnd.toLocalTime().format(DateTimeFormatter.ofPattern("HH:mm")));
                     }
                 }
             }
             draft.startsAt = localStart.atZone(ZoneId.systemDefault()).toOffsetDateTime().toString();
             draft.endsAt = localEnd.atZone(ZoneId.systemDefault()).toOffsetDateTime().toString();
             draft.world = world.getText().trim(); draft.host = host.getText().trim();
-            draft.description = description.getText().trim(); draft.codeword = codeword.getText().trim();
+            draft.description = description.getText().trim(); draft.codeword = codeword.getText().trim(); draft.driveUrl = driveUrl.getText().trim();
             draft.checklist = checklist.getText().trim();
             draft.requiredPlugins = requiredPlugins.getText().trim();
+            draft.codewordRequired = "BOSS".equals(draft.type) || ("MASS".equals(draft.type) && massCodewordRequired.isSelected());
             Object selectedStrategy = strategyWiki.getEditor().getItem();
             draft.strategyWikiUrl = selectedStrategy == null ? "" : strategyWikiUrl(selectedStrategy.toString());
-            boolean learner = "LEARNER".equals(draft.type);
             boolean boss = "BOSS".equals(draft.type);
-            boolean supportsPreparation = !boss;
+            boolean mass = "MASS".equals(draft.type);
+            boolean requiresCodeword = draft.codewordRequired;
+            boolean learner = "LEARNER".equals(draft.type);
+            boolean supportsResources = learner || mass;
             OffsetDateTime parsedStart = OffsetDateTime.parse(draft.startsAt);
             OffsetDateTime parsedEnd = OffsetDateTime.parse(draft.endsAt);
             if (draft.title.isEmpty()) throw new IllegalArgumentException("Vul een titel in.");
@@ -196,15 +227,20 @@ final class EventEditorDialog
             {
                 JOptionPane.showMessageDialog(null, "Een learner- of mass-event heeft een wereld nodig.", "Controle", JOptionPane.WARNING_MESSAGE); continue;
             }
-            if (boss && draft.codeword.isEmpty() && !editing)
+            if (draft.host.isEmpty())
             {
-                JOptionPane.showMessageDialog(null, "Een boss-event heeft een codewoord nodig.", "Controle", JOptionPane.WARNING_MESSAGE); continue;
+                markInvalid(host);
+                JOptionPane.showMessageDialog(null, "Vul voor elk event een host in.", "Controle", JOptionPane.WARNING_MESSAGE); continue;
             }
-            if (!boss) draft.codeword = "";
-            if (!supportsPreparation) draft.checklist = "";
-            if (!supportsPreparation) draft.requiredPlugins = "";
-            if (!supportsPreparation) draft.strategyWikiUrl = "";
-            if (boss) draft.world = "";
+            if (requiresCodeword && draft.codeword.isEmpty() && !editing)
+            {
+                markInvalid(codeword);
+                JOptionPane.showMessageDialog(null, "Een boss- of mass-event heeft een codewoord nodig.", "Controle", JOptionPane.WARNING_MESSAGE); continue;
+            }
+            if (!requiresCodeword) draft.codeword = "";
+            if (!learner) draft.checklist = "";
+            if (!supportsResources) { draft.requiredPlugins = ""; draft.strategyWikiUrl = ""; }
+            if (boss) draft.world = ""; else draft.driveUrl = "";
             return draft;
         }
             catch (IllegalArgumentException e)
@@ -214,6 +250,11 @@ final class EventEditorDialog
         }
     }
 
+    private static void markInvalid(JTextField field)
+    {
+        field.setBorder(BorderFactory.createLineBorder(new Color(215, 60, 60), 2));
+        field.requestFocusInWindow();
+    }
     static String strategyWikiUrl(String name)
     {
         if (name == null) return "";
@@ -258,5 +299,18 @@ final class EventEditorDialog
         throw new IllegalArgumentException("Controleer de " + fieldName + ". Gebruik bijvoorbeeld 2026-08-01 20:00.");
     }
 
-    private static void add(JPanel panel, String label, java.awt.Component field) { panel.add(new JLabel(label)); panel.add(field); }
+    private static JPanel dateTimeFields(JTextField date, JTextField time)
+    {
+        JPanel fields = new JPanel(new GridLayout(1, 2, 6, 0));
+        fields.add(date); fields.add(time); return fields;
+    }
+
+    private static JPanel row(String label, java.awt.Component field)
+    {
+        JPanel row = new JPanel(new GridLayout(1, 2, 6, 6));
+        row.add(new JLabel(label)); row.add(field);
+        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
+        return row;
+    }
+
 }
