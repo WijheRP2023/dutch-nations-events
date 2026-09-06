@@ -20,6 +20,7 @@ import javax.swing.SwingWorker;
 import javax.swing.SwingUtilities;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
+import net.runelite.api.GameState;
 import net.runelite.api.clan.ClanChannel;
 import net.runelite.api.clan.ClanChannelMember;
 import net.runelite.api.clan.ClanSettings;
@@ -80,7 +81,7 @@ public class DutchNationsPlugin extends Plugin
         service = new FeedService(http, gson);
         womService = new WomCompetitionService(http, gson);
         panel = new DutchNationsPanel(config, this::refresh, this::canManage, this::isOwner,
-            this::isAdministrator, this::canManageRoles, this::fetchRoles,
+            this::isAdministrator, this::isLearnerHost, this::canManageRoles, this::fetchRoles,
             this::createEvent, this::deleteEvent, this::saveRole);
         ClanFeed cached = service.parse(configs.getConfiguration(DutchNationsConfig.GROUP, CACHE));
         if (cached != null) { feed = cached; panel.update(cached, "Opgeslagen versie; update wordt gecontroleerd."); }
@@ -131,14 +132,21 @@ public class DutchNationsPlugin extends Plugin
 
     @Subscribe public void onConfigChanged(ConfigChanged e)
     {
-        if (DutchNationsConfig.GROUP.equals(e.getGroup()) && !CACHE.equals(e.getKey())) refresh();
+        if (DutchNationsConfig.GROUP.equals(e.getGroup()) && !CACHE.equals(e.getKey()))
+        {
+            if ("managementToken".equals(e.getKey())) refreshRole();
+            refresh();
+        }
     }
 
-    @Subscribe public void onGameStateChanged(GameStateChanged ignored)
+    @Subscribe public void onGameStateChanged(GameStateChanged event)
     {
-        authenticatedRole = "";
-        refreshRole();
-        if (panel != null) SwingUtilities.invokeLater(panel::permissionsChanged);
+        if (event.getGameState() == GameState.LOGGED_IN) refreshRole();
+        else if (event.getGameState() == GameState.LOGIN_SCREEN)
+        {
+            authenticatedRole = "";
+            if (panel != null) SwingUtilities.invokeLater(panel::permissionsChanged);
+        }
     }
 
     @Subscribe
@@ -231,9 +239,10 @@ public class DutchNationsPlugin extends Plugin
     private boolean canManage()
     {
         return isOwner() || "OWNER".equals(authenticatedRole) || "ADMINISTRATOR".equals(authenticatedRole) ||
-            "MANAGER".equals(authenticatedRole) || "EVENT_HOST".equals(authenticatedRole);
+            "MANAGER".equals(authenticatedRole) || "EVENT_HOST".equals(authenticatedRole) || "LEARNER_HOST".equals(authenticatedRole);
     }
     private boolean isAdministrator() { return "ADMINISTRATOR".equals(authenticatedRole); }
+    private boolean isLearnerHost() { return "LEARNER_HOST".equals(authenticatedRole); }
     private boolean canManageRoles() { return isOwner() || isAdministrator(); }
     private boolean isOwner()
     {
@@ -244,6 +253,7 @@ public class DutchNationsPlugin extends Plugin
     private void createEvent(EventDraft draft)
     {
         if (!canManage()) { panel.status("Je RuneScape-naam heeft geen managementrechten."); return; }
+        if (isLearnerHost() && !"LEARNER".equalsIgnoreCase(draft.type)) { panel.status("Learner Hosts mogen alleen learner-events maken."); return; }
         ClanFeed current = feed;
         if (current != null)
         {
@@ -357,7 +367,7 @@ public class DutchNationsPlugin extends Plugin
     }
     private void fetchRoles()
     {
-        if (!isOwner() || service == null || config.managementToken().trim().isEmpty()) return;
+        if (!canManageRoles() || service == null || config.managementToken().trim().isEmpty()) return;
         service.fetchRoles(FeedService.ROLES_URL, config.managementToken(), new FeedService.RolesListener()
         {
             @Override public void success(java.util.List<ManagementRole> roles)

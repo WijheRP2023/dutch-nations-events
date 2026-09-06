@@ -73,6 +73,15 @@ public class DutchNationsApiSecurityTest
     }
 
     @Test
+    public void learnerHostCanOnlyManageLearnerEvents()
+    {
+        DutchNationsApi.Actor learnerHost = new DutchNationsApi.Actor("learner", "LEARNER_HOST");
+        assertTrue(learnerHost.canManageEvents());
+        assertTrue(learnerHost.canManageEventType("LEARNER"));
+        assertFalse(learnerHost.canManageEventType("BOSS"));
+        assertFalse(learnerHost.canManageEventType("MASS"));
+    }
+    @Test
     public void assignedRolesCanBeDetectedAndRemoved() throws Exception
     {
         Path directory = Files.createTempDirectory("dutch-nations-role-test");

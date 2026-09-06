@@ -114,6 +114,7 @@ public final class DutchNationsApi
             if (error != null) { sendError(exchange, 400, error); return; }
             event.id = UUID.randomUUID().toString();
             event.type = event.type.toUpperCase(Locale.ROOT);
+            if (!actor.canManageEventType(event.type)) { sendError(exchange, 403, "Deze rol mag alleen learner-events beheren"); return; }
             if ("LEARNER".equals(event.type) || "MASS".equals(event.type)) event.codeword = "";
             if ("BOSS".equals(event.type)) { event.checklist = ""; event.requiredPlugins = ""; event.strategyWikiUrl = ""; }
             if ("BOSS".equals(event.type)) event.world = "";
@@ -131,7 +132,10 @@ public final class DutchNationsApi
             String prefix = "/api/events/";
             String path = exchange.getRequestURI().getPath();
             if (!path.startsWith(prefix) || path.length() <= prefix.length()) { sendError(exchange, 400, "Event-id ontbreekt"); return; }
-            boolean removed = store.deleteEvent(path.substring(prefix.length()));
+            Event existing = store.event(path.substring(prefix.length()));
+            if (existing == null) { sendError(exchange, 404, "Event niet gevonden"); return; }
+            if (!actor.canManageEventType(existing.type)) { sendError(exchange, 403, "Deze rol mag alleen learner-events beheren"); return; }
+            boolean removed = store.deleteEvent(existing.id);
             if (!removed) { sendError(exchange, 404, "Event niet gevonden"); return; }
             send(exchange, 200, map("deleted", true));
             return;
@@ -148,7 +152,7 @@ public final class DutchNationsApi
             String query = exchange.getRequestURI().getRawQuery();
             if (query != null && query.contains("all=true"))
             {
-                if (!actor.owner()) { sendError(exchange, 403, "Alleen de owner mag het rollenoverzicht bekijken"); return; }
+                if (!(actor.owner() || actor.administrator())) { sendError(exchange, 403, "Geen rechten om het rollenoverzicht te bekijken"); return; }
                 send(exchange, 200, map("roles", store.roles())); return;
             }
             Map<String, Object> response = new HashMap<>();
@@ -165,8 +169,18 @@ public final class DutchNationsApi
         { sendError(exchange, 400, "De vaste owner heavenskill kan niet worden gewijzigd"); return; }
         if (actor.administrator())
         {
-            if (!"MANAGER".equals(role)) { sendError(exchange, 403, "Administrators mogen alleen managers toevoegen"); return; }
-            if (store.hasAssignedRole(change.rsn)) { sendError(exchange, 403, "Administrators mogen bestaande rollen niet wijzigen"); return; }
+            Member target = store.member(change.rsn);
+            if ("REMOVE".equals(role))
+            {
+                if (target == null) { sendError(exchange, 404, "Rol niet gevonden"); return; }
+                if (!("MANAGER".equalsIgnoreCase(target.role) || "EVENT_HOST".equalsIgnoreCase(target.role) || "LEARNER_HOST".equalsIgnoreCase(target.role)))
+                { sendError(exchange, 403, "Administrators mogen alleen lagere rollen intrekken"); return; }
+            }
+            else
+            {
+                if (!"MANAGER".equals(role)) { sendError(exchange, 403, "Administrators mogen alleen managers toevoegen"); return; }
+                if (target != null) { sendError(exchange, 403, "Administrators mogen bestaande rollen niet wijzigen"); return; }
+            }
         }
         if ("ROTATE".equals(role))
         {
@@ -185,7 +199,7 @@ public final class DutchNationsApi
             send(exchange, 200, map("removed", true));
             return;
         }
-        if (!("ADMINISTRATOR".equals(role) || "MANAGER".equals(role) || "EVENT_HOST".equals(role)))
+        if (!("ADMINISTRATOR".equals(role) || "MANAGER".equals(role) || "EVENT_HOST".equals(role) || "LEARNER_HOST".equals(role)))
         { sendError(exchange, 400, "Ongeldige rol"); return; }
         String newToken = randomToken();
         store.saveRole(change.rsn, role, sha256(newToken));
@@ -339,6 +353,10 @@ public final class DutchNationsApi
             boolean removed = state.events.removeIf(event -> id.equals(event.id));
             if (removed) changed();
             return removed;
+        }
+        synchronized Event event(String id)
+        {
+            return state.events.stream().filter(value -> id.equals(value.id)).findFirst().orElse(null);
         }
         synchronized void saveRole(String rsn, String role, String tokenHash)
         {
@@ -509,6 +527,8 @@ public final class DutchNationsApi
         boolean administrator() { return "ADMINISTRATOR".equalsIgnoreCase(role); }
         boolean manager() { return "MANAGER".equalsIgnoreCase(role); }
         boolean eventHost() { return "EVENT_HOST".equalsIgnoreCase(role); }
-        boolean canManageEvents() { return owner() || administrator() || manager() || eventHost(); }
+        boolean learnerHost() { return "LEARNER_HOST".equalsIgnoreCase(role); }
+        boolean canManageEvents() { return owner() || administrator() || manager() || eventHost() || learnerHost(); }
+        boolean canManageEventType(String type) { return !learnerHost() || "LEARNER".equalsIgnoreCase(type); }
     }
 }

@@ -30,9 +30,9 @@ final class EventEditorDialog
     );
     private EventEditorDialog() { }
 
-    static EventDraft show(List<String> pluginCatalog)
+    static EventDraft show(List<String> pluginCatalog, boolean learnerOnly)
     {
-        JComboBox<String> type = new JComboBox<>(new String[]{"LEARNER", "BOSS", "MASS"});
+        JComboBox<String> type = new JComboBox<>(learnerOnly ? new String[]{"LEARNER"} : new String[]{"LEARNER", "BOSS", "MASS"});
         JTextField title = new JTextField();
         JTextField start = new JTextField(LocalDateTime.now().plusDays(1).withSecond(0).withNano(0).format(INPUT));
         JTextField end = new JTextField(LocalDateTime.now().plusDays(1).plusHours(2).withSecond(0).withNano(0).format(INPUT));

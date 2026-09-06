@@ -52,6 +52,7 @@ final class DutchNationsPanel extends PluginPanel
     private final BooleanSupplier canManage;
     private final BooleanSupplier isOwner;
     private final BooleanSupplier isAdministrator;
+    private final BooleanSupplier isLearnerHost;
     private final BooleanSupplier canManageRoles;
     private final Runnable loadRoles;
     private final Consumer<EventDraft> saveEvent;
@@ -71,11 +72,11 @@ final class DutchNationsPanel extends PluginPanel
     private boolean competitionLoaded;
 
     DutchNationsPanel(DutchNationsConfig config, Runnable refresh, BooleanSupplier canManage, BooleanSupplier isOwner,
-        BooleanSupplier isAdministrator, BooleanSupplier canManageRoles, Runnable loadRoles,
+        BooleanSupplier isAdministrator, BooleanSupplier isLearnerHost, BooleanSupplier canManageRoles, Runnable loadRoles,
         Consumer<EventDraft> saveEvent, Consumer<String> deleteEvent, Consumer<RoleDraft> saveRole)
     {
         this.config = config; this.refresh = refresh; this.canManage = canManage; this.isOwner = isOwner;
-        this.isAdministrator = isAdministrator; this.canManageRoles = canManageRoles; this.loadRoles = loadRoles;
+        this.isAdministrator = isAdministrator; this.isLearnerHost = isLearnerHost; this.canManageRoles = canManageRoles; this.loadRoles = loadRoles;
         this.saveEvent = saveEvent; this.deleteEvent = deleteEvent; this.saveRole = saveRole;
         setLayout(new BoxLayout(this, BoxLayout.Y_AXIS)); setBackground(BACKGROUND); render();
     }
@@ -199,7 +200,7 @@ final class DutchNationsPanel extends PluginPanel
         if (canManage.getAsBoolean())
         {
             actions.add(Box.createRigidArea(new Dimension(0, 5))); JButton create = button("+ Event maken");
-            create.addActionListener(event -> { EventDraft draft = EventEditorDialog.show(pluginCatalog); if (draft != null) saveEvent.accept(draft); }); actions.add(create);
+            create.addActionListener(event -> { EventDraft draft = EventEditorDialog.show(pluginCatalog, isLearnerHost.getAsBoolean()); if (draft != null) saveEvent.accept(draft); }); actions.add(create);
         }
         if (canManageRoles.getAsBoolean())
         {
@@ -470,7 +471,7 @@ final class DutchNationsPanel extends PluginPanel
         heading.setBorder(BorderFactory.createCompoundBorder(
             BorderFactory.createMatteBorder(0, 5, 0, 0, GOLD), BorderFactory.createEmptyBorder(7, 8, 7, 8)));
         heading.add(label("MANAGEMENTROLLEN", GOLD, Font.BOLD, 13f));
-        heading.add(bodyText("Alleen beveiligd zichtbaar voor de owner.", Color.WHITE, Font.PLAIN, 12f));
+        heading.add(bodyText("Beveiligd zichtbaar voor owner en administrators.", Color.WHITE, Font.PLAIN, 12f));
         add(heading);
         JButton addRole = button("+ Managementrol toevoegen");
         addRole.addActionListener(event ->
@@ -483,8 +484,8 @@ final class DutchNationsPanel extends PluginPanel
         {
             add(Box.createRigidArea(new Dimension(0, 7)));
             JPanel message = card(DARK_STONE);
-            message.add(bodyText("Administrators kunnen managers toevoegen. Alleen de owner kan de volledige rollenlijst beheren.", Color.LIGHT_GRAY, Font.PLAIN, 12f));
-            add(message); return;
+            message.add(bodyText("Administrators kunnen managers toevoegen en lagere rollen intrekken.", Color.LIGHT_GRAY, Font.PLAIN, 12f));
+            add(message);
         }
         if (!blank(rolesMessage))
         {
@@ -508,7 +509,9 @@ final class DutchNationsPanel extends PluginPanel
                 }
                 catch (RuntimeException ignored) { }
             }
-            if (!"heavenskill".equalsIgnoreCase(role.rsn))
+            boolean owner = isOwner.getAsBoolean();
+            boolean lowerRole = "MANAGER".equalsIgnoreCase(role.role) || "EVENT_HOST".equalsIgnoreCase(role.role) || "LEARNER_HOST".equalsIgnoreCase(role.role);
+            if (owner && !"heavenskill".equalsIgnoreCase(role.rsn))
             {
                 JButton rotate = button("Token vernieuwen");
                 rotate.addActionListener(event ->
@@ -526,6 +529,17 @@ final class DutchNationsPanel extends PluginPanel
                 });
                 roleCard.add(Box.createRigidArea(new Dimension(0, 6))); roleCard.add(rotate);
                 roleCard.add(Box.createRigidArea(new Dimension(0, 5))); roleCard.add(remove);
+            }
+            else if (isAdministrator.getAsBoolean() && lowerRole)
+            {
+                JButton remove = button("Rol intrekken"); remove.setBackground(new Color(105, 28, 31));
+                remove.addActionListener(event ->
+                {
+                    int answer = JOptionPane.showConfirmDialog(this, "Rol van '" + role.rsn + "' definitief intrekken?",
+                        "Rol intrekken", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+                    if (answer == JOptionPane.YES_OPTION) saveRole.accept(new RoleDraft(role.rsn, "REMOVE"));
+                });
+                roleCard.add(Box.createRigidArea(new Dimension(0, 6))); roleCard.add(remove);
             }
             add(roleCard);
         }
