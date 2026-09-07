@@ -226,7 +226,8 @@ final class FeedService
                 if (blank(event.id) || blank(event.title) || (needsWorld && blank(event.world)) ||
                     !event.end().isAfter(event.start()) || unsafe(event.title) || unsafe(event.world) ||
                     unsafe(event.host) || unsafe(event.description) || unsafe(event.codeword) || unsafe(event.checklist) ||
-                    unsafe(event.requiredPlugins) || unsafe(event.driveUrl)) return null;
+                    unsafe(event.requiredPlugins) || unsafe(event.driveUrl) || unsafe(event.registrationUrl) || unsafe(event.registrationEndsAt)) return null;
+                if (!blank(event.registrationEndsAt)) { try { OffsetDateTime.parse(event.registrationEndsAt); } catch (RuntimeException ignored) { return null; } }
                 if ((boss || (mass && event.codewordRequired)) && !event.active(OffsetDateTime.now())) event.codeword = "";
             }
             return feed;

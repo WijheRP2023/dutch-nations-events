@@ -413,7 +413,17 @@ final class DutchNationsPanel extends PluginPanel
         JLabel badge = label(badgeText, Color.BLACK, Font.BOLD, 11f); badge.setOpaque(true); badge.setBackground(accent);
         JPanel topRow = new JPanel(); topRow.setOpaque(false); topRow.setLayout(new BoxLayout(topRow, BoxLayout.X_AXIS));
         topRow.add(badge); topRow.add(Box.createHorizontalGlue());
-        if ("BOSS".equalsIgnoreCase(event.type) && !blank(event.driveUrl))
+        OffsetDateTime now = OffsetDateTime.now();
+        if ("BOSS".equalsIgnoreCase(event.type) && registrationOpen(event, now))
+        {
+            JButton register = new JButton("Aanmelden");
+            register.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 10)); register.setMargin(new Insets(2, 6, 2, 6));
+            register.setForeground(new Color(200, 255, 210)); register.setBackground(new Color(35, 82, 55));
+            register.setMaximumSize(register.getPreferredSize());
+            register.addActionListener(click -> LinkBrowser.browse(event.registrationUrl));
+            topRow.add(register);
+        }
+        else if ("BOSS".equalsIgnoreCase(event.type) && !now.isBefore(event.start()) && !blank(event.driveUrl))
         {
             JButton drive = new JButton("Tussenstand");
             drive.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 10)); drive.setMargin(new Insets(2, 6, 2, 6));
@@ -500,6 +510,13 @@ if (event.supportsPreparation() && !blank(event.strategyWikiUrl))
             panel.add(Box.createRigidArea(new Dimension(0, 7))); panel.add(remove);
         }
         return panel;
+    }
+
+    private static boolean registrationOpen(ClanFeed.ClanEvent event, OffsetDateTime now)
+    {
+        if (blank(event.registrationUrl) || blank(event.registrationEndsAt) || !now.isBefore(event.start())) return false;
+        try { return now.isBefore(OffsetDateTime.parse(event.registrationEndsAt)); }
+        catch (RuntimeException ignored) { return false; }
     }
 
     private void addManagementSection()

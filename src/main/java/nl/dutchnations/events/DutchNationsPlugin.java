@@ -169,12 +169,12 @@ public class DutchNationsPlugin extends Plugin
         for (ClanFeed.ClanEvent event : current.events)
         {
             long secondsUntilStart = Duration.between(now, event.start()).getSeconds();
-            if (shouldNotify(event) && secondsUntilStart > 0 && secondsUntilStart <= config.reminderMinutes() * 60L && remindedEvents.add(event.id))
+            if (shouldNotify(event) && secondsUntilStart > 0 && secondsUntilStart <= config.reminderMinutes() * 60L && remindedEvents.add(notificationKey(event)))
             {
                 long minutes = Math.max(1, (secondsUntilStart + 59) / 60);
                 queueEventMessage(event, "start over " + minutes + (minutes == 1 ? " minuut" : " minuten"));
             }
-            if (config.notifyAtStart() && shouldNotify(event) && event.active(now) && announcedEvents.add(event.id))
+            if (config.notifyAtStart() && shouldNotify(event) && event.active(now) && announcedEvents.add(notificationKey(event)))
             {
                 queueEventMessage(event, "is nu gestart");
             }
@@ -206,6 +206,11 @@ public class DutchNationsPlugin extends Plugin
         if (signature.equals(clanMembersSignature)) return;
         clanMembersSignature = signature;
         SwingUtilities.invokeLater(() -> { if (panel != null) panel.updateOnlineMembers(members, channel != null); });
+    }
+
+    private static String notificationKey(ClanFeed.ClanEvent event)
+    {
+        return event.id + "@" + event.startsAt;
     }
 
     private void queueEventMessage(ClanFeed.ClanEvent event, String timing)

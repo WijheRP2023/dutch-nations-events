@@ -14,6 +14,8 @@ final class EventDraft
     String requiredPlugins;
     String strategyWikiUrl;
     String driveUrl;
+    String registrationUrl;
+    String registrationEndsAt;
     boolean codewordRequired;
     boolean allowConflict;
 }

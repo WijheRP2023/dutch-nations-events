@@ -60,6 +60,9 @@ final class EventEditorDialog
         JTextField description = new JTextField();
         JTextField codeword = new JTextField();
         JTextField driveUrl = new JTextField();
+        JTextField registrationUrl = new JTextField();
+        JTextField registrationDeadlineDate = new JTextField(defaultStart.toLocalDate().toString());
+        JTextField registrationDeadlineTime = new JTextField(defaultStart.toLocalTime().format(DateTimeFormatter.ofPattern("HH:mm")));
         JTextField checklist = new JTextField();
         JTextField requiredPlugins = new JTextField();
         JComboBox<String> strategyWiki = new JComboBox<>(new String[]{
@@ -117,6 +120,13 @@ final class EventEditorDialog
             host.setText(existing.host == null ? "" : existing.host);
             description.setText(existing.description == null ? "" : existing.description);
             driveUrl.setText(existing.driveUrl == null ? "" : existing.driveUrl);
+            registrationUrl.setText(existing.registrationUrl == null ? "" : existing.registrationUrl);
+            if (existing.registrationEndsAt != null && !existing.registrationEndsAt.trim().isEmpty())
+            {
+                LocalDateTime registrationEnd = OffsetDateTime.parse(existing.registrationEndsAt).atZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime();
+                registrationDeadlineDate.setText(registrationEnd.toLocalDate().toString());
+                registrationDeadlineTime.setText(registrationEnd.toLocalTime().format(DateTimeFormatter.ofPattern("HH:mm")));
+            }
             checklist.setText(existing.checklist == null ? "" : existing.checklist);
             requiredPlugins.setText(existing.requiredPlugins == null ? "" : existing.requiredPlugins);
             for (int i = 0; i < strategyWiki.getItemCount(); i++)
@@ -139,13 +149,15 @@ final class EventEditorDialog
         JPanel selectedPluginsRow = row("Gekozen plug-ins", requiredPlugins);
         JPanel strategyRow = row("Strategie (snelkeuze)", strategyWiki);
         JPanel massCodewordRow = row("Mass-event", massCodewordRequired);
-        JPanel driveRow = row("Drive-link (optioneel)", driveUrl);
+        JPanel driveRow = row("Tussenstand-link (optioneel)", driveUrl);
+        JPanel registrationLinkRow = row("Discord-aanmeldlink", registrationUrl);
+        JPanel registrationDeadlineRow = row("Aanmelden tot", dateTimeFields(registrationDeadlineDate, registrationDeadlineTime));
         JPanel codewordRow = row(editing ? "Codewoord (leeg = behouden)" : "Codewoord", codeword);
         form.add(row("Eventtype", type)); form.add(row("Titel", title));
         form.add(row("Startdatum/tijd", dateTimeFields(startDate, startTime))); form.add(row("Einddatum/tijd", dateTimeFields(endDate, endTime)));
         form.add(worldRow); form.add(row("Host (RSN)", host)); form.add(row("Beschrijving", description));
         form.add(preparationRow); form.add(pluginSearchRow); form.add(pluginResultsRow); form.add(addPluginRow);
-        form.add(selectedPluginsRow); form.add(strategyRow); form.add(massCodewordRow); form.add(driveRow); form.add(codewordRow);
+        form.add(selectedPluginsRow); form.add(strategyRow); form.add(massCodewordRow); form.add(driveRow); form.add(registrationLinkRow); form.add(registrationDeadlineRow); form.add(codewordRow);
 
         Runnable applyTypeRules = () ->
         {
@@ -158,14 +170,15 @@ final class EventEditorDialog
             preparationRow.setVisible(learner);
             pluginSearchRow.setVisible(supportsResources); pluginResultsRow.setVisible(supportsResources);
             addPluginRow.setVisible(supportsResources); selectedPluginsRow.setVisible(supportsResources); strategyRow.setVisible(supportsResources);
-            massCodewordRow.setVisible(mass); driveRow.setVisible(boss); codewordRow.setVisible(needsCodeword);
+            massCodewordRow.setVisible(mass); driveRow.setVisible(boss); registrationLinkRow.setVisible(boss); registrationDeadlineRow.setVisible(boss); codewordRow.setVisible(needsCodeword);
             if (!needsCodeword) codeword.setText("");
-            if (!boss) driveUrl.setText("");
+            if (!boss) { driveUrl.setText(""); registrationUrl.setText(""); }
             if (!learner) checklist.setText("");
             if (!supportsResources) { requiredPlugins.setText(""); strategyWiki.setSelectedItem(""); }
             if (boss) world.setText("");
             if (mass && world.getText().trim().isEmpty()) world.setText("366");
             form.revalidate(); form.repaint();
+            repackParentWindow(form);
         };
         type.addActionListener(e -> applyTypeRules.run());
         massCodewordRequired.addActionListener(e -> applyTypeRules.run());
@@ -200,6 +213,12 @@ final class EventEditorDialog
             draft.endsAt = localEnd.atZone(ZoneId.systemDefault()).toOffsetDateTime().toString();
             draft.world = world.getText().trim(); draft.host = host.getText().trim();
             draft.description = description.getText().trim(); draft.codeword = codeword.getText().trim(); draft.driveUrl = driveUrl.getText().trim();
+            draft.registrationUrl = registrationUrl.getText().trim();
+            if (!draft.registrationUrl.isEmpty())
+            {
+                LocalDateTime registrationEnd = parseDateTime(registrationDeadlineDate.getText() + " " + registrationDeadlineTime.getText(), "aanmelddeadline");
+                draft.registrationEndsAt = registrationEnd.atZone(ZoneId.systemDefault()).toOffsetDateTime().toString();
+            }
             draft.checklist = checklist.getText().trim();
             draft.requiredPlugins = requiredPlugins.getText().trim();
             draft.codewordRequired = "BOSS".equals(draft.type) || ("MASS".equals(draft.type) && massCodewordRequired.isSelected());
@@ -212,6 +231,8 @@ final class EventEditorDialog
             boolean supportsResources = learner || mass;
             OffsetDateTime parsedStart = OffsetDateTime.parse(draft.startsAt);
             OffsetDateTime parsedEnd = OffsetDateTime.parse(draft.endsAt);
+            if (boss && !draft.registrationUrl.isEmpty() && OffsetDateTime.parse(draft.registrationEndsAt).isAfter(parsedStart))
+                throw new IllegalArgumentException("De aanmelddeadline mag niet na de starttijd liggen.");
             if (draft.title.isEmpty()) throw new IllegalArgumentException("Vul een titel in.");
             if (!parsedEnd.isAfter(parsedStart)) throw new IllegalArgumentException("De einddatum en eindtijd moeten na de start liggen.");
             long durationHours = Duration.between(parsedStart, parsedEnd).toHours();
@@ -240,7 +261,7 @@ final class EventEditorDialog
             if (!requiresCodeword) draft.codeword = "";
             if (!learner) draft.checklist = "";
             if (!supportsResources) { draft.requiredPlugins = ""; draft.strategyWikiUrl = ""; }
-            if (boss) draft.world = ""; else draft.driveUrl = "";
+            if (boss) draft.world = ""; else { draft.driveUrl = ""; draft.registrationUrl = ""; draft.registrationEndsAt = ""; }
             return draft;
         }
             catch (IllegalArgumentException e)
@@ -297,6 +318,16 @@ final class EventEditorDialog
             catch (DateTimeParseException ignored) { }
         }
         throw new IllegalArgumentException("Controleer de " + fieldName + ". Gebruik bijvoorbeeld 2026-08-01 20:00.");
+    }
+
+    private static void repackParentWindow(JPanel form)
+    {
+        Window window = SwingUtilities.getWindowAncestor(form);
+        if (window != null)
+        {
+            window.pack();
+            window.setLocationRelativeTo(null);
+        }
     }
 
     private static JPanel dateTimeFields(JTextField date, JTextField time)
