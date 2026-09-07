@@ -118,7 +118,7 @@ public final class DutchNationsApi
             if ("BOSS".equals(event.type)) event.codewordRequired = true;
             if ("LEARNER".equals(event.type)) { event.codeword = ""; event.codewordRequired = false; }
             if ("MASS".equals(event.type) && !event.codewordRequired) event.codeword = "";
-            if ("BOSS".equals(event.type)) { event.checklist = ""; event.requiredPlugins = ""; event.strategyWikiUrl = ""; } else event.driveUrl = "";
+            if ("BOSS".equals(event.type)) { event.checklist = ""; event.requiredPlugins = ""; event.strategyWikiUrl = ""; } else { event.driveUrl = ""; event.registrationUrl = ""; event.registrationEndsAt = ""; }
             if ("BOSS".equals(event.type)) event.world = "";
             Event conflict = store.findConflict(event);
             if (conflict != null && !event.allowConflict)
@@ -148,7 +148,7 @@ public final class DutchNationsApi
             if ("BOSS".equals(event.type)) event.codewordRequired = true;
             if ("LEARNER".equals(event.type)) { event.codeword = ""; event.codewordRequired = false; }
             if ("MASS".equals(event.type) && !event.codewordRequired) event.codeword = "";
-            if ("BOSS".equals(event.type)) { event.checklist = ""; event.requiredPlugins = ""; event.strategyWikiUrl = ""; event.world = ""; } else event.driveUrl = "";
+            if ("BOSS".equals(event.type)) { event.checklist = ""; event.requiredPlugins = ""; event.strategyWikiUrl = ""; event.world = ""; } else { event.driveUrl = ""; event.registrationUrl = ""; event.registrationEndsAt = ""; }
             Event conflict = store.findConflict(event, existing.id);
             if (conflict != null && !event.allowConflict) { sendError(exchange, 409, "Event overlapt met " + conflict.title); return; }
             store.updateEvent(existing.id, event);
@@ -257,11 +257,18 @@ public final class DutchNationsApi
             OffsetDateTime start = OffsetDateTime.parse(event.startsAt);
             OffsetDateTime end = OffsetDateTime.parse(event.endsAt);
             if (!end.isAfter(start)) return "Eindtijd moet na starttijd liggen";
+            if (!blank(event.registrationUrl))
+            {
+                if (blank(event.registrationEndsAt)) return "Een Discord-aanmeldlink vereist een aanmelddeadline";
+                OffsetDateTime registrationEnd = OffsetDateTime.parse(event.registrationEndsAt);
+                if (registrationEnd.isAfter(start)) return "De aanmelddeadline mag niet na de starttijd liggen";
+            }
+            else if (!blank(event.registrationEndsAt)) return "Een aanmelddeadline vereist een Discord-aanmeldlink";
         }
         catch (RuntimeException ex) { return "Ongeldige ISO 8601-datum"; }
         if (!valid(event.title, 80) || !valid(event.host, 20) || !validOptional(event.description, 240) ||
             !validOptional(event.checklist, 400) || !validOptional(event.requiredPlugins, 300) ||
-            !validWikiUrl(event.strategyWikiUrl) || !validDriveUrl(event.driveUrl)) return "Eventtekst of link is ongeldig";
+            !validWikiUrl(event.strategyWikiUrl) || !validDriveUrl(event.driveUrl) || !validDiscordUrl(event.registrationUrl)) return "Eventtekst of link is ongeldig";
         if (("LEARNER".equals(type) || "MASS".equals(type)) && (blank(event.world) || !event.world.matches("\\d{3,4}"))) return "Geldig wereldnummer is verplicht";
         if (("BOSS".equals(type) || ("MASS".equals(type) && event.codewordRequired)) && !valid(event.codeword, 40)) return "Dit event vereist een geldig codewoord van maximaal 40 tekens";
         return null;
@@ -312,6 +319,23 @@ public final class DutchNationsApi
         }
         catch (RuntimeException exception) { return false; }
     }
+    private static boolean validDiscordUrl(String value)
+    {
+        if (blank(value)) return true;
+        if (!validOptional(value, 500)) return false;
+        try
+        {
+            URI uri = URI.create(value);
+            String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(Locale.ROOT);
+            String path = uri.getPath() == null ? "" : uri.getPath();
+            boolean invite = "discord.gg".equals(host) && path.length() > 1;
+            boolean discordPage = ("discord.com".equals(host) || "www.discord.com".equals(host)) &&
+                (path.startsWith("/invite/") || path.startsWith("/channels/"));
+            return "https".equalsIgnoreCase(uri.getScheme()) && uri.getUserInfo() == null && (invite || discordPage);
+        }
+        catch (RuntimeException exception) { return false; }
+    }
+
     private static boolean validDriveUrl(String value)
     {
         if (blank(value)) return true;
@@ -565,7 +589,7 @@ public final class DutchNationsApi
     static final class Event
     {
         String id; String startsAt; String endsAt; String type; String title;
-        String world; String host; String description; String codeword; String checklist; String requiredPlugins; String strategyWikiUrl; String driveUrl;
+        String world; String host; String description; String codeword; String checklist; String requiredPlugins; String strategyWikiUrl; String driveUrl; String registrationUrl; String registrationEndsAt;
         boolean codewordRequired;
         boolean allowConflict;
     }
