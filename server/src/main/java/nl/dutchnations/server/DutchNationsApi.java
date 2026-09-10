@@ -201,13 +201,16 @@ public final class DutchNationsApi
             if ("REMOVE".equals(role))
             {
                 if (target == null) { sendError(exchange, 404, "Rol niet gevonden"); return; }
-                if (!("MANAGER".equalsIgnoreCase(target.role) || "EVENT_HOST".equalsIgnoreCase(target.role) || "LEARNER_HOST".equalsIgnoreCase(target.role) || "TEACHER".equalsIgnoreCase(target.role)))
+                if (!("MANAGER".equalsIgnoreCase(target.role) || "LEARNER_HOST".equalsIgnoreCase(target.role) || "TEACHER".equalsIgnoreCase(target.role)))
                 { sendError(exchange, 403, "Administrators mogen alleen lagere rollen intrekken"); return; }
             }
             else
             {
-                if (!"MANAGER".equals(role)) { sendError(exchange, 403, "Administrators mogen alleen managers toevoegen"); return; }
-                if (target != null) { sendError(exchange, 403, "Administrators mogen bestaande rollen niet wijzigen"); return; }
+                if (!("MANAGER".equals(role) || "TEACHER".equals(role)))
+                { sendError(exchange, 403, "Administrators mogen alleen managers en teachers toekennen"); return; }
+                if (target != null && !("MANAGER".equalsIgnoreCase(target.role) ||
+                    "LEARNER_HOST".equalsIgnoreCase(target.role) || "TEACHER".equalsIgnoreCase(target.role)))
+                { sendError(exchange, 403, "Administrators mogen owner- en administratorrollen niet wijzigen"); return; }
             }
         }
         if ("ROTATE".equals(role))
@@ -227,7 +230,7 @@ public final class DutchNationsApi
             send(exchange, 200, map("removed", true));
             return;
         }
-        if (!("ADMINISTRATOR".equals(role) || "MANAGER".equals(role) || "EVENT_HOST".equals(role) || "TEACHER".equals(role) || "LEARNER_HOST".equals(role)))
+        if (!("ADMINISTRATOR".equals(role) || "MANAGER".equals(role) || "TEACHER".equals(role) || "LEARNER_HOST".equals(role)))
         { sendError(exchange, 400, "Ongeldige rol"); return; }
         String newToken = randomToken();
         store.saveRole(change.rsn, role, sha256(newToken));
@@ -522,7 +525,11 @@ public final class DutchNationsApi
             if (state.members.stream().noneMatch(m -> OWNER_RSN.equals(normalize(m.rsn))))
             { Member owner = new Member(); owner.rsn = OWNER_RSN; owner.role = "OWNER"; owner.updatedAt = OffsetDateTime.now(ZoneOffset.UTC).toString(); state.members.add(owner); }
             if (blank(state.updatedAt)) state.updatedAt = OffsetDateTime.now(ZoneOffset.UTC).toString();
-            for (Member member : state.members) if (blank(member.updatedAt)) member.updatedAt = state.updatedAt;
+            for (Member member : state.members)
+            {
+                if ("EVENT_HOST".equalsIgnoreCase(member.role)) member.role = "MANAGER";
+                if (blank(member.updatedAt)) member.updatedAt = state.updatedAt;
+            }
         }
 
         private void changed()
@@ -601,9 +608,8 @@ public final class DutchNationsApi
         boolean owner() { return "OWNER".equalsIgnoreCase(role); }
         boolean administrator() { return "ADMINISTRATOR".equalsIgnoreCase(role); }
         boolean manager() { return "MANAGER".equalsIgnoreCase(role); }
-        boolean eventHost() { return "EVENT_HOST".equalsIgnoreCase(role); }
         boolean learnerHost() { return "TEACHER".equalsIgnoreCase(role) || "LEARNER_HOST".equalsIgnoreCase(role); }
-        boolean canManageEvents() { return owner() || administrator() || manager() || eventHost() || learnerHost(); }
+        boolean canManageEvents() { return owner() || administrator() || manager() || learnerHost(); }
         boolean canManageEventType(String type) { return !learnerHost() || "LEARNER".equalsIgnoreCase(type); }
         boolean canEdit(Event event) { return !learnerHost() || ("LEARNER".equalsIgnoreCase(event.type) && normalize(rsn).equals(normalize(event.host))); }
     }

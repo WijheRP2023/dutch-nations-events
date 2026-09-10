@@ -530,7 +530,7 @@ if (event.supportsPreparation() && !blank(event.strategyWikiUrl))
         JButton addRole = button("+ Managementrol toevoegen");
         addRole.addActionListener(event ->
         {
-            RoleDraft draft = RoleEditorDialog.show(isOwner.getAsBoolean());
+            RoleDraft draft = RoleEditorDialog.show(isOwner.getAsBoolean(), isAdministrator.getAsBoolean());
             if (draft != null) saveRole.accept(draft);
         });
         add(Box.createRigidArea(new Dimension(0, 7))); add(addRole);
@@ -538,7 +538,7 @@ if (event.supportsPreparation() && !blank(event.strategyWikiUrl))
         {
             add(Box.createRigidArea(new Dimension(0, 7)));
             JPanel message = card(DARK_STONE);
-            message.add(bodyText("Administrators kunnen managers toevoegen en lagere rollen intrekken.", Color.LIGHT_GRAY, Font.PLAIN, 12f));
+            message.add(bodyText("Administrators kunnen managers en teachers toekennen of intrekken.", Color.LIGHT_GRAY, Font.PLAIN, 12f));
             add(message);
         }
         if (!blank(rolesMessage))
@@ -564,7 +564,7 @@ if (event.supportsPreparation() && !blank(event.strategyWikiUrl))
                 catch (RuntimeException ignored) { }
             }
             boolean owner = isOwner.getAsBoolean();
-            boolean lowerRole = "MANAGER".equalsIgnoreCase(role.role) || "EVENT_HOST".equalsIgnoreCase(role.role) || "LEARNER_HOST".equalsIgnoreCase(role.role) || "TEACHER".equalsIgnoreCase(role.role);
+            boolean lowerRole = "MANAGER".equalsIgnoreCase(role.role) || "LEARNER_HOST".equalsIgnoreCase(role.role) || "TEACHER".equalsIgnoreCase(role.role);
             if (owner && !"heavenskill".equalsIgnoreCase(role.rsn))
             {
                 JButton rotate = button("Token vernieuwen");

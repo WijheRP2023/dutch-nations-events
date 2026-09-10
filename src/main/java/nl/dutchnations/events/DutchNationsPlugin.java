@@ -11,6 +11,12 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.time.Duration;
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Queue;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.HashSet;
 import java.util.Set;
 import javax.imageio.ImageIO;
@@ -49,6 +55,7 @@ import okhttp3.OkHttpClient;
 public class DutchNationsPlugin extends Plugin
 {
     private static final String CACHE = "cachedFeed";
+    private static final DateTimeFormatter CHAT_DATE_TIME = DateTimeFormatter.ofPattern("d MMM HH:mm", new java.util.Locale("nl", "NL"));
     @Inject private Client client;
     @Inject private ChatMessageManager chatMessages;
     @Inject private ClientToolbar toolbar;
@@ -69,6 +76,8 @@ public class DutchNationsPlugin extends Plugin
     private volatile String authenticatedRole = "";
     private final Set<String> remindedEvents = new HashSet<>();
     private final Set<String> announcedEvents = new HashSet<>();
+    private final Queue<ScheduleChange> pendingScheduleChanges = new ConcurrentLinkedQueue<>();
+    private volatile boolean receivedLiveFeed;
     private int ticksUntilRefresh;
     private int ticksUntilClanRefresh;
     private String clanMembersSignature = "";
@@ -165,6 +174,9 @@ public class DutchNationsPlugin extends Plugin
             refreshWom(false);
             refresh(false);
         }
+        ScheduleChange change;
+        while ((change = pendingScheduleChanges.poll()) != null)
+            if (shouldNotify(change.updated)) queueScheduleChangeMessage(change.previous, change.updated);
         OffsetDateTime now = OffsetDateTime.now();
         for (ClanFeed.ClanEvent event : current.events)
         {
@@ -208,6 +220,40 @@ public class DutchNationsPlugin extends Plugin
         SwingUtilities.invokeLater(() -> { if (panel != null) panel.updateOnlineMembers(members, channel != null); });
     }
 
+    private void queueScheduleChanges(ClanFeed previous, ClanFeed updated)
+    {
+        if (!receivedLiveFeed || previous == null || updated == null) { receivedLiveFeed = true; return; }
+        Map<String, ClanFeed.ClanEvent> earlier = new HashMap<>();
+        for (ClanFeed.ClanEvent event : previous.events) earlier.put(event.id, event);
+        for (ClanFeed.ClanEvent event : updated.events)
+        {
+            ClanFeed.ClanEvent oldEvent = earlier.get(event.id);
+            if (oldEvent != null && (!oldEvent.startsAt.equals(event.startsAt) || !oldEvent.endsAt.equals(event.endsAt)))
+                pendingScheduleChanges.add(new ScheduleChange(oldEvent, event));
+        }
+    }
+
+    private void queueScheduleChangeMessage(ClanFeed.ClanEvent previous, ClanFeed.ClanEvent updated)
+    {
+        chatMessages.queue(QueuedMessage.builder()
+            .type(ChatMessageType.GAMEMESSAGE)
+            .runeLiteFormattedMessage("<col=ffbd45>Dutch Nation:</col> Event <col=ffffff>" + safeText(updated.title) +
+                "</col> gewijzigd van <col=ffbd45>" + schedule(previous) + "</col> naar <col=40e0e5>" + schedule(updated) + "</col>.")
+            .build());
+    }
+
+    private static String schedule(ClanFeed.ClanEvent event)
+    {
+        return CHAT_DATE_TIME.format(event.start().atZoneSameInstant(ZoneId.systemDefault())) + " - " +
+            CHAT_DATE_TIME.format(event.end().atZoneSameInstant(ZoneId.systemDefault()));
+    }
+
+    private static final class ScheduleChange
+    {
+        private final ClanFeed.ClanEvent previous;
+        private final ClanFeed.ClanEvent updated;
+        private ScheduleChange(ClanFeed.ClanEvent previous, ClanFeed.ClanEvent updated) { this.previous = previous; this.updated = updated; }
+    }
     private static String notificationKey(ClanFeed.ClanEvent event)
     {
         return event.id + "@" + event.startsAt;
@@ -244,7 +290,7 @@ public class DutchNationsPlugin extends Plugin
     private boolean canManage()
     {
         return isOwner() || "OWNER".equals(authenticatedRole) || "ADMINISTRATOR".equals(authenticatedRole) ||
-            "MANAGER".equals(authenticatedRole) || "EVENT_HOST".equals(authenticatedRole) || "TEACHER".equals(authenticatedRole) || "LEARNER_HOST".equals(authenticatedRole);
+            "MANAGER".equals(authenticatedRole) || "TEACHER".equals(authenticatedRole) || "LEARNER_HOST".equals(authenticatedRole);
     }
     private boolean isAdministrator() { return "ADMINISTRATOR".equals(authenticatedRole); }
     private boolean isLearnerHost() { return "TEACHER".equals(authenticatedRole) || "LEARNER_HOST".equals(authenticatedRole); }
@@ -320,8 +366,8 @@ public class DutchNationsPlugin extends Plugin
     private void saveRole(RoleDraft draft)
     {
         if (!canManageRoles()) { panel.status("Geen rechten om rollen aan te passen."); return; }
-        if (isAdministrator() && !"MANAGER".equals(draft.role))
-        { panel.status("Administrators mogen alleen managers toevoegen."); return; }
+        if (isAdministrator() && !("MANAGER".equals(draft.role) || "TEACHER".equals(draft.role)))
+        { panel.status("Administrators mogen alleen managers en teachers toekennen."); return; }
         if ("heavenskill".equals(normalize(draft.rsn)) && "REMOVE".equals(draft.role))
         { panel.status("De eerste owner heavenskill kan zichzelf niet verwijderen."); return; }
         panel.status("Managementrol opslaan...");
@@ -422,6 +468,8 @@ public class DutchNationsPlugin extends Plugin
         {
             @Override public void success(ClanFeed value, String json)
             {
+                ClanFeed previous = feed;
+                queueScheduleChanges(previous, value);
                 feed = value; configs.setConfiguration(DutchNationsConfig.GROUP, CACHE, cacheWithoutCodewords(value));
                 SwingUtilities.invokeLater(() -> { if (panel != null) { panel.connectionChanged(true); panel.update(value, ""); } });
             }
