@@ -71,6 +71,7 @@ final class DutchNationsPanel extends PluginPanel
     private Set<String> installedPluginNames = new HashSet<>();
     private String rolesMessage = "Rollenoverzicht laden...";
     private String viewMode = "LIJST";
+    private String roleFilter = "ADMINS";
     private boolean serverOnline;
     private String status = "Management-feed laden...";
     private WomCompetition competition;
@@ -546,7 +547,9 @@ if (event.supportsPreparation() && !blank(event.strategyWikiUrl))
             add(Box.createRigidArea(new Dimension(0, 7)));
             JPanel message = card(DARK_STONE); message.add(bodyText(rolesMessage, Color.LIGHT_GRAY, Font.PLAIN, 12f)); add(message);
         }
-        for (ManagementRole role : roles)
+        add(Box.createRigidArea(new Dimension(0, 7)));
+        add(roleFilterBar());
+        for (ManagementRole role : filteredRoles())
         {
             add(Box.createRigidArea(new Dimension(0, 7)));
             JPanel roleCard = card(CARD_BROWN);
@@ -599,6 +602,48 @@ if (event.supportsPreparation() && !blank(event.strategyWikiUrl))
         }
     }
 
+    private JPanel roleFilterBar()
+    {
+        JPanel filters = new JPanel(new java.awt.GridLayout(1, 3, 5, 5));
+        filters.setOpaque(false); filters.setAlignmentX(Component.LEFT_ALIGNMENT);
+        addRoleFilterButton(filters, "Admins", "ADMINS");
+        addRoleFilterButton(filters, "Managers", "MANAGER");
+        addRoleFilterButton(filters, "Teachers", "TEACHER");
+        filters.setMaximumSize(new Dimension(Integer.MAX_VALUE, filters.getPreferredSize().height));
+        return filters;
+    }
+
+    private void addRoleFilterButton(JPanel filters, String text, String filter)
+    {
+        JButton button = button(text);
+        if (filter.equals(roleFilter)) button.setBackground(new Color(125, 93, 22));
+        button.addActionListener(event -> { roleFilter = filter; render(); });
+        filters.add(button);
+    }
+
+    private List<ManagementRole> filteredRoles()
+    {
+        return roles.stream()
+            .filter(role -> matchesRoleFilter(role, roleFilter))
+            .sorted(Comparator.comparingInt(this::roleOrder).thenComparing(role -> role.rsn, String.CASE_INSENSITIVE_ORDER))
+            .collect(Collectors.toList());
+    }
+
+    private static boolean matchesRoleFilter(ManagementRole role, String filter)
+    {
+        if ("ALLE".equals(filter)) return true;
+        if ("ADMINS".equals(filter)) return "OWNER".equalsIgnoreCase(role.role) || "ADMINISTRATOR".equalsIgnoreCase(role.role);
+        if ("TEACHER".equals(filter)) return "TEACHER".equalsIgnoreCase(role.role) || "LEARNER_HOST".equalsIgnoreCase(role.role);
+        return filter.equalsIgnoreCase(role.role);
+    }
+
+    private int roleOrder(ManagementRole role)
+    {
+        if ("OWNER".equalsIgnoreCase(role.role)) return 0;
+        if ("ADMINISTRATOR".equalsIgnoreCase(role.role)) return 1;
+        if ("MANAGER".equalsIgnoreCase(role.role)) return 2;
+        return 3;
+    }
     private static String roleLabel(String role)
     {
         return "LEARNER_HOST".equalsIgnoreCase(role) ? "TEACHER" : role;
