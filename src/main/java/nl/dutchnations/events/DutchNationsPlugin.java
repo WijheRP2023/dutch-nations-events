@@ -263,8 +263,10 @@ public class DutchNationsPlugin extends Plugin
     {
         String safeTitle = safeText(event.title);
         String eventType = event.learner() ? "Learner-event" :
-            ("MASS".equalsIgnoreCase(event.type) ? "Mass-event" : "Boss-event");
-        String world = (event.learner() || "MASS".equalsIgnoreCase(event.type)) && event.world != null && !event.world.trim().isEmpty()
+            ("MASS".equalsIgnoreCase(event.type) ? "Mass-event" :
+            ("CLAN_EVENT".equalsIgnoreCase(event.type) ? "Clan-event" :
+            ("CLAN_VS_CLAN".equalsIgnoreCase(event.type) ? "Clan vs Clan-event" : "Boss-event")));
+        String world = (event.learner() || "MASS".equalsIgnoreCase(event.type) || "CLAN_EVENT".equalsIgnoreCase(event.type)) && event.world != null && !event.world.trim().isEmpty()
             ? " op wereld <col=40e0e5>" + event.world + "</col>" : "";
         chatMessages.queue(QueuedMessage.builder()
             .type(ChatMessageType.GAMEMESSAGE)
@@ -276,7 +278,7 @@ public class DutchNationsPlugin extends Plugin
     private boolean shouldNotify(ClanFeed.ClanEvent event)
     {
         if (event.learner()) return config.notifyLearner();
-        if ("BOSS".equalsIgnoreCase(event.type)) return config.notifyBoss();
+        if ("BOSS".equalsIgnoreCase(event.type) || "CLAN_EVENT".equalsIgnoreCase(event.type) || "CLAN_VS_CLAN".equalsIgnoreCase(event.type)) return config.notifyBoss();
         return "MASS".equalsIgnoreCase(event.type) && config.notifyMass();
     }
 
@@ -284,7 +286,7 @@ public class DutchNationsPlugin extends Plugin
     {
         ClanFeed current = feed;
         if (current == null) return null;
-        return current.events.stream().filter(e -> ("BOSS".equalsIgnoreCase(e.type) || ("MASS".equalsIgnoreCase(e.type) && e.codewordRequired)) && e.active(now)).findFirst().orElse(null);
+        return current.events.stream().filter(e -> ("BOSS".equalsIgnoreCase(e.type) || "CLAN_EVENT".equalsIgnoreCase(e.type) || "CLAN_VS_CLAN".equalsIgnoreCase(e.type) || ("MASS".equalsIgnoreCase(e.type) && e.codewordRequired)) && e.active(now)).findFirst().orElse(null);
     }
 
     private boolean canManage()

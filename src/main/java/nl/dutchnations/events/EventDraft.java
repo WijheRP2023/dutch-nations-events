@@ -16,6 +16,10 @@ final class EventDraft
     String driveUrl;
     String registrationUrl;
     String registrationEndsAt;
+    String clansOne;
+    String clansTwo;
+    String activity;
+    String bossList;
     boolean codewordRequired;
     boolean allowConflict;
 }
