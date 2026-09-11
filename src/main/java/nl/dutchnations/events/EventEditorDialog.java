@@ -47,7 +47,7 @@ final class EventEditorDialog
     private static EventDraft show(List<String> pluginCatalog, boolean learnerOnly, ClanFeed.ClanEvent existing)
     {
         boolean editing = existing != null;
-        JComboBox<String> type = new JComboBox<>(learnerOnly ? new String[]{"LEARNER"} : new String[]{"LEARNER", "BOSS", "MASS"});
+        JComboBox<String> type = new JComboBox<>(learnerOnly ? new String[]{"LEARNER"} : new String[]{"LEARNER", "BOSS", "MASS", "CLAN_EVENT", "CLAN_VS_CLAN"});
         JTextField title = new JTextField();
         LocalDateTime defaultStart = LocalDateTime.now().plusDays(1).withSecond(0).withNano(0);
         LocalDateTime defaultEnd = defaultStart.plusHours(2);
@@ -58,6 +58,10 @@ final class EventEditorDialog
         JTextField world = new JTextField("366");
         JTextField host = new JTextField();
         JTextField description = new JTextField();
+        JTextField clansOne = new JTextField();
+        JTextField clansTwo = new JTextField();
+        JTextField activity = new JTextField();
+        JTextField bossList = new JTextField();
         JTextField codeword = new JTextField();
         JTextField driveUrl = new JTextField();
         JTextField registrationUrl = new JTextField();
@@ -119,6 +123,10 @@ final class EventEditorDialog
             world.setText(existing.world == null ? "" : existing.world);
             host.setText(existing.host == null ? "" : existing.host);
             description.setText(existing.description == null ? "" : existing.description);
+            clansOne.setText(existing.clansOne == null ? "" : existing.clansOne);
+            clansTwo.setText(existing.clansTwo == null ? "" : existing.clansTwo);
+            activity.setText(existing.activity == null ? "" : existing.activity);
+            bossList.setText(existing.bossList == null ? "" : existing.bossList);
             driveUrl.setText(existing.driveUrl == null ? "" : existing.driveUrl);
             registrationUrl.setText(existing.registrationUrl == null ? "" : existing.registrationUrl);
             if (existing.registrationEndsAt != null && !existing.registrationEndsAt.trim().isEmpty())
@@ -153,9 +161,15 @@ final class EventEditorDialog
         JPanel registrationLinkRow = row("Discord-aanmeldlink", registrationUrl);
         JPanel registrationDeadlineRow = row("Aanmelden tot", dateTimeFields(registrationDeadlineDate, registrationDeadlineTime));
         JPanel codewordRow = row(editing ? "Codewoord (leeg = behouden)" : "Codewoord", codeword);
-        form.add(row("Eventtype", type)); form.add(row("Titel", title));
+        JPanel titleRow = row("Titel", title);
+        JPanel clansOneRow = row("Clans kant 1 (; gescheiden)", clansOne);
+        JPanel clansTwoRow = row("Clans kant 2 (; gescheiden)", clansTwo);
+        JPanel activityRow = row("Activiteit", activity);
+        JPanel bossListRow = row("Bosses/activiteiten (; gescheiden)", bossList);
+        form.add(row("Eventtype", type)); form.add(titleRow);
         form.add(row("Startdatum/tijd", dateTimeFields(startDate, startTime))); form.add(row("Einddatum/tijd", dateTimeFields(endDate, endTime)));
-        form.add(worldRow); form.add(row("Host (RSN)", host)); form.add(row("Beschrijving", description));
+        form.add(worldRow); form.add(clansOneRow); form.add(clansTwoRow); form.add(activityRow); form.add(bossListRow);
+        form.add(row("Host (RSN)", host)); form.add(row("Beschrijving", description));
         form.add(preparationRow); form.add(pluginSearchRow); form.add(pluginResultsRow); form.add(addPluginRow);
         form.add(selectedPluginsRow); form.add(strategyRow); form.add(massCodewordRow); form.add(driveRow); form.add(registrationLinkRow); form.add(registrationDeadlineRow); form.add(codewordRow);
 
@@ -164,19 +178,25 @@ final class EventEditorDialog
             boolean boss = "BOSS".equals(type.getSelectedItem());
             boolean mass = "MASS".equals(type.getSelectedItem());
             boolean learner = "LEARNER".equals(type.getSelectedItem());
+            boolean clanEvent = "CLAN_EVENT".equals(type.getSelectedItem());
+            boolean clanVsClan = "CLAN_VS_CLAN".equals(type.getSelectedItem());
             boolean supportsResources = learner || mass;
-            boolean needsCodeword = boss || (mass && massCodewordRequired.isSelected());
-            worldRow.setVisible(!boss);
+            boolean needsCodeword = boss || clanEvent || clanVsClan || (mass && massCodewordRequired.isSelected());
+            titleRow.setVisible(!clanVsClan);
+            worldRow.setVisible(!boss && !clanVsClan);
+            clansOneRow.setVisible(clanVsClan); clansTwoRow.setVisible(clanVsClan); activityRow.setVisible(clanVsClan); bossListRow.setVisible(clanEvent);
             preparationRow.setVisible(learner);
             pluginSearchRow.setVisible(supportsResources); pluginResultsRow.setVisible(supportsResources);
             addPluginRow.setVisible(supportsResources); selectedPluginsRow.setVisible(supportsResources); strategyRow.setVisible(supportsResources);
-            massCodewordRow.setVisible(mass); driveRow.setVisible(boss); registrationLinkRow.setVisible(boss); registrationDeadlineRow.setVisible(boss); codewordRow.setVisible(needsCodeword);
+            massCodewordRow.setVisible(mass); driveRow.setVisible(boss || clanEvent || clanVsClan); registrationLinkRow.setVisible(boss || clanEvent || clanVsClan); registrationDeadlineRow.setVisible(boss || clanEvent || clanVsClan); codewordRow.setVisible(needsCodeword);
             if (!needsCodeword) codeword.setText("");
-            if (!boss) { driveUrl.setText(""); registrationUrl.setText(""); }
+            if (!boss && !clanEvent && !clanVsClan) { driveUrl.setText(""); registrationUrl.setText(""); }
             if (!learner) checklist.setText("");
             if (!supportsResources) { requiredPlugins.setText(""); strategyWiki.setSelectedItem(""); }
-            if (boss) world.setText("");
-            if (mass && world.getText().trim().isEmpty()) world.setText("366");
+            if (!clanVsClan) { clansOne.setText(""); clansTwo.setText(""); activity.setText(""); }
+            if (!clanEvent) bossList.setText("");
+            if (boss || clanVsClan) world.setText("");
+            if ((mass || clanEvent) && world.getText().trim().isEmpty()) world.setText("366");
             form.revalidate(); form.repaint();
             repackParentWindow(form);
         };
@@ -191,7 +211,10 @@ final class EventEditorDialog
         try
         {
             EventDraft draft = new EventDraft();
-            draft.type = (String) type.getSelectedItem(); draft.title = title.getText().trim();
+            draft.type = (String) type.getSelectedItem();
+            boolean clanVsClan = "CLAN_VS_CLAN".equals(draft.type);
+            draft.clansOne = clansOne.getText().trim(); draft.clansTwo = clansTwo.getText().trim(); draft.activity = activity.getText().trim(); draft.bossList = bossList.getText().trim();
+            draft.title = clanVsClan ? draft.activity : title.getText().trim();
             LocalDateTime localStart = parseDateTime(startDate.getText() + " " + startTime.getText(), "startdatum en starttijd");
             LocalDateTime localEnd = parseDateTime(endDate.getText() + " " + endTime.getText(), "einddatum en eindtijd");
             if (!localEnd.isAfter(localStart) && localEnd.toLocalDate().isBefore(localStart.toLocalDate()))
@@ -221,19 +244,22 @@ final class EventEditorDialog
             }
             draft.checklist = checklist.getText().trim();
             draft.requiredPlugins = requiredPlugins.getText().trim();
-            draft.codewordRequired = "BOSS".equals(draft.type) || ("MASS".equals(draft.type) && massCodewordRequired.isSelected());
+            draft.codewordRequired = "BOSS".equals(draft.type) || "CLAN_EVENT".equals(draft.type) || "CLAN_VS_CLAN".equals(draft.type) || ("MASS".equals(draft.type) && massCodewordRequired.isSelected());
             Object selectedStrategy = strategyWiki.getEditor().getItem();
             draft.strategyWikiUrl = selectedStrategy == null ? "" : strategyWikiUrl(selectedStrategy.toString());
             boolean boss = "BOSS".equals(draft.type);
             boolean mass = "MASS".equals(draft.type);
+            boolean clanEvent = "CLAN_EVENT".equals(draft.type);
             boolean requiresCodeword = draft.codewordRequired;
             boolean learner = "LEARNER".equals(draft.type);
             boolean supportsResources = learner || mass;
             OffsetDateTime parsedStart = OffsetDateTime.parse(draft.startsAt);
             OffsetDateTime parsedEnd = OffsetDateTime.parse(draft.endsAt);
-            if (boss && !draft.registrationUrl.isEmpty() && OffsetDateTime.parse(draft.registrationEndsAt).isAfter(parsedStart))
+            if ((boss || clanEvent || clanVsClan) && !draft.registrationUrl.isEmpty() && OffsetDateTime.parse(draft.registrationEndsAt).isAfter(parsedStart))
                 throw new IllegalArgumentException("De aanmelddeadline mag niet na de starttijd liggen.");
-            if (draft.title.isEmpty()) throw new IllegalArgumentException("Vul een titel in.");
+            if (draft.title.isEmpty()) throw new IllegalArgumentException(clanVsClan ? "Vul een activiteit in." : "Vul een titel in.");
+            if (clanVsClan && (draft.clansOne.isEmpty() || draft.clansTwo.isEmpty())) throw new IllegalArgumentException("Vul beide clanlijsten in.");
+            if (clanEvent && draft.bossList.isEmpty()) throw new IllegalArgumentException("Vul minimaal één boss of activiteit in.");
             if (!parsedEnd.isAfter(parsedStart)) throw new IllegalArgumentException("De einddatum en eindtijd moeten na de start liggen.");
             long durationHours = Duration.between(parsedStart, parsedEnd).toHours();
             if (!parsedStart.toLocalDate().equals(parsedEnd.toLocalDate()) || durationHours >= 12)
@@ -244,9 +270,9 @@ final class EventEditorDialog
                     "Controleer de einddatum", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
                 if (confirm != JOptionPane.YES_OPTION) continue;
             }
-            if (!boss && draft.world.isEmpty())
+            if ((!boss && !clanVsClan) && draft.world.isEmpty())
             {
-                JOptionPane.showMessageDialog(null, "Een learner- of mass-event heeft een wereld nodig.", "Controle", JOptionPane.WARNING_MESSAGE); continue;
+                JOptionPane.showMessageDialog(null, "Een learner-, mass- of clan-event heeft een wereld nodig.", "Controle", JOptionPane.WARNING_MESSAGE); continue;
             }
             if (draft.host.isEmpty())
             {
@@ -256,12 +282,15 @@ final class EventEditorDialog
             if (requiresCodeword && draft.codeword.isEmpty() && !editing)
             {
                 markInvalid(codeword);
-                JOptionPane.showMessageDialog(null, "Een boss- of mass-event heeft een codewoord nodig.", "Controle", JOptionPane.WARNING_MESSAGE); continue;
+                JOptionPane.showMessageDialog(null, "Een boss-, mass- of clan-event heeft een codewoord nodig.", "Controle", JOptionPane.WARNING_MESSAGE); continue;
             }
             if (!requiresCodeword) draft.codeword = "";
             if (!learner) draft.checklist = "";
             if (!supportsResources) { draft.requiredPlugins = ""; draft.strategyWikiUrl = ""; }
-            if (boss) draft.world = ""; else { draft.driveUrl = ""; draft.registrationUrl = ""; draft.registrationEndsAt = ""; }
+            if (!clanVsClan) { draft.clansOne = ""; draft.clansTwo = ""; draft.activity = ""; }
+            if (!clanEvent) draft.bossList = "";
+            if (boss || clanVsClan) draft.world = "";
+            if (!boss && !clanEvent && !clanVsClan) { draft.driveUrl = ""; draft.registrationUrl = ""; draft.registrationEndsAt = ""; }
             return draft;
         }
             catch (IllegalArgumentException e)

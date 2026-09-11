@@ -115,11 +115,13 @@ public final class DutchNationsApi
             event.id = UUID.randomUUID().toString();
             event.type = event.type.toUpperCase(Locale.ROOT);
             if (!actor.canManageEventType(event.type)) { sendError(exchange, 403, "Deze rol mag alleen learner-events beheren"); return; }
-            if ("BOSS".equals(event.type)) event.codewordRequired = true;
+            if ("BOSS".equals(event.type) || "CLAN_EVENT".equals(event.type) || "CLAN_VS_CLAN".equals(event.type)) event.codewordRequired = true;
             if ("LEARNER".equals(event.type)) { event.codeword = ""; event.codewordRequired = false; }
             if ("MASS".equals(event.type) && !event.codewordRequired) event.codeword = "";
-            if ("BOSS".equals(event.type)) { event.checklist = ""; event.requiredPlugins = ""; event.strategyWikiUrl = ""; } else { event.driveUrl = ""; event.registrationUrl = ""; event.registrationEndsAt = ""; }
-            if ("BOSS".equals(event.type)) event.world = "";
+            if ("BOSS".equals(event.type) || "CLAN_EVENT".equals(event.type) || "CLAN_VS_CLAN".equals(event.type)) { event.checklist = ""; event.requiredPlugins = ""; event.strategyWikiUrl = ""; } else { event.driveUrl = ""; event.registrationUrl = ""; event.registrationEndsAt = ""; }
+            if (!"CLAN_VS_CLAN".equals(event.type)) { event.clansOne = ""; event.clansTwo = ""; event.activity = ""; }
+            if (!"CLAN_EVENT".equals(event.type)) event.bossList = "";
+            if ("BOSS".equals(event.type) || "CLAN_VS_CLAN".equals(event.type)) event.world = "";
             Event conflict = store.findConflict(event);
             if (conflict != null && !event.allowConflict)
             {
@@ -142,13 +144,17 @@ public final class DutchNationsApi
             event.id = existing.id;
             event.type = event.type == null ? "" : event.type.toUpperCase(Locale.ROOT);
             if (!actor.canManageEventType(event.type)) { sendError(exchange, 403, "Deze rol mag alleen learner-events beheren"); return; }
-            if (("BOSS".equals(event.type) || ("MASS".equals(event.type) && event.codewordRequired)) && blank(event.codeword)) event.codeword = existing.codeword;
+            if (("BOSS".equals(event.type) || "CLAN_EVENT".equals(event.type) || "CLAN_VS_CLAN".equals(event.type) || ("MASS".equals(event.type) && event.codewordRequired)) && blank(event.codeword)) event.codeword = existing.codeword;
             String error = validateEvent(event);
             if (error != null) { sendError(exchange, 400, error); return; }
-            if ("BOSS".equals(event.type)) event.codewordRequired = true;
+            if ("BOSS".equals(event.type) || "CLAN_EVENT".equals(event.type) || "CLAN_VS_CLAN".equals(event.type)) event.codewordRequired = true;
             if ("LEARNER".equals(event.type)) { event.codeword = ""; event.codewordRequired = false; }
             if ("MASS".equals(event.type) && !event.codewordRequired) event.codeword = "";
-            if ("BOSS".equals(event.type)) { event.checklist = ""; event.requiredPlugins = ""; event.strategyWikiUrl = ""; event.world = ""; } else { event.driveUrl = ""; event.registrationUrl = ""; event.registrationEndsAt = ""; }
+            if ("BOSS".equals(event.type) || "CLAN_EVENT".equals(event.type) || "CLAN_VS_CLAN".equals(event.type)) { event.checklist = ""; event.requiredPlugins = ""; event.strategyWikiUrl = ""; } else { event.driveUrl = ""; event.registrationUrl = ""; event.registrationEndsAt = ""; }
+            if ("BOSS".equals(event.type)) event.world = "";
+            if ("CLAN_VS_CLAN".equals(event.type)) event.world = "";
+            if (!"CLAN_VS_CLAN".equals(event.type)) { event.clansOne = ""; event.clansTwo = ""; event.activity = ""; }
+            if (!"CLAN_EVENT".equals(event.type)) event.bossList = "";
             Event conflict = store.findConflict(event, existing.id);
             if (conflict != null && !event.allowConflict) { sendError(exchange, 409, "Event overlapt met " + conflict.title); return; }
             store.updateEvent(existing.id, event);
@@ -254,7 +260,7 @@ public final class DutchNationsApi
         if (event == null || blank(event.type) || blank(event.title) || blank(event.startsAt) || blank(event.endsAt))
             return "Type, titel, start en einde zijn verplicht";
         String type = event.type.toUpperCase(Locale.ROOT);
-        if (!("LEARNER".equals(type) || "BOSS".equals(type) || "MASS".equals(type))) return "Ongeldig eventtype";
+        if (!("LEARNER".equals(type) || "BOSS".equals(type) || "MASS".equals(type) || "CLAN_EVENT".equals(type) || "CLAN_VS_CLAN".equals(type))) return "Ongeldig eventtype";
         try
         {
             OffsetDateTime start = OffsetDateTime.parse(event.startsAt);
@@ -271,9 +277,12 @@ public final class DutchNationsApi
         catch (RuntimeException ex) { return "Ongeldige ISO 8601-datum"; }
         if (!valid(event.title, 80) || !valid(event.host, 20) || !validOptional(event.description, 240) ||
             !validOptional(event.checklist, 400) || !validOptional(event.requiredPlugins, 300) ||
-            !validWikiUrl(event.strategyWikiUrl) || !validDriveUrl(event.driveUrl) || !validDiscordUrl(event.registrationUrl)) return "Eventtekst of link is ongeldig";
-        if (("LEARNER".equals(type) || "MASS".equals(type)) && (blank(event.world) || !event.world.matches("\\d{3,4}"))) return "Geldig wereldnummer is verplicht";
-        if (("BOSS".equals(type) || ("MASS".equals(type) && event.codewordRequired)) && !valid(event.codeword, 40)) return "Dit event vereist een geldig codewoord van maximaal 40 tekens";
+            !validWikiUrl(event.strategyWikiUrl) || !validDriveUrl(event.driveUrl) || !validDiscordUrl(event.registrationUrl) ||
+            !validOptional(event.clansOne, 300) || !validOptional(event.clansTwo, 300) || !validOptional(event.activity, 120) || !validOptional(event.bossList, 300)) return "Eventtekst of link is ongeldig";
+        if (("LEARNER".equals(type) || "MASS".equals(type) || "CLAN_EVENT".equals(type)) && (blank(event.world) || !event.world.matches("\\d{3,4}"))) return "Geldig wereldnummer is verplicht";
+        if (("BOSS".equals(type) || "CLAN_EVENT".equals(type) || "CLAN_VS_CLAN".equals(type) || ("MASS".equals(type) && event.codewordRequired)) && !valid(event.codeword, 40)) return "Dit event vereist een geldig codewoord van maximaal 40 tekens";
+        if ("CLAN_EVENT".equals(type) && !valid(event.bossList, 300)) return "Vul minimaal één boss of activiteit in";
+        if ("CLAN_VS_CLAN".equals(type) && (!valid(event.clansOne, 300) || !valid(event.clansTwo, 300) || !valid(event.activity, 120))) return "Vul beide clanlijsten en de activiteit in";
         return null;
     }
 
@@ -597,6 +606,7 @@ public final class DutchNationsApi
     {
         String id; String startsAt; String endsAt; String type; String title;
         String world; String host; String description; String codeword; String checklist; String requiredPlugins; String strategyWikiUrl; String driveUrl; String registrationUrl; String registrationEndsAt;
+        String clansOne; String clansTwo; String activity; String bossList;
         boolean codewordRequired;
         boolean allowConflict;
     }

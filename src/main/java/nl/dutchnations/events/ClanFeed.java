@@ -27,6 +27,10 @@ final class ClanFeed
         String driveUrl;
         String registrationUrl;
         String registrationEndsAt;
+        String clansOne;
+        String clansTwo;
+        String activity;
+        String bossList;
         boolean codewordRequired;
 
         OffsetDateTime start() { return OffsetDateTime.parse(startsAt); }

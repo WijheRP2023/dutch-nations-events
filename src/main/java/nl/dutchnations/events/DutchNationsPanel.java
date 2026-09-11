@@ -46,6 +46,8 @@ final class DutchNationsPanel extends PluginPanel
     private static final Color LEARNER_COLOR = new Color(35, 220, 225);
     private static final Color BOSS_COLOR = new Color(255, 105, 105);
     private static final Color MASS_COLOR = new Color(195, 125, 255);
+    private static final Color CLAN_EVENT_COLOR = new Color(255, 170, 70);
+    private static final Color CLAN_VS_CLAN_COLOR = new Color(100, 210, 150);
     private static final Color GOLD = new Color(232, 198, 94);
     private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("EEE d MMM yyyy", new Locale("nl", "NL"));
     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm");
@@ -367,7 +369,10 @@ final class DutchNationsPanel extends PluginPanel
     private static Color accentFor(ClanFeed.ClanEvent event)
     {
         if (event.learner()) return LEARNER_COLOR;
-        return "MASS".equalsIgnoreCase(event.type) ? MASS_COLOR : BOSS_COLOR;
+        if ("MASS".equalsIgnoreCase(event.type)) return MASS_COLOR;
+        if ("CLAN_EVENT".equalsIgnoreCase(event.type)) return CLAN_EVENT_COLOR;
+        if ("CLAN_VS_CLAN".equalsIgnoreCase(event.type)) return CLAN_VS_CLAN_COLOR;
+        return BOSS_COLOR;
     }
     private void addActiveSection(List<ClanFeed.ClanEvent> events)
     {
@@ -410,12 +415,13 @@ final class DutchNationsPanel extends PluginPanel
         panel.setBorder(BorderFactory.createCompoundBorder(
             BorderFactory.createMatteBorder(1, 1, 1, 4, GOLD),
             BorderFactory.createEmptyBorder(9, 9, 9, 9)));
-        String badgeText = event.learner() ? " LEARNER " : ("MASS".equalsIgnoreCase(event.type) ? " MASS " : " BOSS ");
+        String badgeText = event.learner() ? " LEARNER " : ("MASS".equalsIgnoreCase(event.type) ? " MASS " :
+            ("CLAN_EVENT".equalsIgnoreCase(event.type) ? " CLAN EVENT " : ("CLAN_VS_CLAN".equalsIgnoreCase(event.type) ? " CLAN VS CLAN " : " BOSS ")));
         JLabel badge = label(badgeText, Color.BLACK, Font.BOLD, 11f); badge.setOpaque(true); badge.setBackground(accent);
         JPanel topRow = new JPanel(); topRow.setOpaque(false); topRow.setLayout(new BoxLayout(topRow, BoxLayout.X_AXIS));
         topRow.add(badge); topRow.add(Box.createHorizontalGlue());
         OffsetDateTime now = OffsetDateTime.now();
-        if ("BOSS".equalsIgnoreCase(event.type) && registrationOpen(event, now))
+        if (("BOSS".equalsIgnoreCase(event.type) || "CLAN_EVENT".equalsIgnoreCase(event.type) || "CLAN_VS_CLAN".equalsIgnoreCase(event.type)) && registrationOpen(event, now))
         {
             JButton register = new JButton("Aanmelden");
             register.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 10)); register.setMargin(new Insets(2, 6, 2, 6));
@@ -424,7 +430,7 @@ final class DutchNationsPanel extends PluginPanel
             register.addActionListener(click -> LinkBrowser.browse(event.registrationUrl));
             topRow.add(register);
         }
-        else if ("BOSS".equalsIgnoreCase(event.type) && !now.isBefore(event.start()) && !blank(event.driveUrl))
+        else if (("BOSS".equalsIgnoreCase(event.type) || "CLAN_EVENT".equalsIgnoreCase(event.type) || "CLAN_VS_CLAN".equalsIgnoreCase(event.type)) && !now.isBefore(event.start()) && !blank(event.driveUrl))
         {
             JButton drive = new JButton("Tussenstand");
             drive.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 10)); drive.setMargin(new Insets(2, 6, 2, 6));
@@ -435,7 +441,11 @@ final class DutchNationsPanel extends PluginPanel
         }
         panel.add(topRow);
         panel.add(Box.createRigidArea(new Dimension(0, 6)));
-        panel.add(label(event.title, Color.WHITE, Font.BOLD, 16f));
+        boolean clanVsClan = "CLAN_VS_CLAN".equalsIgnoreCase(event.type);
+        boolean clanEvent = "CLAN_EVENT".equalsIgnoreCase(event.type);
+        String cardTitle = clanVsClan ? event.clansOne + " vs " + event.clansTwo : event.title;
+        panel.add(label(cardTitle, Color.WHITE, Font.BOLD, 16f));
+        if (clanVsClan && !blank(event.activity)) panel.add(bodyLabel("Activiteit: " + event.activity, CLAN_VS_CLAN_COLOR, Font.BOLD, 13f));
         java.time.ZonedDateTime start = event.start().atZoneSameInstant(ZoneId.systemDefault());
         java.time.ZonedDateTime end = event.end().atZoneSameInstant(ZoneId.systemDefault());
         panel.add(bodyLabel("Datum: " + DATE.format(start), GOLD, Font.BOLD, 13f));
@@ -446,7 +456,8 @@ final class DutchNationsPanel extends PluginPanel
             panel.add(bodyLabel("Start: " + TIME.format(start), GOLD, Font.BOLD, 13f));
             panel.add(bodyLabel("Einde: " + DATE.format(end) + " om " + TIME.format(end), new Color(255, 175, 120), Font.BOLD, 13f));
         }
-        if (!"BOSS".equalsIgnoreCase(event.type)) panel.add(bodyLabel("Wereld: " + event.world, Color.WHITE, Font.PLAIN, 13f));
+        if (!"BOSS".equalsIgnoreCase(event.type) && !clanVsClan && !blank(event.world)) panel.add(bodyLabel("Wereld: " + event.world, Color.WHITE, Font.PLAIN, 13f));
+        if (clanEvent && !blank(event.bossList)) panel.add(bodyLabel("Bosses/activiteiten: " + event.bossList.replace(";", ", "), Color.WHITE, Font.PLAIN, 13f));
         if (!blank(event.host)) panel.add(bodyLabel("Host: " + event.host, Color.WHITE, Font.PLAIN, 13f));
         if (!blank(event.description)) panel.add(bodyLabel("Info: " + event.description, Color.WHITE, Font.PLAIN, 13f));
         if (event.supportsPreparation() && !blank(event.checklist))
@@ -490,7 +501,7 @@ if (event.supportsPreparation() && !blank(event.strategyWikiUrl))
             panel.add(Box.createRigidArea(new Dimension(0, 6)));
             panel.add(wiki);
         }
-        String codeInfo = ("BOSS".equalsIgnoreCase(event.type) || ("MASS".equalsIgnoreCase(event.type) && event.codewordRequired)) ? "Codewoord verschijnt in popup" : "Geen codewoord nodig";
+        String codeInfo = ("BOSS".equalsIgnoreCase(event.type) || clanEvent || clanVsClan || ("MASS".equalsIgnoreCase(event.type) && event.codewordRequired)) ? "Codewoord verschijnt in popup" : "Geen codewoord nodig";
         panel.add(Box.createRigidArea(new Dimension(0, 5))); panel.add(bodyLabel(codeInfo, accent, Font.BOLD, 12f));
         if (canEdit(event))
         {
