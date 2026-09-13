@@ -40,6 +40,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -51,6 +52,7 @@ public final class DutchNationsApi
     private final Store store;
     private final String bootstrapOwnerHash;
     private final DiscordWebhookPublisher discordWebhook;
+    private final ExecutorService discordWebhookExecutor = Executors.newSingleThreadExecutor();
 
     private DutchNationsApi(Store store, String ownerToken, String discordWebhookUrl)
     {
@@ -89,7 +91,7 @@ public final class DutchNationsApi
 
         ScheduledExecutorService cleanup = Executors.newSingleThreadScheduledExecutor();
         cleanup.scheduleAtFixedRate(store::removeExpired, 0, 1, TimeUnit.MINUTES);
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> { cleanup.shutdown(); server.stop(1); }));
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> { cleanup.shutdown(); discordWebhookExecutor.shutdownNow(); server.stop(1); }));
         System.out.println("Dutch Nations API actief op http://" + bind + ":" + port);
         System.out.println("Feed: http://" + bind + ":" + port + "/feed.json");
     }
@@ -139,7 +141,7 @@ public final class DutchNationsApi
             String discordText = event.discordText;
             event.discordText = "";
             store.addEvent(event);
-            discordWebhook.publish(event, discordText);
+            discordWebhookExecutor.execute(() -> discordWebhook.publish(event, discordText));
             send(exchange, 201, event);
             return;
         }
