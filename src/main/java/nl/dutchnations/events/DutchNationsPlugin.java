@@ -95,7 +95,7 @@ public class DutchNationsPlugin extends Plugin
         ClanFeed cached = service.parse(configs.getConfiguration(DutchNationsConfig.GROUP, CACHE));
         if (cached != null) { feed = cached; panel.update(cached, "Opgeslagen versie; update wordt gecontroleerd."); }
         button = NavigationButton.builder().tooltip("Dutch Nation").icon(icon()).priority(6).panel(panel).build();
-        toolbar.addNavigation(button); overlays.add(overlay); loadPluginCatalog(); refresh();
+        toolbar.addNavigation(button); overlays.add(overlay); loadPluginCatalog(); refreshRole(); refresh();
     }
 
     private void loadPluginCatalog()
