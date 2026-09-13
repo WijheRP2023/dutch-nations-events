@@ -10,6 +10,9 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.URLDecoder;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -23,7 +26,11 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.time.Duration;
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -43,11 +50,13 @@ public final class DutchNationsApi
     private static final String OWNER_RSN = "heavenskill";
     private final Store store;
     private final String bootstrapOwnerHash;
+    private final DiscordWebhookPublisher discordWebhook;
 
-    private DutchNationsApi(Store store, String ownerToken)
+    private DutchNationsApi(Store store, String ownerToken, String discordWebhookUrl)
     {
         this.store = store;
         this.bootstrapOwnerHash = sha256(ownerToken);
+        this.discordWebhook = new DiscordWebhookPublisher(discordWebhookUrl);
     }
 
     public static void main(String[] args) throws Exception
@@ -63,7 +72,7 @@ public final class DutchNationsApi
             System.out.println("LET OP: lokale ontwikkeltoken actief: " + ownerToken);
         }
         Path dataFile = Paths.get(env("DN_DATA_FILE", "server-data/state.json")).toAbsolutePath();
-        DutchNationsApi app = new DutchNationsApi(new Store(dataFile, System.getenv("DATABASE_URL")), ownerToken);
+        DutchNationsApi app = new DutchNationsApi(new Store(dataFile, System.getenv("DATABASE_URL")), ownerToken, System.getenv("DISCORD_WEBHOOK_URL"));
         app.start(bind, port);
     }
 
@@ -127,7 +136,10 @@ public final class DutchNationsApi
             {
                 sendError(exchange, 409, "Event overlapt met " + conflict.title); return;
             }
+            String discordText = event.discordText;
+            event.discordText = "";
             store.addEvent(event);
+            discordWebhook.publish(event, discordText);
             send(exchange, 201, event);
             return;
         }
@@ -278,7 +290,7 @@ public final class DutchNationsApi
         if (!valid(event.title, 80) || !valid(event.host, 20) || !validOptional(event.description, 240) ||
             !validOptional(event.checklist, 400) || !validOptional(event.requiredPlugins, 300) ||
             !validWikiUrl(event.strategyWikiUrl) || !validDriveUrl(event.driveUrl) || !validDiscordUrl(event.registrationUrl) || !validYoutubeUrl(event.youtubeUrl) ||
-            !validOptional(event.clansOne, 300) || !validOptional(event.clansTwo, 300) || !validOptional(event.activity, 120) || !validOptional(event.bossList, 300)) return "Eventtekst of link is ongeldig";
+            !validOptional(event.clansOne, 300) || !validOptional(event.clansTwo, 300) || !validOptional(event.activity, 120) || !validOptional(event.bossList, 300) || !validOptional(event.discordText, 800)) return "Eventtekst of link is ongeldig";
         if (("LEARNER".equals(type) || "MASS".equals(type) || "CLAN_EVENT".equals(type)) && (blank(event.world) || !event.world.matches("\\d{3,4}"))) return "Geldig wereldnummer is verplicht";
         if (("BOSS".equals(type) || "CLAN_EVENT".equals(type) || "CLAN_VS_CLAN".equals(type) || ("MASS".equals(type) && event.codewordRequired)) && !valid(event.codeword, 40)) return "Dit event vereist een geldig codewoord van maximaal 40 tekens";
         if ("CLAN_EVENT".equals(type) && !valid(event.bossList, 300)) return "Vul minimaal één boss of activiteit in";
@@ -328,6 +340,20 @@ public final class DutchNationsApi
             URI uri = URI.create(value);
             return "https".equalsIgnoreCase(uri.getScheme()) &&
                 "oldschool.runescape.wiki".equalsIgnoreCase(uri.getHost()) && uri.getUserInfo() == null;
+        }
+        catch (RuntimeException exception) { return false; }
+    }
+    private static boolean validDiscordWebhookUrl(String value)
+    {
+        if (blank(value)) return false;
+        try
+        {
+            URI uri = URI.create(value);
+            String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(Locale.ROOT);
+            String[] parts = uri.getPath() == null ? new String[0] : uri.getPath().split("/");
+            return "https".equalsIgnoreCase(uri.getScheme()) && uri.getUserInfo() == null &&
+                "discord.com".equals(host) && parts.length == 5 && "api".equals(parts[1]) &&
+                "webhooks".equals(parts[2]) && !blank(parts[3]) && !blank(parts[4]);
         }
         catch (RuntimeException exception) { return false; }
     }
@@ -607,6 +633,83 @@ public final class DutchNationsApi
             catch (Exception ex) { throw new SQLException("Ongeldige DATABASE_URL", ex); }
         }
     }
+    private static final class DiscordWebhookPublisher
+    {
+        private final URI url;
+        private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+
+        DiscordWebhookPublisher(String configuredUrl)
+        {
+            url = validDiscordWebhookUrl(configuredUrl) ? URI.create(configuredUrl.trim()) : null;
+            if (!blank(configuredUrl) && url == null) System.err.println("Discord-webhook uitgeschakeld: ongeldige webhook-URL.");
+        }
+
+        void publish(Event event, String discordText)
+        {
+            if (url == null) return;
+            try
+            {
+                Map<String, Object> embed = new HashMap<>();
+                embed.put("title", "Nieuw " + event.type.replace('_', ' ') + ": " + event.title);
+                embed.put("color", 15158332);
+                String description = blank(discordText) ? event.description :
+                    (blank(event.description) ? discordText : discordText + "\n\n" + event.description);
+                if (!blank(description)) embed.put("description", description);
+                List<Map<String, Object>> fields = new ArrayList<>();
+                addScheduleFields(fields, event);
+                if (!blank(event.world)) addField(fields, "Wereld", event.world);
+                if (!blank(event.host)) addField(fields, "Host", event.host);
+                if (!blank(event.checklist)) addField(fields, "Voorbereiding", event.checklist.replace(";", ", "));
+                if (!blank(event.requiredPlugins)) addField(fields, "Benodigde plug-ins", event.requiredPlugins.replace(";", ", "));
+                if (!blank(event.registrationUrl)) addField(fields, "Aanmelden", "[Open aanmeldlink](" + event.registrationUrl + ")");
+                embed.put("fields", fields);
+
+                StringBuilder content = new StringBuilder();
+                if (!blank(event.strategyWikiUrl)) content.append("📖 Strategie:\n").append(event.strategyWikiUrl).append("\n");
+                if (!blank(event.youtubeUrl)) content.append("▶️ Video:\n").append(event.youtubeUrl).append("\n");
+                Map<String, Object> payload = new HashMap<>();
+                payload.put("username", "Dutch Nation Events");
+                payload.put("allowed_mentions", java.util.Collections.singletonMap("parse", java.util.Collections.emptyList()));
+                payload.put("embeds", java.util.Collections.singletonList(embed));
+                if (content.length() > 0) payload.put("content", content.toString().trim());
+                HttpRequest request = HttpRequest.newBuilder(url).timeout(Duration.ofSeconds(8))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(GSON.toJson(payload), StandardCharsets.UTF_8)).build();
+                int status = client.send(request, HttpResponse.BodyHandlers.discarding()).statusCode();
+                if (status < 200 || status >= 300) System.err.println("Discord-webhook kon event niet plaatsen (HTTP " + status + ").");
+            }
+            catch (Exception exception) { System.err.println("Discord-webhook kon event niet plaatsen."); }
+        }
+
+        private static void addScheduleFields(List<Map<String, Object>> fields, Event event)
+        {
+            try
+            {
+                ZoneId zone = ZoneId.of("Europe/Amsterdam");
+                ZonedDateTime start = OffsetDateTime.parse(event.startsAt).atZoneSameInstant(zone);
+                ZonedDateTime end = OffsetDateTime.parse(event.endsAt).atZoneSameInstant(zone);
+                DateTimeFormatter date = DateTimeFormatter.ofPattern("EEE d MMMM yyyy", new Locale("nl", "NL"));
+                DateTimeFormatter time = DateTimeFormatter.ofPattern("HH:mm");
+                if (start.toLocalDate().equals(end.toLocalDate()))
+                {
+                    addField(fields, "Datum", date.format(start));
+                    addField(fields, "Tijd", time.format(start) + " - " + time.format(end));
+                }
+                else
+                {
+                    addField(fields, "Start", date.format(start) + ", " + time.format(start));
+                    addField(fields, "Einde", date.format(end) + ", " + time.format(end));
+                }
+            }
+            catch (RuntimeException exception) { addField(fields, "Datum en tijd", event.startsAt + " tot " + event.endsAt); }
+        }
+        private static void addField(List<Map<String, Object>> fields, String name, String value)
+        {
+            Map<String, Object> field = new HashMap<>();
+            field.put("name", name); field.put("value", value); field.put("inline", false);
+            fields.add(field);
+        }
+    }
     static final class State
     {
         String updatedAt;
@@ -619,7 +722,7 @@ public final class DutchNationsApi
     static final class Event
     {
         String id; String startsAt; String endsAt; String type; String title;
-        String world; String host; String description; String codeword; String checklist; String requiredPlugins; String strategyWikiUrl; String driveUrl; String registrationUrl; String registrationEndsAt; String youtubeUrl;
+        String world; String host; String description; String codeword; String checklist; String requiredPlugins; String strategyWikiUrl; String driveUrl; String registrationUrl; String registrationEndsAt; String youtubeUrl; String discordText;
         String clansOne; String clansTwo; String activity; String bossList;
         boolean codewordRequired;
         boolean allowConflict;
