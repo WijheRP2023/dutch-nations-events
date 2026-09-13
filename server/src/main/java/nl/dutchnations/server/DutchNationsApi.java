@@ -138,10 +138,14 @@ public final class DutchNationsApi
             {
                 sendError(exchange, 409, "Event overlapt met " + conflict.title); return;
             }
-            String discordText = event.discordText;
+            event.discordDescription = event.discordText;
             event.discordText = "";
             store.addEvent(event);
-            discordWebhookExecutor.execute(() -> discordWebhook.publish(event, discordText));
+            discordWebhookExecutor.execute(() ->
+            {
+                String messageId = discordWebhook.publish(event);
+                if (!blank(messageId)) store.setDiscordMessageId(event.id, messageId);
+            });
             send(exchange, 201, event);
             return;
         }
@@ -156,6 +160,9 @@ public final class DutchNationsApi
             Event event = read(exchange, Event.class);
             if (event == null) { sendError(exchange, 400, "Ongeldige eventgegevens"); return; }
             event.id = existing.id;
+            event.discordDescription = existing.discordDescription;
+            event.discordMessageId = existing.discordMessageId;
+            event.discordText = "";
             event.type = event.type == null ? "" : event.type.toUpperCase(Locale.ROOT);
             if (!actor.canManageEventType(event.type)) { sendError(exchange, 403, "Deze rol mag alleen learner-events beheren"); return; }
             if (("BOSS".equals(event.type) || "CLAN_EVENT".equals(event.type) || "CLAN_VS_CLAN".equals(event.type) || ("MASS".equals(event.type) && event.codewordRequired)) && blank(event.codeword)) event.codeword = existing.codeword;
@@ -172,6 +179,7 @@ public final class DutchNationsApi
             Event conflict = store.findConflict(event, existing.id);
             if (conflict != null && !event.allowConflict) { sendError(exchange, 409, "Event overlapt met " + conflict.title); return; }
             store.updateEvent(existing.id, event);
+            if (!blank(event.discordMessageId)) discordWebhookExecutor.execute(() -> discordWebhook.update(event));
             send(exchange, 200, event);
             return;
         }
@@ -451,6 +459,8 @@ public final class DutchNationsApi
                 try { active = !now.isBefore(OffsetDateTime.parse(stored.startsAt)) && now.isBefore(OffsetDateTime.parse(stored.endsAt)); }
                 catch (RuntimeException ex) { active = false; }
                 if (!active) visible.codeword = "";
+                visible.discordDescription = "";
+                visible.discordMessageId = "";
                 feed.events.add(visible);
             }
             return feed;
@@ -476,6 +486,14 @@ public final class DutchNationsApi
             }
             return false;
         }
+        synchronized void setDiscordMessageId(String id, String messageId)
+        {
+            Event event = event(id);
+            if (event == null) return;
+            event.discordMessageId = messageId;
+            changed();
+        }
+
         synchronized boolean deleteEvent(String id)
         {
             boolean removed = state.events.removeIf(event -> id.equals(event.id));
@@ -646,39 +664,68 @@ public final class DutchNationsApi
             if (!blank(configuredUrl) && url == null) System.err.println("Discord-webhook uitgeschakeld: ongeldige webhook-URL.");
         }
 
-        void publish(Event event, String discordText)
+        String publish(Event event)
         {
-            if (url == null) return;
+            if (url == null) return "";
             try
             {
-                Map<String, Object> embed = new HashMap<>();
-                embed.put("title", "Nieuw " + event.type.replace('_', ' ') + ": " + event.title);
-                embed.put("color", 15158332);
-                String description = blank(discordText) ? event.description :
-                    (blank(event.description) ? discordText : discordText + "\n\n" + event.description);
-                if (!blank(description)) embed.put("description", description);
-                List<Map<String, Object>> fields = new ArrayList<>();
-                addScheduleFields(fields, event);
-                if (!blank(event.world)) addField(fields, "Wereld", event.world);
-                if (!blank(event.host)) addField(fields, "Host", event.host);
-                if (!blank(event.checklist)) addField(fields, "Voorbereiding", event.checklist.replace(";", ", "));
-                if (!blank(event.requiredPlugins)) addField(fields, "Benodigde plug-ins", event.requiredPlugins.replace(";", ", "));
-                if (!blank(event.strategyWikiUrl)) addField(fields, "📖 Strategie", "[Strategie openen](" + event.strategyWikiUrl + ")");
-                if (!blank(event.youtubeUrl)) addField(fields, "▶️ Video", "[Video openen](" + event.youtubeUrl + ")");
-                if (!blank(event.registrationUrl)) addField(fields, "Aanmelden", "[Open aanmeldlink](" + event.registrationUrl + ")");
-                embed.put("fields", fields);
-
-                Map<String, Object> payload = new HashMap<>();
-                payload.put("username", "Dutch Nation Events");
-                payload.put("allowed_mentions", java.util.Collections.singletonMap("parse", java.util.Collections.emptyList()));
-                payload.put("embeds", java.util.Collections.singletonList(embed));
-                HttpRequest request = HttpRequest.newBuilder(url).timeout(Duration.ofSeconds(8))
-                    .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(GSON.toJson(payload), StandardCharsets.UTF_8)).build();
-                int status = client.send(request, HttpResponse.BodyHandlers.discarding()).statusCode();
-                if (status < 200 || status >= 300) System.err.println("Discord-webhook kon event niet plaatsen (HTTP " + status + ").");
+                HttpRequest request = request(URI.create(url.toString() + "?wait=true"), "POST", event);
+                HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+                if (response.statusCode() < 200 || response.statusCode() >= 300)
+                {
+                    System.err.println("Discord-webhook kon event niet plaatsen (HTTP " + response.statusCode() + ").");
+                    return "";
+                }
+                Map<?, ?> message = GSON.fromJson(response.body(), Map.class);
+                Object id = message == null ? null : message.get("id");
+                return id instanceof String ? (String) id : "";
             }
-            catch (Exception exception) { System.err.println("Discord-webhook kon event niet plaatsen."); }
+            catch (Exception exception) { System.err.println("Discord-webhook kon event niet plaatsen."); return ""; }
+        }
+
+        void update(Event event)
+        {
+            if (url == null || blank(event.discordMessageId)) return;
+            try
+            {
+                URI messageUrl = URI.create(url.toString() + "/messages/" + event.discordMessageId);
+                HttpResponse<Void> response = client.send(request(messageUrl, "PATCH", event), HttpResponse.BodyHandlers.discarding());
+                if (response.statusCode() < 200 || response.statusCode() >= 300)
+                    System.err.println("Discord-webhook kon event niet bijwerken (HTTP " + response.statusCode() + ").");
+            }
+            catch (Exception exception) { System.err.println("Discord-webhook kon event niet bijwerken."); }
+        }
+
+        private HttpRequest request(URI target, String method, Event event)
+        {
+            return HttpRequest.newBuilder(target).timeout(Duration.ofSeconds(8))
+                .header("Content-Type", "application/json")
+                .method(method, HttpRequest.BodyPublishers.ofString(GSON.toJson(payload(event)), StandardCharsets.UTF_8)).build();
+        }
+
+        private static Map<String, Object> payload(Event event)
+        {
+            Map<String, Object> embed = new HashMap<>();
+            embed.put("title", event.type.replace('_', ' ') + ": " + event.title);
+            embed.put("color", 15158332);
+            String description = blank(event.discordDescription) ? event.description :
+                (blank(event.description) ? event.discordDescription : event.discordDescription + "\n\n" + event.description);
+            if (!blank(description)) embed.put("description", description);
+            List<Map<String, Object>> fields = new ArrayList<>();
+            addScheduleFields(fields, event);
+            if (!blank(event.world)) addField(fields, "Wereld", event.world);
+            if (!blank(event.host)) addField(fields, "Host", event.host);
+            if (!blank(event.checklist)) addField(fields, "Voorbereiding", event.checklist.replace(";", ", "));
+            if (!blank(event.requiredPlugins)) addField(fields, "Benodigde plug-ins", event.requiredPlugins.replace(";", ", "));
+            if (!blank(event.strategyWikiUrl)) addField(fields, "📖 Strategie", "[Strategie openen](" + event.strategyWikiUrl + ")");
+            if (!blank(event.youtubeUrl)) addField(fields, "▶️ Video", "[Video openen](" + event.youtubeUrl + ")");
+            if (!blank(event.registrationUrl)) addField(fields, "Aanmelden", "[Open aanmeldlink](" + event.registrationUrl + ")");
+            embed.put("fields", fields);
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("username", "Dutch Nation Events");
+            payload.put("allowed_mentions", java.util.Collections.singletonMap("parse", java.util.Collections.emptyList()));
+            payload.put("embeds", java.util.Collections.singletonList(embed));
+            return payload;
         }
 
         private static void addScheduleFields(List<Map<String, Object>> fields, Event event)
@@ -703,14 +750,14 @@ public final class DutchNationsApi
             }
             catch (RuntimeException exception) { addField(fields, "Datum en tijd", event.startsAt + " tot " + event.endsAt); }
         }
+
         private static void addField(List<Map<String, Object>> fields, String name, String value)
         {
             Map<String, Object> field = new HashMap<>();
             field.put("name", name); field.put("value", value); field.put("inline", false);
             fields.add(field);
         }
-    }
-    static final class State
+    }    static final class State
     {
         String updatedAt;
         List<Member> members = new ArrayList<>();
@@ -722,7 +769,7 @@ public final class DutchNationsApi
     static final class Event
     {
         String id; String startsAt; String endsAt; String type; String title;
-        String world; String host; String description; String codeword; String checklist; String requiredPlugins; String strategyWikiUrl; String driveUrl; String registrationUrl; String registrationEndsAt; String youtubeUrl; String discordText;
+        String world; String host; String description; String codeword; String checklist; String requiredPlugins; String strategyWikiUrl; String driveUrl; String registrationUrl; String registrationEndsAt; String youtubeUrl; String discordText; String discordDescription; String discordMessageId;
         String clansOne; String clansTwo; String activity; String bossList;
         boolean codewordRequired;
         boolean allowConflict;
