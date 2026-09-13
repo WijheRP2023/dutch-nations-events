@@ -152,7 +152,7 @@ final class DutchNationsPanel extends PluginPanel
             else
             {
                 List<ClanFeed.ClanEvent> planned = upcoming.stream().filter(event -> event.start().isAfter(now)).collect(Collectors.toList());
-                addCalendar(planned, "WEEK".equals(viewMode) ? 7 : 31);
+                addCalendar(planned, "WEEK".equals(viewMode) ? 7 : ("KWARTAAL".equals(viewMode) ? 91 : 31));
             }
         }
         add(Box.createVerticalGlue()); revalidate(); repaint();
@@ -294,10 +294,15 @@ final class DutchNationsPanel extends PluginPanel
     }
     private JPanel viewBar()
     {
-        JPanel views = new JPanel(new java.awt.GridLayout(2, 2, 5, 5));
+        JPanel views = new JPanel(); views.setLayout(new BoxLayout(views, BoxLayout.Y_AXIS));
         views.setOpaque(false); views.setAlignmentX(Component.LEFT_ALIGNMENT);
-        addViewButton(views, "Actief", "LIJST"); addViewButton(views, "7 dagen", "WEEK");
-        addViewButton(views, "31 dagen", "MAAND"); addViewButton(views, "Online", "ONLINE");
+        JPanel calendarViews = new JPanel(new java.awt.GridLayout(2, 2, 5, 5));
+        calendarViews.setOpaque(false); calendarViews.setAlignmentX(Component.LEFT_ALIGNMENT);
+        addViewButton(calendarViews, "Actief", "LIJST"); addViewButton(calendarViews, "7 dagen", "WEEK");
+        addViewButton(calendarViews, "31 dagen", "MAAND"); addViewButton(calendarViews, "91 dagen", "KWARTAAL");
+        calendarViews.setMaximumSize(new Dimension(Integer.MAX_VALUE, calendarViews.getPreferredSize().height));
+        views.add(calendarViews); views.add(Box.createRigidArea(new Dimension(0, 5)));
+        addViewButton(views, "Online", "ONLINE");
         views.setMaximumSize(new Dimension(Integer.MAX_VALUE, views.getPreferredSize().height));
         return views;
     }
@@ -492,7 +497,15 @@ final class DutchNationsPanel extends PluginPanel
                 panel.add(Box.createRigidArea(new Dimension(0, 3)));
             }
         }
-if (event.supportsPreparation() && !blank(event.strategyWikiUrl))
+        if (!blank(event.youtubeUrl))
+        {
+            JButton youtube = button("Open YouTube-video");
+            youtube.setForeground(new Color(255, 210, 210));
+            youtube.setBackground(new Color(130, 25, 30));
+            youtube.addActionListener(click -> LinkBrowser.browse(event.youtubeUrl));
+            panel.add(Box.createRigidArea(new Dimension(0, 7)));
+            panel.add(youtube);
+        }if (event.supportsPreparation() && !blank(event.strategyWikiUrl))
         {
             JButton wiki = button("Strategie op OSRS Wiki");
             wiki.setForeground(new Color(180, 225, 255));

@@ -27,6 +27,7 @@ final class ClanFeed
         String driveUrl;
         String registrationUrl;
         String registrationEndsAt;
+        String youtubeUrl;
         String clansOne;
         String clansTwo;
         String activity;

@@ -16,6 +16,8 @@ final class EventDraft
     String driveUrl;
     String registrationUrl;
     String registrationEndsAt;
+    String youtubeUrl;
+    String discordText;
     String clansOne;
     String clansTwo;
     String activity;

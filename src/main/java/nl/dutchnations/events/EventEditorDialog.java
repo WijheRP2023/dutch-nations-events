@@ -22,6 +22,7 @@ import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
+import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
@@ -65,6 +66,7 @@ final class EventEditorDialog
         JTextField codeword = new JTextField();
         JTextField driveUrl = new JTextField();
         JTextField registrationUrl = new JTextField();
+        JTextField youtubeUrl = new JTextField();
         JTextField registrationDeadlineDate = new JTextField(defaultStart.toLocalDate().toString());
         JTextField registrationDeadlineTime = new JTextField(defaultStart.toLocalTime().format(DateTimeFormatter.ofPattern("HH:mm")));
         JTextField checklist = new JTextField();
@@ -129,6 +131,7 @@ final class EventEditorDialog
             bossList.setText(existing.bossList == null ? "" : existing.bossList);
             driveUrl.setText(existing.driveUrl == null ? "" : existing.driveUrl);
             registrationUrl.setText(existing.registrationUrl == null ? "" : existing.registrationUrl);
+            youtubeUrl.setText(existing.youtubeUrl == null ? "" : existing.youtubeUrl);
             if (existing.registrationEndsAt != null && !existing.registrationEndsAt.trim().isEmpty())
             {
                 LocalDateTime registrationEnd = OffsetDateTime.parse(existing.registrationEndsAt).atZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime();
@@ -159,6 +162,7 @@ final class EventEditorDialog
         JPanel massCodewordRow = row("Mass-event", massCodewordRequired);
         JPanel driveRow = row("Tussenstand-link (optioneel)", driveUrl);
         JPanel registrationLinkRow = row("Discord-aanmeldlink", registrationUrl);
+        JPanel youtubeRow = row("YouTube-link (optioneel)", youtubeUrl);
         JPanel registrationDeadlineRow = row("Aanmelden tot", dateTimeFields(registrationDeadlineDate, registrationDeadlineTime));
         JPanel codewordRow = row(editing ? "Codewoord (leeg = behouden)" : "Codewoord", codeword);
         JPanel titleRow = row("Titel", title);
@@ -169,7 +173,7 @@ final class EventEditorDialog
         form.add(row("Eventtype", type)); form.add(titleRow);
         form.add(row("Startdatum/tijd", dateTimeFields(startDate, startTime))); form.add(row("Einddatum/tijd", dateTimeFields(endDate, endTime)));
         form.add(worldRow); form.add(clansOneRow); form.add(clansTwoRow); form.add(activityRow); form.add(bossListRow);
-        form.add(row("Host (RSN)", host)); form.add(row("Beschrijving", description));
+        form.add(row("Host (RSN)", host)); form.add(row("Beschrijving", description)); form.add(youtubeRow);
         form.add(preparationRow); form.add(pluginSearchRow); form.add(pluginResultsRow); form.add(addPluginRow);
         form.add(selectedPluginsRow); form.add(strategyRow); form.add(massCodewordRow); form.add(driveRow); form.add(registrationLinkRow); form.add(registrationDeadlineRow); form.add(codewordRow);
 
@@ -237,6 +241,7 @@ final class EventEditorDialog
             draft.world = world.getText().trim(); draft.host = host.getText().trim();
             draft.description = description.getText().trim(); draft.codeword = codeword.getText().trim(); draft.driveUrl = driveUrl.getText().trim();
             draft.registrationUrl = registrationUrl.getText().trim();
+            draft.youtubeUrl = youtubeUrl.getText().trim();
             if (!draft.registrationUrl.isEmpty())
             {
                 LocalDateTime registrationEnd = parseDateTime(registrationDeadlineDate.getText() + " " + registrationDeadlineTime.getText(), "aanmelddeadline");
@@ -291,6 +296,15 @@ final class EventEditorDialog
             if (!clanEvent) draft.bossList = "";
             if (boss || clanVsClan) draft.world = "";
             if (!boss && !clanEvent && !clanVsClan) { draft.driveUrl = ""; draft.registrationUrl = ""; draft.registrationEndsAt = ""; }
+            if (!editing)
+            {
+                JTextArea discordText = new JTextArea(4, 24);
+                discordText.setLineWrap(true);
+                discordText.setWrapStyleWord(true);
+                int extraTextAnswer = JOptionPane.showConfirmDialog(null, discordText,
+                    "Discord-beschrijving (optioneel)", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+                if (extraTextAnswer == JOptionPane.OK_OPTION) draft.discordText = discordText.getText().trim();
+            }
             return draft;
         }
             catch (IllegalArgumentException e)
