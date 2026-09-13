@@ -661,17 +661,15 @@ public final class DutchNationsApi
                 if (!blank(event.host)) addField(fields, "Host", event.host);
                 if (!blank(event.checklist)) addField(fields, "Voorbereiding", event.checklist.replace(";", ", "));
                 if (!blank(event.requiredPlugins)) addField(fields, "Benodigde plug-ins", event.requiredPlugins.replace(";", ", "));
+                if (!blank(event.strategyWikiUrl)) addField(fields, "📖 Strategie", "[Strategie openen](" + event.strategyWikiUrl + ")");
+                if (!blank(event.youtubeUrl)) addField(fields, "▶️ Video", "[Video openen](" + event.youtubeUrl + ")");
                 if (!blank(event.registrationUrl)) addField(fields, "Aanmelden", "[Open aanmeldlink](" + event.registrationUrl + ")");
                 embed.put("fields", fields);
 
-                StringBuilder content = new StringBuilder();
-                if (!blank(event.strategyWikiUrl)) content.append("📖 Strategie:\n").append(event.strategyWikiUrl).append("\n");
-                if (!blank(event.youtubeUrl)) content.append("▶️ Video:\n").append(event.youtubeUrl).append("\n");
                 Map<String, Object> payload = new HashMap<>();
                 payload.put("username", "Dutch Nation Events");
                 payload.put("allowed_mentions", java.util.Collections.singletonMap("parse", java.util.Collections.emptyList()));
                 payload.put("embeds", java.util.Collections.singletonList(embed));
-                if (content.length() > 0) payload.put("content", content.toString().trim());
                 HttpRequest request = HttpRequest.newBuilder(url).timeout(Duration.ofSeconds(8))
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(GSON.toJson(payload), StandardCharsets.UTF_8)).build();
