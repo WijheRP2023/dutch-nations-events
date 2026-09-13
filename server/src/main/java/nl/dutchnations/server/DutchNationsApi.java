@@ -277,7 +277,7 @@ public final class DutchNationsApi
         catch (RuntimeException ex) { return "Ongeldige ISO 8601-datum"; }
         if (!valid(event.title, 80) || !valid(event.host, 20) || !validOptional(event.description, 240) ||
             !validOptional(event.checklist, 400) || !validOptional(event.requiredPlugins, 300) ||
-            !validWikiUrl(event.strategyWikiUrl) || !validDriveUrl(event.driveUrl) || !validDiscordUrl(event.registrationUrl) ||
+            !validWikiUrl(event.strategyWikiUrl) || !validDriveUrl(event.driveUrl) || !validDiscordUrl(event.registrationUrl) || !validYoutubeUrl(event.youtubeUrl) ||
             !validOptional(event.clansOne, 300) || !validOptional(event.clansTwo, 300) || !validOptional(event.activity, 120) || !validOptional(event.bossList, 300)) return "Eventtekst of link is ongeldig";
         if (("LEARNER".equals(type) || "MASS".equals(type) || "CLAN_EVENT".equals(type)) && (blank(event.world) || !event.world.matches("\\d{3,4}"))) return "Geldig wereldnummer is verplicht";
         if (("BOSS".equals(type) || "CLAN_EVENT".equals(type) || "CLAN_VS_CLAN".equals(type) || ("MASS".equals(type) && event.codewordRequired)) && !valid(event.codeword, 40)) return "Dit event vereist een geldig codewoord van maximaal 40 tekens";
@@ -348,6 +348,20 @@ public final class DutchNationsApi
         catch (RuntimeException exception) { return false; }
     }
 
+    private static boolean validYoutubeUrl(String value)
+    {
+        if (blank(value)) return true;
+        if (!validOptional(value, 500)) return false;
+        try
+        {
+            URI uri = URI.create(value);
+            String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(Locale.ROOT);
+            return "https".equalsIgnoreCase(uri.getScheme()) && uri.getUserInfo() == null &&
+                ("youtube.com".equals(host) || "www.youtube.com".equals(host) || "m.youtube.com".equals(host) ||
+                    "music.youtube.com".equals(host) || "youtu.be".equals(host));
+        }
+        catch (RuntimeException exception) { return false; }
+    }
     private static boolean validDriveUrl(String value)
     {
         if (blank(value)) return true;
@@ -605,7 +619,7 @@ public final class DutchNationsApi
     static final class Event
     {
         String id; String startsAt; String endsAt; String type; String title;
-        String world; String host; String description; String codeword; String checklist; String requiredPlugins; String strategyWikiUrl; String driveUrl; String registrationUrl; String registrationEndsAt;
+        String world; String host; String description; String codeword; String checklist; String requiredPlugins; String strategyWikiUrl; String driveUrl; String registrationUrl; String registrationEndsAt; String youtubeUrl;
         String clansOne; String clansTwo; String activity; String bossList;
         boolean codewordRequired;
         boolean allowConflict;
