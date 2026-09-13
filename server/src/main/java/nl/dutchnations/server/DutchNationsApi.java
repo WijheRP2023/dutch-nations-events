@@ -226,11 +226,11 @@ public final class DutchNationsApi
         if (actor.administrator())
         {
             Member target = store.member(change.rsn);
-            if ("REMOVE".equals(role))
+            if ("REMOVE".equals(role) || "ROTATE".equals(role))
             {
                 if (target == null) { sendError(exchange, 404, "Rol niet gevonden"); return; }
                 if (!("MANAGER".equalsIgnoreCase(target.role) || "LEARNER_HOST".equalsIgnoreCase(target.role) || "TEACHER".equalsIgnoreCase(target.role)))
-                { sendError(exchange, 403, "Administrators mogen alleen lagere rollen intrekken"); return; }
+                { sendError(exchange, 403, "Administrators mogen alleen manager- en teacherrollen beheren"); return; }
             }
             else
             {
@@ -240,10 +240,9 @@ public final class DutchNationsApi
                     "LEARNER_HOST".equalsIgnoreCase(target.role) || "TEACHER".equalsIgnoreCase(target.role)))
                 { sendError(exchange, 403, "Administrators mogen owner- en administratorrollen niet wijzigen"); return; }
             }
-        }
-        if ("ROTATE".equals(role))
+        }        if ("ROTATE".equals(role))
         {
-            if (!actor.owner()) { sendError(exchange, 403, "Alleen de owner mag tokens vernieuwen"); return; }
+            if (!(actor.owner() || actor.administrator())) { sendError(exchange, 403, "Geen rechten om tokens te vernieuwen"); return; }
             Member existing = store.member(change.rsn);
             if (existing == null) { sendError(exchange, 404, "Rol niet gevonden"); return; }
             String newToken = randomToken();

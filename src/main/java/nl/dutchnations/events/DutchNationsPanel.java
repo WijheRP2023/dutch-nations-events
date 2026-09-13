@@ -613,6 +613,13 @@ final class DutchNationsPanel extends PluginPanel
             }
             else if (isAdministrator.getAsBoolean() && lowerRole)
             {
+                JButton rotate = button("Token vernieuwen");
+                rotate.addActionListener(event ->
+                {
+                    int answer = JOptionPane.showConfirmDialog(this, "Token van '" + role.rsn + "' vernieuwen? De oude token stopt direct.",
+                        "Token vernieuwen", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+                    if (answer == JOptionPane.YES_OPTION) saveRole.accept(new RoleDraft(role.rsn, "ROTATE"));
+                });
                 JButton remove = button("Rol intrekken"); remove.setBackground(new Color(105, 28, 31));
                 remove.addActionListener(event ->
                 {
@@ -620,9 +627,9 @@ final class DutchNationsPanel extends PluginPanel
                         "Rol intrekken", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
                     if (answer == JOptionPane.YES_OPTION) saveRole.accept(new RoleDraft(role.rsn, "REMOVE"));
                 });
-                roleCard.add(Box.createRigidArea(new Dimension(0, 6))); roleCard.add(remove);
-            }
-            add(roleCard);
+                roleCard.add(Box.createRigidArea(new Dimension(0, 6))); roleCard.add(rotate);
+                roleCard.add(Box.createRigidArea(new Dimension(0, 5))); roleCard.add(remove);
+            }            add(roleCard);
         }
     }
 
