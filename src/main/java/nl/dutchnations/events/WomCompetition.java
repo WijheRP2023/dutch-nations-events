@@ -1,8 +1,10 @@
 package nl.dutchnations.events;
 
 import java.time.OffsetDateTime;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.stream.Collectors;
 
 final class WomCompetition
 {
@@ -17,14 +19,21 @@ final class WomCompetition
     OffsetDateTime end() { return OffsetDateTime.parse(endsAt); }
     boolean active(OffsetDateTime now) { return !now.isBefore(start()) && now.isBefore(end()); }
 
-    static WomCompetition currentOrNext(List<WomCompetition> competitions, OffsetDateTime now)
+    static List<WomCompetition> visible(List<WomCompetition> competitions, OffsetDateTime now)
     {
-        if (competitions == null) return null;
-        return competitions.stream()
+        if (competitions == null) return Collections.emptyList();
+        List<WomCompetition> candidates = competitions.stream()
             .filter(competition -> competition != null && competition.startsAt != null && competition.endsAt != null)
             .filter(competition -> competition.end().isAfter(now))
             .sorted(Comparator.comparing((WomCompetition competition) -> !competition.active(now))
                 .thenComparing(WomCompetition::start))
-            .findFirst().orElse(null);
+            .collect(Collectors.toList());
+        if (candidates.isEmpty()) return Collections.emptyList();
+        List<WomCompetition> active = candidates.stream()
+            .filter(competition -> competition.active(now)).collect(Collectors.toList());
+        if (active.isEmpty()) return Collections.singletonList(candidates.get(0));
+        WomCompetition next = candidates.stream().filter(competition -> !competition.active(now)).findFirst().orElse(null);
+        if (next != null && !next.start().isAfter(now.plusDays(7))) active.add(next);
+        return active;
     }
 }

@@ -35,7 +35,7 @@ final class WomCompetitionService
                     List<WomCompetition> values = responseValues == null
                         ? java.util.Collections.emptyList()
                         : Arrays.asList(responseValues);
-                    listener.success(WomCompetition.currentOrNext(values, java.time.OffsetDateTime.now()));
+                    listener.success(WomCompetition.visible(values, java.time.OffsetDateTime.now()));
                 }
                 catch (RuntimeException exception) { listener.failure(); }
             }
@@ -44,7 +44,7 @@ final class WomCompetitionService
 
     interface Listener
     {
-        void success(WomCompetition competition);
+        void success(List<WomCompetition> competitions);
         void failure();
     }
 }

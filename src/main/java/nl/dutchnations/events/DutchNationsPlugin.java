@@ -387,7 +387,7 @@ public class DutchNationsPlugin extends Plugin
                                 "\n\nDe token is naar het klembord gekopieerd. Deel hem privé en slechts één keer.",
                             "Managementrol toegekend", JOptionPane.INFORMATION_MESSAGE);
                     }
-                    if (panel != null) { panel.status("Rol centraal opgeslagen."); refresh(); }
+                    if (panel != null) { panel.status("Rol centraal opgeslagen."); refresh(); fetchRoles(); }
                 });
             }
             @Override public void failure(String message)
@@ -414,8 +414,8 @@ public class DutchNationsPlugin extends Plugin
         lastWomRefresh = now;
         womService.fetch(new WomCompetitionService.Listener()
         {
-            @Override public void success(WomCompetition competition)
-            { SwingUtilities.invokeLater(() -> { if (panel != null) panel.updateCompetition(competition, true); }); }
+            @Override public void success(java.util.List<WomCompetition> competitions)
+            { SwingUtilities.invokeLater(() -> { if (panel != null) panel.updateCompetition(competitions, true); }); }
             @Override public void failure()
             { SwingUtilities.invokeLater(() -> { if (panel != null) panel.competitionUnavailable(); }); }
         });

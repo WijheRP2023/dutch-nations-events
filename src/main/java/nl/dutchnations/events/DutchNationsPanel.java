@@ -2,12 +2,15 @@ package nl.dutchnations.events;
 
 import java.awt.Color;
 import java.awt.Component;
+import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.Image;
 import java.awt.Insets;
 import java.awt.Toolkit;
 import java.awt.datatransfer.StringSelection;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.net.URL;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
@@ -76,7 +79,7 @@ final class DutchNationsPanel extends PluginPanel
     private String roleFilter = "ADMINS";
     private boolean serverOnline;
     private String status = "Management-feed laden...";
-    private WomCompetition competition;
+    private List<WomCompetition> competitions = new ArrayList<>();
     private boolean competitionLoaded;
 
     DutchNationsPanel(DutchNationsConfig config, Runnable refresh, BooleanSupplier canManage, BooleanSupplier isOwner,
@@ -91,11 +94,11 @@ final class DutchNationsPanel extends PluginPanel
 
     void update(ClanFeed value, String message) { feed = value; status = message; render(); }
     void status(String message) { status = message; render(); }
-    void permissionsChanged() { render(); }
+    void permissionsChanged() { if (!canManageRoles.getAsBoolean()) { viewMode = "LIJST"; roles = new ArrayList<>(); } render(); }
     void connectionChanged(boolean online) { serverOnline = online; render(); }
     void updateRoles(List<ManagementRole> value) { roles = value == null ? new ArrayList<>() : new ArrayList<>(value); rolesMessage = ""; render(); }
     void rolesStatus(String message) { rolesMessage = message; render(); }
-    void updateCompetition(WomCompetition value, boolean loaded) { competition = value; competitionLoaded = loaded; render(); }
+    void updateCompetition(List<WomCompetition> values, boolean loaded) { competitions = values == null ? new ArrayList<>() : new ArrayList<>(values); competitionLoaded = loaded; render(); }
     void competitionUnavailable() { competitionLoaded = false; render(); }
     void updateOnlineMembers(List<OnlineClanMember> members, boolean available)
     {
@@ -240,30 +243,37 @@ final class DutchNationsPanel extends PluginPanel
             BorderFactory.createMatteBorder(0, 5, 0, 0, GOLD), BorderFactory.createEmptyBorder(7, 8, 7, 8)));
         heading.add(label("WISE OLD MAN", GOLD, Font.BOLD, 13f));
         add(heading); add(Box.createRigidArea(new Dimension(0, 7)));
-        JPanel competitionCard = card(CARD_BROWN);
-        competitionCard.setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createMatteBorder(1, 1, 1, 4, GOLD), BorderFactory.createEmptyBorder(9, 9, 9, 9)));
-        if (competition == null)
+        if (competitions.isEmpty())
         {
+            JPanel competitionCard = card(CARD_BROWN);
+            competitionCard.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(1, 1, 1, 4, GOLD), BorderFactory.createEmptyBorder(9, 9, 9, 9)));
             competitionCard.add(bodyText(competitionLoaded ? "Er is momenteel geen actieve of geplande WOM-competitie."
                 : "Wise Old Man-competitie wordt geladen of is tijdelijk niet bereikbaar.",
                 Color.LIGHT_GRAY, Font.PLAIN, 12f));
             add(competitionCard); return;
         }
         OffsetDateTime now = OffsetDateTime.now();
-        boolean active = competition.active(now);
-        competitionCard.add(bodyLabel(active ? "● NU ACTIEF" : "VOLGENDE WEEKCOMPETITIE",
-            active ? new Color(120, 220, 140) : GOLD, Font.BOLD, 11f));
-        competitionCard.add(Box.createRigidArea(new Dimension(0, 4)));
-        competitionCard.add(bodyText(competition.title, Color.WHITE, Font.BOLD, 14f));
-        String metric = readableMetric(competition.metric);
-        if (!blank(metric)) competitionCard.add(bodyLabel("Onderdeel: " + metric, GOLD, Font.BOLD, 12f));
-        competitionCard.add(bodyLabel(timeStatus(competition, now), active ? new Color(120, 220, 140) : GOLD, Font.BOLD, 12f));
-        JButton open = button("Open Dutch Nation in Wise Old Man");
-        open.addActionListener(event -> LinkBrowser.browse(WomCompetitionService.GROUP_URL));
-        competitionCard.add(Box.createRigidArea(new Dimension(0, 7))); competitionCard.add(open); add(competitionCard);
+        for (int index = 0; index < competitions.size(); index++)
+        {
+            WomCompetition competition = competitions.get(index);
+            JPanel competitionCard = card(CARD_BROWN);
+            competitionCard.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(1, 1, 1, 4, GOLD), BorderFactory.createEmptyBorder(9, 9, 9, 9)));
+            boolean active = competition.active(now);
+            competitionCard.add(bodyLabel(active ? "● NU ACTIEF" : "VOLGENDE WEEKCOMPETITIE",
+                active ? new Color(120, 220, 140) : GOLD, Font.BOLD, 11f));
+            competitionCard.add(Box.createRigidArea(new Dimension(0, 4)));
+            competitionCard.add(bodyText(competition.title, Color.WHITE, Font.BOLD, 14f));
+            String metric = readableMetric(competition.metric);
+            if (!blank(metric)) competitionCard.add(bodyLabel("Onderdeel: " + metric, GOLD, Font.BOLD, 12f));
+            competitionCard.add(bodyLabel(timeStatus(competition, now), active ? new Color(120, 220, 140) : GOLD, Font.BOLD, 12f));
+            JButton open = button("Open Dutch Nation in Wise Old Man");
+            open.addActionListener(event -> LinkBrowser.browse(WomCompetitionService.GROUP_URL));
+            competitionCard.add(Box.createRigidArea(new Dimension(0, 7))); competitionCard.add(open); add(competitionCard);
+            if (index < competitions.size() - 1) add(Box.createRigidArea(new Dimension(0, 7)));
+        }
     }
-
     private void addClanEventsHeading()
     {
         JPanel heading = card(STONE);
@@ -341,10 +351,27 @@ final class DutchNationsPanel extends PluginPanel
                 BorderFactory.createEmptyBorder(6, 8, 6, 8)));
             JLabel name = bodyLabel(member.name, Color.WHITE, Font.BOLD, 13f);
             if (member.rankIcon != null) name.setIcon(new ImageIcon(member.rankIcon));
-            memberCard.add(name);
-            memberCard.add(bodyLabel("Wereld " + member.world, Color.LIGHT_GRAY, Font.PLAIN, 11f));
+            JLabel world = bodyLabel("Wereld " + member.world, Color.LIGHT_GRAY, Font.PLAIN, 11f);
+            MouseAdapter copyName = new MouseAdapter()
+            {
+                @Override public void mouseClicked(MouseEvent event) { copyMemberName(member.name); }
+            };
+            memberCard.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            name.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            world.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            memberCard.addMouseListener(copyName); name.addMouseListener(copyName); world.addMouseListener(copyName);
+            memberCard.add(name); memberCard.add(world);
             add(memberCard); add(Box.createRigidArea(new Dimension(0, 4)));
         }
+    }
+    private void copyMemberName(String name)
+    {
+        try
+        {
+            Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(name), null);
+            status("Naam gekopieerd: " + name);
+        }
+        catch (IllegalStateException exception) { status("Naam kon niet worden gekopieerd."); }
     }
     private void addCalendar(List<ClanFeed.ClanEvent> events, int days)
     {
