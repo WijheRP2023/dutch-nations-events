@@ -4,6 +4,9 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import net.dv8tion.jda.api.JDA;
+import net.dv8tion.jda.api.JDABuilder;
+import net.dv8tion.jda.api.requests.GatewayIntent;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
@@ -51,6 +54,7 @@ public final class DutchNationsApi
     private static final String OWNER_RSN = "heavenskill";
     private final Store store;
     private final String bootstrapOwnerHash;
+    private JDA discordBot;
     private final DiscordWebhookPublisher discordWebhook;
     private final ExecutorService discordWebhookExecutor = Executors.newSingleThreadExecutor();
 
@@ -75,10 +79,10 @@ public final class DutchNationsApi
         }
         Path dataFile = Paths.get(env("DN_DATA_FILE", "server-data/state.json")).toAbsolutePath();
         DutchNationsApi app = new DutchNationsApi(new Store(dataFile, System.getenv("DATABASE_URL")), ownerToken, System.getenv("DISCORD_WEBHOOK_URL"));
-        app.start(bind, port);
+        app.start(bind, port, System.getenv("DISCORD_BOT_TOKEN"));
     }
 
-    private void start(String bind, int port) throws IOException
+    private void start(String bind, int port, String discordBotToken) throws IOException
     {
         HttpServer server = HttpServer.create(new InetSocketAddress(bind, port), 0);
         server.createContext("/", this::root);
@@ -89,13 +93,28 @@ public final class DutchNationsApi
         server.setExecutor(Executors.newFixedThreadPool(8));
         server.start();
 
+        startDiscordBot(discordBotToken);
+
         ScheduledExecutorService cleanup = Executors.newSingleThreadScheduledExecutor();
         cleanup.scheduleAtFixedRate(store::removeExpired, 0, 1, TimeUnit.MINUTES);
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> { cleanup.shutdown(); discordWebhookExecutor.shutdownNow(); server.stop(1); }));
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> { cleanup.shutdown(); discordWebhookExecutor.shutdownNow(); if (discordBot != null) discordBot.shutdown(); server.stop(1); }));
         System.out.println("Dutch Nations API actief op http://" + bind + ":" + port);
         System.out.println("Feed: http://" + bind + ":" + port + "/feed.json");
     }
 
+    private void startDiscordBot(String token)
+    {
+        if (blank(token))
+        {
+            System.out.println("Discord-bot niet gestart: DISCORD_BOT_TOKEN ontbreekt");
+            return;
+        }
+
+        discordBot = JDABuilder.createDefault(token)
+            .enableIntents(GatewayIntent.MESSAGE_CONTENT)
+            .build();
+        System.out.println("Discord-bot wordt verbonden");
+    }
     private void root(HttpExchange exchange) throws IOException
     {
         if (!"/".equals(exchange.getRequestURI().getPath())) { sendError(exchange, 404, "Route niet gevonden"); return; }

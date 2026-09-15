@@ -8,6 +8,7 @@ repositories { mavenCentral() }
 dependencies {
     implementation 'com.google.code.gson:gson:2.10.1'
     implementation 'org.postgresql:postgresql:42.7.7'
+    implementation 'net.dv8tion:JDA:5.0.0'
     testImplementation 'junit:junit:4.13.2'
 }
 
