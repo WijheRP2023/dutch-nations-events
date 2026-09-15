@@ -15,9 +15,10 @@ public class WomCompetitionTest
             competition(3, "Later", "2026-08-01T00:00:00Z", "2026-08-08T00:00:00Z"),
             competition(2, "Actief twee", "2026-07-21T00:00:00Z", "2026-07-27T00:00:00Z"),
             competition(1, "Actief een", "2026-07-20T00:00:00Z", "2026-07-27T00:00:00Z")), now);
-        assertEquals(2, visible.size());
+        assertEquals(3, visible.size());
         assertEquals(1, visible.get(0).id);
         assertEquals(2, visible.get(1).id);
+        assertEquals(3, visible.get(2).id);
     }
     @Test public void nextCompetitionWithinSevenDaysIsShownWithTheActiveCompetition()
     {

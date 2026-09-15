@@ -29,11 +29,10 @@ final class WomCompetition
                 .thenComparing(WomCompetition::start))
             .collect(Collectors.toList());
         if (candidates.isEmpty()) return Collections.emptyList();
-        List<WomCompetition> active = candidates.stream()
+        List<WomCompetition> visible = candidates.stream()
             .filter(competition -> competition.active(now)).collect(Collectors.toList());
-        if (active.isEmpty()) return Collections.singletonList(candidates.get(0));
         WomCompetition next = candidates.stream().filter(competition -> !competition.active(now)).findFirst().orElse(null);
-        if (next != null && !next.start().isAfter(now.plusDays(7))) active.add(next);
-        return active;
+        if (next != null) visible.add(next);
+        return visible;
     }
 }

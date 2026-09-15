@@ -130,10 +130,14 @@ final class DutchNationsPanel extends PluginPanel
         }
         if (config.showWomCompetition())
         {
-            addCompetitionSection();
-            add(Box.createRigidArea(new Dimension(0, 10)));
-        }
-        addClanEventsHeading();
+            OffsetDateTime womNow = OffsetDateTime.now();
+            List<WomCompetition> displayedCompetitions = competitionsForView(womNow);
+            if ("LIJST".equals(viewMode) || !displayedCompetitions.isEmpty())
+            {
+                addCompetitionSection(displayedCompetitions, "LIJST".equals(viewMode));
+                add(Box.createRigidArea(new Dimension(0, 10)));
+            }
+        }        addClanEventsHeading();
         add(Box.createRigidArea(new Dimension(0, 7)));
 
         if (feed != null)
@@ -236,27 +240,47 @@ final class DutchNationsPanel extends PluginPanel
     }
 
 
-    private void addCompetitionSection()
+    private List<WomCompetition> competitionsForView(OffsetDateTime now)
+    {
+        if ("LIJST".equals(viewMode))
+            return competitions.stream().filter(competition -> competition.active(now)).collect(Collectors.toList());
+        int startOffset = "WEEK".equals(viewMode) ? 0 : ("MAAND".equals(viewMode) ? 7 : 31);
+        int endOffset = "WEEK".equals(viewMode) ? 7 : ("MAAND".equals(viewMode) ? 31 : 91);
+        LocalDate today = LocalDate.now();
+        LocalDate rangeStart = today.plusDays(startOffset);
+        LocalDate rangeEnd = today.plusDays(endOffset);
+        return competitions.stream()
+            .filter(competition -> !competition.active(now))
+            .filter(competition ->
+            {
+                LocalDate start = competition.start().atZoneSameInstant(ZoneId.systemDefault()).toLocalDate();
+                return !start.isBefore(rangeStart) && start.isBefore(rangeEnd);
+            })
+            .collect(Collectors.toList());
+    }
+
+    private void addCompetitionSection(List<WomCompetition> displayedCompetitions, boolean activeView)
     {
         JPanel heading = card(STONE);
         heading.setBorder(BorderFactory.createCompoundBorder(
             BorderFactory.createMatteBorder(0, 5, 0, 0, GOLD), BorderFactory.createEmptyBorder(7, 8, 7, 8)));
         heading.add(label("WISE OLD MAN", GOLD, Font.BOLD, 13f));
         add(heading); add(Box.createRigidArea(new Dimension(0, 7)));
-        if (competitions.isEmpty())
+        if (displayedCompetitions.isEmpty())
         {
             JPanel competitionCard = card(CARD_BROWN);
             competitionCard.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createMatteBorder(1, 1, 1, 4, GOLD), BorderFactory.createEmptyBorder(9, 9, 9, 9)));
-            competitionCard.add(bodyText(competitionLoaded ? "Er is momenteel geen actieve of geplande WOM-competitie."
+            competitionCard.add(bodyText(competitionLoaded ? (activeView ? "Er is momenteel geen actieve WOM-competitie."
+                : "Er zijn geen WOM-competities in deze periode.")
                 : "Wise Old Man-competitie wordt geladen of is tijdelijk niet bereikbaar.",
                 Color.LIGHT_GRAY, Font.PLAIN, 12f));
             add(competitionCard); return;
         }
         OffsetDateTime now = OffsetDateTime.now();
-        for (int index = 0; index < competitions.size(); index++)
+        for (int index = 0; index < displayedCompetitions.size(); index++)
         {
-            WomCompetition competition = competitions.get(index);
+            WomCompetition competition = displayedCompetitions.get(index);
             JPanel competitionCard = card(CARD_BROWN);
             competitionCard.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createMatteBorder(1, 1, 1, 4, GOLD), BorderFactory.createEmptyBorder(9, 9, 9, 9)));
@@ -271,7 +295,7 @@ final class DutchNationsPanel extends PluginPanel
             JButton open = button("Open Dutch Nation in Wise Old Man");
             open.addActionListener(event -> LinkBrowser.browse(WomCompetitionService.GROUP_URL));
             competitionCard.add(Box.createRigidArea(new Dimension(0, 7))); competitionCard.add(open); add(competitionCard);
-            if (index < competitions.size() - 1) add(Box.createRigidArea(new Dimension(0, 7)));
+            if (index < displayedCompetitions.size() - 1) add(Box.createRigidArea(new Dimension(0, 7)));
         }
     }
     private void addClanEventsHeading()
