@@ -90,6 +90,7 @@ public final class DutchNationsApi
         server.createContext("/feed.json", this::feed);
         server.createContext("/api/events", this::events);
         server.createContext("/api/roles", this::roles);
+        server.createContext("/api/announcement-channel", this::announcementChannel);
         server.setExecutor(Executors.newFixedThreadPool(8));
         server.start();
 
@@ -218,6 +219,17 @@ public final class DutchNationsApi
         methodNotAllowed(exchange);
     }
 
+    private void announcementChannel(HttpExchange exchange) throws IOException
+    {
+        Actor actor = authenticate(exchange);
+        if (actor == null || !actor.owner()) { sendError(exchange, 403, "Alleen de owner kan het mededelingenkanaal wijzigen"); return; }
+        if (!"POST".equals(exchange.getRequestMethod())) { methodNotAllowed(exchange); return; }
+        AnnouncementChannel change = read(exchange, AnnouncementChannel.class);
+        if (change == null || !validDiscordChannelUrl(change.url))
+        { sendError(exchange, 400, "Geldige Discord-kanaallink is verplicht"); return; }
+        store.saveAnnouncementsUrl(change.url.trim());
+        send(exchange, 200, map("announcementsUrl", change.url.trim()));
+    }
     private void roles(HttpExchange exchange) throws IOException
     {
         Actor actor = authenticate(exchange);
@@ -385,6 +397,17 @@ public final class DutchNationsApi
         }
         catch (RuntimeException exception) { return false; }
     }
+    private static boolean validDiscordChannelUrl(String value)
+    {
+        if (blank(value)) return false;
+        try
+        {
+            URI uri = URI.create(value);
+            return "https".equalsIgnoreCase(uri.getScheme()) && "discord.com".equalsIgnoreCase(uri.getHost()) &&
+                uri.getUserInfo() == null && uri.getPath() != null && uri.getPath().matches("/channels/[0-9]+/[0-9]+/?");
+        }
+        catch (RuntimeException exception) { return false; }
+    }
     private static boolean validDiscordUrl(String value)
     {
         if (blank(value)) return true;
@@ -469,6 +492,7 @@ public final class DutchNationsApi
             OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
             Feed feed = new Feed();
             feed.updatedAt = state.updatedAt;
+            feed.announcementsUrl = state.announcementsUrl;
             feed.events = new ArrayList<>();
             for (Event stored : state.events)
             {
@@ -521,6 +545,11 @@ public final class DutchNationsApi
         synchronized Event event(String id)
         {
             return state.events.stream().filter(value -> id.equals(value.id)).findFirst().orElse(null);
+        }
+        synchronized void saveAnnouncementsUrl(String value)
+        {
+            state.announcementsUrl = value;
+            changed();
         }
         synchronized void saveRole(String rsn, String role, String tokenHash)
         {
@@ -781,8 +810,9 @@ public final class DutchNationsApi
         List<Member> members = new ArrayList<>();
         List<Event> events = new ArrayList<>();
         Map<String, String> tokenHashes = new HashMap<>();
+        String announcementsUrl = "";
     }
-    static final class Feed { String updatedAt; List<Event> events; }
+    static final class Feed { String updatedAt; String announcementsUrl; List<Event> events; }
     static final class Member { String rsn; String role; String updatedAt; }
     static final class Event
     {
@@ -793,6 +823,7 @@ public final class DutchNationsApi
         boolean allowConflict;
     }
     static final class RoleChange { String rsn; String role; }
+    static final class AnnouncementChannel { String url; }
     static final class Actor
     {
         final String rsn; final String role;
