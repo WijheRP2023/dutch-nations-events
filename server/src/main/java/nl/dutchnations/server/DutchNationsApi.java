@@ -6,6 +6,8 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
+import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
+import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.requests.GatewayIntent;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -112,7 +114,16 @@ public final class DutchNationsApi
         }
 
         discordBot = JDABuilder.createDefault(token)
-            .enableIntents(GatewayIntent.MESSAGE_CONTENT)
+            .enableIntents(GatewayIntent.GUILD_MESSAGES, GatewayIntent.MESSAGE_CONTENT)
+            .addEventListeners(new ListenerAdapter()
+            {
+                @Override
+                public void onMessageReceived(MessageReceivedEvent event)
+                {
+                    if (!event.isFromGuild() || event.getAuthor().isBot()) return;
+                    store.recordAnnouncement(event.getChannel().getId(), event.getMessageId());
+                }
+            })
             .build();
         System.out.println("Discord-bot wordt verbonden");
     }
@@ -408,6 +419,16 @@ public final class DutchNationsApi
         }
         catch (RuntimeException exception) { return false; }
     }
+    private static String discordChannelId(String value)
+    {
+        if (!validDiscordChannelUrl(value)) return "";
+        try
+        {
+            String[] parts = URI.create(value).getPath().split("/");
+            return parts.length == 4 ? parts[3] : "";
+        }
+        catch (RuntimeException exception) { return ""; }
+    }
     private static boolean validDiscordUrl(String value)
     {
         if (blank(value)) return true;
@@ -493,6 +514,7 @@ public final class DutchNationsApi
             Feed feed = new Feed();
             feed.updatedAt = state.updatedAt;
             feed.announcementsUrl = state.announcementsUrl;
+            feed.announcementsSequence = state.announcementsSequence;
             feed.events = new ArrayList<>();
             for (Event stored : state.events)
             {
@@ -549,6 +571,14 @@ public final class DutchNationsApi
         synchronized void saveAnnouncementsUrl(String value)
         {
             state.announcementsUrl = value;
+            changed();
+        }
+        synchronized void recordAnnouncement(String channelId, String messageId)
+        {
+            if (blank(channelId) || blank(messageId) || !channelId.equals(discordChannelId(state.announcementsUrl))) return;
+            if (messageId.equals(state.lastAnnouncementMessageId)) return;
+            state.lastAnnouncementMessageId = messageId;
+            state.announcementsSequence++;
             changed();
         }
         synchronized void saveRole(String rsn, String role, String tokenHash)
@@ -811,8 +841,10 @@ public final class DutchNationsApi
         List<Event> events = new ArrayList<>();
         Map<String, String> tokenHashes = new HashMap<>();
         String announcementsUrl = "";
+        long announcementsSequence;
+        String lastAnnouncementMessageId = "";
     }
-    static final class Feed { String updatedAt; String announcementsUrl; List<Event> events; }
+    static final class Feed { String updatedAt; String announcementsUrl; long announcementsSequence; List<Event> events; }
     static final class Member { String rsn; String role; String updatedAt; }
     static final class Event
     {
