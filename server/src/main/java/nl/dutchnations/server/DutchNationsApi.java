@@ -380,7 +380,7 @@ public final class DutchNationsApi
     {
         if (value == null) return true;
         if (value.length() > maximum || value.indexOf('<' ) >= 0 || value.indexOf('>' ) >= 0) return false;
-        return value.chars().noneMatch(character -> Character.isISOControl(character));
+        return value.chars().noneMatch(character -> Character.isISOControl(character) && character != '\n' && character != '\r' && character != '\t');
     }
     private static boolean validWikiUrl(String value)
     {
