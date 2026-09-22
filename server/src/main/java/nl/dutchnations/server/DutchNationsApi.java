@@ -64,7 +64,7 @@ public final class DutchNationsApi
     {
         this.store = store;
         this.bootstrapOwnerHash = sha256(ownerToken);
-        this.discordWebhook = new DiscordWebhookPublisher(discordWebhookUrl);
+        this.discordWebhook = new DiscordWebhookPublisher(discordWebhookUrl, store);
     }
 
     public static void main(String[] args) throws Exception
@@ -801,9 +801,11 @@ public final class DutchNationsApi
     {
         private final URI url;
         private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+        private final Store store;
 
-        DiscordWebhookPublisher(String configuredUrl)
+        DiscordWebhookPublisher(String configuredUrl, Store store)
         {
+            this.store = store;
             url = validDiscordWebhookUrl(configuredUrl) ? URI.create(configuredUrl.trim()) : null;
             if (!blank(configuredUrl) && url == null) System.err.println("Discord-webhook uitgeschakeld: ongeldige webhook-URL.");
         }
@@ -818,13 +820,14 @@ public final class DutchNationsApi
                 if (response.statusCode() < 200 || response.statusCode() >= 300)
                 {
                     System.err.println("Discord-webhook kon event niet plaatsen (HTTP " + response.statusCode() + ").");
+                    store.error("Discord-webhook", "Eventbericht afgewezen (HTTP " + response.statusCode() + ")");
                     return "";
                 }
                 Map<?, ?> message = GSON.fromJson(response.body(), Map.class);
                 Object id = message == null ? null : message.get("id");
                 return id instanceof String ? (String) id : "";
             }
-            catch (Exception exception) { System.err.println("Discord-webhook kon event niet plaatsen."); return ""; }
+            catch (Exception exception) { System.err.println("Discord-webhook kon event niet plaatsen."); store.error("Discord-webhook", "Eventbericht kon niet worden geplaatst"); return ""; }
         }
 
         void update(Event event)
@@ -836,8 +839,9 @@ public final class DutchNationsApi
                 HttpResponse<Void> response = client.send(request(messageUrl, "PATCH", event), HttpResponse.BodyHandlers.discarding());
                 if (response.statusCode() < 200 || response.statusCode() >= 300)
                     System.err.println("Discord-webhook kon event niet bijwerken (HTTP " + response.statusCode() + ").");
+                    store.error("Discord-webhook", "Eventbericht kon niet worden bijgewerkt (HTTP " + response.statusCode() + ")");
             }
-            catch (Exception exception) { System.err.println("Discord-webhook kon event niet bijwerken."); }
+            catch (Exception exception) { System.err.println("Discord-webhook kon event niet bijwerken."); store.error("Discord-webhook", "Eventbericht kon niet worden bijgewerkt"); }
         }
 
         private HttpRequest request(URI target, String method, Event event)
