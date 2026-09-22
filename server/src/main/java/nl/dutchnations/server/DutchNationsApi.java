@@ -153,7 +153,7 @@ public final class DutchNationsApi
         {
             Event event = read(exchange, Event.class);
             String error = validateEvent(event);
-            if (error != null) { sendError(exchange, 400, error); return; }
+            if (error != null) { System.out.println("Event create afgewezen: " + error); sendError(exchange, 400, error); return; }
             event.id = UUID.randomUUID().toString();
             event.type = event.type.toUpperCase(Locale.ROOT);
             if (!actor.canManageEventType(event.type)) { sendError(exchange, 403, "Deze rol mag alleen learner-events beheren"); return; }
@@ -198,7 +198,7 @@ public final class DutchNationsApi
             if (!actor.canManageEventType(event.type)) { sendError(exchange, 403, "Deze rol mag alleen learner-events beheren"); return; }
             if (("BOSS".equals(event.type) || "CLAN_EVENT".equals(event.type) || "CLAN_VS_CLAN".equals(event.type) || ("MASS".equals(event.type) && event.codewordRequired)) && blank(event.codeword)) event.codeword = existing.codeword;
             String error = validateEvent(event);
-            if (error != null) { sendError(exchange, 400, error); return; }
+            if (error != null) { System.out.println("Event create afgewezen: " + error); sendError(exchange, 400, error); return; }
             if ("BOSS".equals(event.type) || "CLAN_EVENT".equals(event.type) || "CLAN_VS_CLAN".equals(event.type)) event.codewordRequired = true;
             if ("LEARNER".equals(event.type)) { event.codeword = ""; event.codewordRequired = false; }
             if ("MASS".equals(event.type) && !event.codewordRequired) event.codeword = "";
