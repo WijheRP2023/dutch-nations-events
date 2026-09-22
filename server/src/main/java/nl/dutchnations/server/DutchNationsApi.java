@@ -350,7 +350,10 @@ public final class DutchNationsApi
         if (!validOptional(event.clansOne, 300) || !validOptional(event.clansTwo, 300)) return "Clanlijst is ongeldig";
         if (!validOptional(event.activity, 120)) return "Activiteit is ongeldig";
         if (!validOptional(event.bossList, 300)) return "Boss- of activiteitenlijst is ongeldig";
-        if (!validOptional(event.discordText, 800)) return "Discord-beschrijving is ongeldig";
+        if (!validOptional(event.discordText, 3000)) return "Discord-beschrijving is ongeldig of langer dan 3000 tekens";
+        int descriptionLength = event.description == null ? 0 : event.description.length();
+        int discordDescriptionLength = event.discordText == null ? 0 : event.discordText.length();
+        if (descriptionLength + discordDescriptionLength > 4000) return "Beschrijving en Discord-beschrijving samen mogen maximaal 4000 tekens bevatten";
         if (("LEARNER".equals(type) || "MASS".equals(type) || "CLAN_EVENT".equals(type)) && (blank(event.world) || !event.world.matches("\\d{3,4}"))) return "Geldig wereldnummer is verplicht";
         if (("BOSS".equals(type) || "CLAN_EVENT".equals(type) || "CLAN_VS_CLAN".equals(type) || ("MASS".equals(type) && event.codewordRequired)) && !valid(event.codeword, 40)) return "Dit event vereist een geldig codewoord van maximaal 40 tekens";
         if ("CLAN_EVENT".equals(type) && !valid(event.bossList, 300)) return "Vul minimaal één boss of activiteit in";
