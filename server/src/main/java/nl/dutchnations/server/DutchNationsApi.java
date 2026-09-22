@@ -338,10 +338,19 @@ public final class DutchNationsApi
             else if (!blank(event.registrationEndsAt)) return "Een aanmelddeadline vereist een Discord-aanmeldlink";
         }
         catch (RuntimeException ex) { return "Ongeldige ISO 8601-datum"; }
-        if (!valid(event.title, 80) || !valid(event.host, 20) || !validOptional(event.description, 240) ||
-            !validOptional(event.checklist, 400) || !validOptional(event.requiredPlugins, 300) ||
-            !validWikiUrl(event.strategyWikiUrl) || !validDriveUrl(event.driveUrl) || !validDiscordUrl(event.registrationUrl) || !validYoutubeUrl(event.youtubeUrl) ||
-            !validOptional(event.clansOne, 300) || !validOptional(event.clansTwo, 300) || !validOptional(event.activity, 120) || !validOptional(event.bossList, 300) || !validOptional(event.discordText, 800)) return "Eventtekst of link is ongeldig";
+        if (!valid(event.title, 80)) return "Titel is ongeldig of langer dan 80 tekens";
+        if (!valid(event.host, 20)) return "Host-RSN is ongeldig of langer dan 20 tekens";
+        if (!validOptional(event.description, 240)) return "Beschrijving is ongeldig of langer dan 240 tekens";
+        if (!validOptional(event.checklist, 400)) return "Voorbereiding is ongeldig";
+        if (!validOptional(event.requiredPlugins, 300)) return "Plug-inlijst is ongeldig";
+        if (!validWikiUrl(event.strategyWikiUrl)) return "Strategie-link is ongeldig";
+        if (!validDriveUrl(event.driveUrl)) return "Tussenstand-link is ongeldig";
+        if (!validDiscordUrl(event.registrationUrl)) return "Discord-aanmeldlink is ongeldig";
+        if (!validYoutubeUrl(event.youtubeUrl)) return "YouTube-link is ongeldig";
+        if (!validOptional(event.clansOne, 300) || !validOptional(event.clansTwo, 300)) return "Clanlijst is ongeldig";
+        if (!validOptional(event.activity, 120)) return "Activiteit is ongeldig";
+        if (!validOptional(event.bossList, 300)) return "Boss- of activiteitenlijst is ongeldig";
+        if (!validOptional(event.discordText, 800)) return "Discord-beschrijving is ongeldig";
         if (("LEARNER".equals(type) || "MASS".equals(type) || "CLAN_EVENT".equals(type)) && (blank(event.world) || !event.world.matches("\\d{3,4}"))) return "Geldig wereldnummer is verplicht";
         if (("BOSS".equals(type) || "CLAN_EVENT".equals(type) || "CLAN_VS_CLAN".equals(type) || ("MASS".equals(type) && event.codewordRequired)) && !valid(event.codeword, 40)) return "Dit event vereist een geldig codewoord van maximaal 40 tekens";
         if ("CLAN_EVENT".equals(type) && !valid(event.bossList, 300)) return "Vul minimaal één boss of activiteit in";
