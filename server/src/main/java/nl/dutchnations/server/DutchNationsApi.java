@@ -93,6 +93,7 @@ public final class DutchNationsApi
         server.createContext("/api/events", this::events);
         server.createContext("/api/roles", this::roles);
         server.createContext("/api/announcement-channel", this::announcementChannel);
+        server.createContext("/api/owner-logs", this::ownerLogs);
         server.setExecutor(Executors.newFixedThreadPool(8));
         server.start();
 
@@ -153,7 +154,7 @@ public final class DutchNationsApi
         {
             Event event = read(exchange, Event.class);
             String error = validateEvent(event);
-            if (error != null) { System.out.println("Event create afgewezen: " + error); sendError(exchange, 400, error); return; }
+            if (error != null) { System.out.println("Event create afgewezen: " + error); store.error("Event", actor.rsn + ": " + error); sendError(exchange, 400, error); return; }
             event.id = UUID.randomUUID().toString();
             event.type = event.type.toUpperCase(Locale.ROOT);
             if (!actor.canManageEventType(event.type)) { sendError(exchange, 403, "Deze rol mag alleen learner-events beheren"); return; }
@@ -172,6 +173,7 @@ public final class DutchNationsApi
             event.discordDescription = event.discordText;
             event.discordText = "";
             store.addEvent(event);
+            store.audit(actor, "Event gemaakt: " + event.title);
             discordWebhookExecutor.execute(() ->
             {
                 String messageId = discordWebhook.publish(event);
@@ -198,7 +200,7 @@ public final class DutchNationsApi
             if (!actor.canManageEventType(event.type)) { sendError(exchange, 403, "Deze rol mag alleen learner-events beheren"); return; }
             if (("BOSS".equals(event.type) || "CLAN_EVENT".equals(event.type) || "CLAN_VS_CLAN".equals(event.type) || ("MASS".equals(event.type) && event.codewordRequired)) && blank(event.codeword)) event.codeword = existing.codeword;
             String error = validateEvent(event);
-            if (error != null) { System.out.println("Event create afgewezen: " + error); sendError(exchange, 400, error); return; }
+            if (error != null) { System.out.println("Event create afgewezen: " + error); store.error("Event", actor.rsn + ": " + error); sendError(exchange, 400, error); return; }
             if ("BOSS".equals(event.type) || "CLAN_EVENT".equals(event.type) || "CLAN_VS_CLAN".equals(event.type)) event.codewordRequired = true;
             if ("LEARNER".equals(event.type)) { event.codeword = ""; event.codewordRequired = false; }
             if ("MASS".equals(event.type) && !event.codewordRequired) event.codeword = "";
@@ -210,6 +212,7 @@ public final class DutchNationsApi
             Event conflict = store.findConflict(event, existing.id);
             if (conflict != null && !event.allowConflict) { sendError(exchange, 409, "Event overlapt met " + conflict.title); return; }
             store.updateEvent(existing.id, event);
+            store.audit(actor, "Event aangepast: " + event.title);
             if (!blank(event.discordMessageId)) discordWebhookExecutor.execute(() -> discordWebhook.update(event));
             send(exchange, 200, event);
             return;
@@ -223,6 +226,7 @@ public final class DutchNationsApi
             if (existing == null) { sendError(exchange, 404, "Event niet gevonden"); return; }
             if (!actor.canManageEventType(existing.type)) { sendError(exchange, 403, "Deze rol mag alleen learner-events beheren"); return; }
             boolean removed = store.deleteEvent(existing.id);
+            if (removed) store.audit(actor, "Event verwijderd: " + existing.title);
             if (!removed) { sendError(exchange, 404, "Event niet gevonden"); return; }
             send(exchange, 200, map("deleted", true));
             return;
@@ -230,6 +234,13 @@ public final class DutchNationsApi
         methodNotAllowed(exchange);
     }
 
+    private void ownerLogs(HttpExchange exchange) throws IOException
+    {
+        Actor actor = authenticate(exchange);
+        if (actor == null || !actor.owner()) { sendError(exchange, 403, "Alleen de owner kan de logs bekijken"); return; }
+        if (!"GET".equals(exchange.getRequestMethod())) { methodNotAllowed(exchange); return; }
+        send(exchange, 200, store.ownerLogs());
+    }
     private void announcementChannel(HttpExchange exchange) throws IOException
     {
         Actor actor = authenticate(exchange);
@@ -239,6 +250,7 @@ public final class DutchNationsApi
         if (change == null || !validDiscordChannelUrl(change.url))
         { sendError(exchange, 400, "Geldige Discord-kanaallink is verplicht"); return; }
         store.saveAnnouncementsUrl(change.url.trim());
+        store.audit(actor, "Mededelingenkanaal gewijzigd");
         send(exchange, 200, map("announcementsUrl", change.url.trim()));
     }
     private void roles(HttpExchange exchange) throws IOException
@@ -289,6 +301,7 @@ public final class DutchNationsApi
             if (existing == null) { sendError(exchange, 404, "Rol niet gevonden"); return; }
             String newToken = randomToken();
             store.saveRole(existing.rsn, existing.role, sha256(newToken));
+            store.audit(actor, "Management-token vernieuwd voor " + existing.rsn);
             Map<String, Object> response = new HashMap<>();
             response.put("rsn", existing.rsn); response.put("role", existing.role); response.put("managementToken", newToken);
             send(exchange, 200, response); return;
@@ -296,6 +309,7 @@ public final class DutchNationsApi
         if ("REMOVE".equals(role))
         {
             store.removeRole(change.rsn);
+            store.audit(actor, "Managementrol ingetrokken van " + change.rsn.trim());
             send(exchange, 200, map("removed", true));
             return;
         }
@@ -303,6 +317,7 @@ public final class DutchNationsApi
         { sendError(exchange, 400, "Ongeldige rol"); return; }
         String newToken = randomToken();
         store.saveRole(change.rsn, role, sha256(newToken));
+        store.audit(actor, "Rol " + role + " toegekend aan " + change.rsn.trim());
         Map<String, Object> response = new HashMap<>();
         response.put("rsn", change.rsn.trim()); response.put("role", role); response.put("managementToken", newToken);
         send(exchange, 200, response);
@@ -515,6 +530,7 @@ public final class DutchNationsApi
             this.file = file;
             this.databaseUrl = blank(databaseUrl) ? null : databaseUrl.trim();
             this.state = load();
+            ensureLogLists();
             ensureOwner();
             if (this.databaseUrl != null) save();
         }
@@ -592,6 +608,45 @@ public final class DutchNationsApi
             state.lastAnnouncementMessageId = messageId;
             state.announcementsSequence++;
             changed();
+        }
+        synchronized OwnerLogs ownerLogs()
+        {
+            OwnerLogs logs = new OwnerLogs();
+            logs.management = copyLogs(state.managementLogs);
+            logs.errors = copyLogs(state.errorLogs);
+            return logs;
+        }
+        synchronized void audit(Actor actor, String message)
+        {
+            addLog(state.managementLogs, actor == null ? "Systeem" : actor.rsn, message);
+            changed();
+        }
+        synchronized void error(String source, String message)
+        {
+            addLog(state.errorLogs, source, message);
+            changed();
+        }
+        private static List<LogEntry> copyLogs(List<LogEntry> source)
+        {
+            List<LogEntry> copy = new ArrayList<>();
+            if (source == null) return copy;
+            for (LogEntry entry : source) copy.add(GSON.fromJson(GSON.toJson(entry), LogEntry.class));
+            return copy;
+        }
+        private static void addLog(List<LogEntry> logs, String source, String message)
+        {
+            if (logs == null) return;
+            LogEntry entry = new LogEntry();
+            entry.at = OffsetDateTime.now(ZoneOffset.UTC).toString();
+            entry.source = source;
+            entry.message = message;
+            logs.add(0, entry);
+            while (logs.size() > 100) logs.remove(logs.size() - 1);
+        }
+        private void ensureLogLists()
+        {
+            if (state.managementLogs == null) state.managementLogs = new ArrayList<>();
+            if (state.errorLogs == null) state.errorLogs = new ArrayList<>();
         }
         synchronized void saveRole(String rsn, String role, String tokenHash)
         {
@@ -855,8 +910,12 @@ public final class DutchNationsApi
         String announcementsUrl = "";
         long announcementsSequence;
         String lastAnnouncementMessageId = "";
+        List<LogEntry> managementLogs = new ArrayList<>();
+        List<LogEntry> errorLogs = new ArrayList<>();
     }
     static final class Feed { String updatedAt; String announcementsUrl; long announcementsSequence; List<Event> events; }
+    static final class OwnerLogs { List<LogEntry> management; List<LogEntry> errors; }
+    static final class LogEntry { String at; String source; String message; }
     static final class Member { String rsn; String role; String updatedAt; }
     static final class Event
     {
