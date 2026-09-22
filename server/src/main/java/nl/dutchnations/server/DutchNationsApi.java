@@ -340,7 +340,7 @@ public final class DutchNationsApi
         catch (RuntimeException ex) { return "Ongeldige ISO 8601-datum"; }
         if (!valid(event.title, 80)) return "Titel is ongeldig of langer dan 80 tekens";
         if (!valid(event.host, 20)) return "Host-RSN is ongeldig of langer dan 20 tekens";
-        if (!validOptional(event.description, 240)) return "Beschrijving is ongeldig of langer dan 240 tekens";
+        if (!validOptional(event.description, 3000)) return "Beschrijving is ongeldig of langer dan 3000 tekens";
         if (!validOptional(event.checklist, 400)) return "Voorbereiding is ongeldig";
         if (!validOptional(event.requiredPlugins, 300)) return "Plug-inlijst is ongeldig";
         if (!validWikiUrl(event.strategyWikiUrl)) return "Strategie-link is ongeldig";
