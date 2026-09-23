@@ -57,14 +57,11 @@ public final class DutchNationsApi
     private final Store store;
     private final String bootstrapOwnerHash;
     private JDA discordBot;
-    private final DiscordWebhookPublisher discordWebhook;
-    private final ExecutorService discordWebhookExecutor = Executors.newSingleThreadExecutor();
 
-    private DutchNationsApi(Store store, String ownerToken, String discordWebhookUrl)
+    private DutchNationsApi(Store store, String ownerToken)
     {
         this.store = store;
         this.bootstrapOwnerHash = sha256(ownerToken);
-        this.discordWebhook = new DiscordWebhookPublisher(discordWebhookUrl, store);
     }
 
     public static void main(String[] args) throws Exception
@@ -80,7 +77,7 @@ public final class DutchNationsApi
             System.out.println("LET OP: lokale ontwikkeltoken actief: " + ownerToken);
         }
         Path dataFile = Paths.get(env("DN_DATA_FILE", "server-data/state.json")).toAbsolutePath();
-        DutchNationsApi app = new DutchNationsApi(new Store(dataFile, System.getenv("DATABASE_URL")), ownerToken, System.getenv("DISCORD_WEBHOOK_URL"));
+        DutchNationsApi app = new DutchNationsApi(new Store(dataFile, System.getenv("DATABASE_URL")), ownerToken);
         app.start(bind, port, System.getenv("DISCORD_BOT_TOKEN"));
     }
 
@@ -102,7 +99,7 @@ public final class DutchNationsApi
 
         ScheduledExecutorService cleanup = Executors.newSingleThreadScheduledExecutor();
         cleanup.scheduleAtFixedRate(store::removeExpired, 0, 1, TimeUnit.MINUTES);
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> { cleanup.shutdown(); discordWebhookExecutor.shutdownNow(); if (discordBot != null) discordBot.shutdown(); server.stop(1); }));
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> { cleanup.shutdown(); if (discordBot != null) discordBot.shutdown(); server.stop(1); }));
         System.out.println("Dutch Nations API actief op http://" + bind + ":" + port);
         System.out.println("Feed: http://" + bind + ":" + port + "/feed.json");
     }
@@ -191,11 +188,6 @@ public final class DutchNationsApi
             event.discordText = "";
             store.addEvent(event);
             store.audit(actor, "Event gemaakt: " + event.title);
-            discordWebhookExecutor.execute(() ->
-            {
-                String messageId = discordWebhook.publish(event);
-                if (!blank(messageId)) store.setDiscordMessageId(event.id, messageId);
-            });
             send(exchange, 201, event);
             return;
         }
@@ -232,7 +224,6 @@ public final class DutchNationsApi
             store.updateEvent(existing.id, event);
             store.audit(actor, "Event aangepast: " + event.title);
             if (codewordChanged) store.audit(actor, "Codewoord gewijzigd voor event: " + event.title);
-            if (!blank(event.discordMessageId)) discordWebhookExecutor.execute(() -> discordWebhook.update(event));
             send(exchange, 200, event);
             return;
         }
@@ -448,20 +439,6 @@ public final class DutchNationsApi
             URI uri = URI.create(value);
             return "https".equalsIgnoreCase(uri.getScheme()) &&
                 "oldschool.runescape.wiki".equalsIgnoreCase(uri.getHost()) && uri.getUserInfo() == null;
-        }
-        catch (RuntimeException exception) { return false; }
-    }
-    private static boolean validDiscordWebhookUrl(String value)
-    {
-        if (blank(value)) return false;
-        try
-        {
-            URI uri = URI.create(value);
-            String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(Locale.ROOT);
-            String[] parts = uri.getPath() == null ? new String[0] : uri.getPath().split("/");
-            return "https".equalsIgnoreCase(uri.getScheme()) && uri.getUserInfo() == null &&
-                "discord.com".equals(host) && parts.length == 5 && "api".equals(parts[1]) &&
-                "webhooks".equals(parts[2]) && !blank(parts[3]) && !blank(parts[4]);
         }
         catch (RuntimeException exception) { return false; }
     }
@@ -833,115 +810,7 @@ public final class DutchNationsApi
             catch (Exception ex) { throw new SQLException("Ongeldige DATABASE_URL", ex); }
         }
     }
-    private static final class DiscordWebhookPublisher
-    {
-        private final URI url;
-        private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
-        private final Store store;
-
-        DiscordWebhookPublisher(String configuredUrl, Store store)
-        {
-            this.store = store;
-            url = validDiscordWebhookUrl(configuredUrl) ? URI.create(configuredUrl.trim()) : null;
-            if (!blank(configuredUrl) && url == null) System.err.println("Discord-webhook uitgeschakeld: ongeldige webhook-URL.");
-        }
-
-        String publish(Event event)
-        {
-            if (url == null) return "";
-            try
-            {
-                HttpRequest request = request(URI.create(url.toString() + "?wait=true"), "POST", event);
-                HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-                if (response.statusCode() < 200 || response.statusCode() >= 300)
-                {
-                    System.err.println("Discord-webhook kon event niet plaatsen (HTTP " + response.statusCode() + ").");
-                    store.error("Discord-webhook", "Eventbericht afgewezen (HTTP " + response.statusCode() + ")");
-                    return "";
-                }
-                Map<?, ?> message = GSON.fromJson(response.body(), Map.class);
-                Object id = message == null ? null : message.get("id");
-                return id instanceof String ? (String) id : "";
-            }
-            catch (Exception exception) { System.err.println("Discord-webhook kon event niet plaatsen."); store.error("Discord-webhook", "Eventbericht kon niet worden geplaatst"); return ""; }
-        }
-
-        void update(Event event)
-        {
-            if (url == null || blank(event.discordMessageId)) return;
-            try
-            {
-                URI messageUrl = URI.create(url.toString() + "/messages/" + event.discordMessageId);
-                HttpResponse<Void> response = client.send(request(messageUrl, "PATCH", event), HttpResponse.BodyHandlers.discarding());
-                if (response.statusCode() < 200 || response.statusCode() >= 300)
-                    System.err.println("Discord-webhook kon event niet bijwerken (HTTP " + response.statusCode() + ").");
-                    store.error("Discord-webhook", "Eventbericht kon niet worden bijgewerkt (HTTP " + response.statusCode() + ")");
-            }
-            catch (Exception exception) { System.err.println("Discord-webhook kon event niet bijwerken."); store.error("Discord-webhook", "Eventbericht kon niet worden bijgewerkt"); }
-        }
-
-        private HttpRequest request(URI target, String method, Event event)
-        {
-            return HttpRequest.newBuilder(target).timeout(Duration.ofSeconds(8))
-                .header("Content-Type", "application/json")
-                .method(method, HttpRequest.BodyPublishers.ofString(GSON.toJson(payload(event)), StandardCharsets.UTF_8)).build();
-        }
-
-        private static Map<String, Object> payload(Event event)
-        {
-            Map<String, Object> embed = new HashMap<>();
-            embed.put("title", event.type.replace('_', ' ') + ": " + event.title);
-            embed.put("color", 15158332);
-            String description = blank(event.discordDescription) ? event.description :
-                (blank(event.description) ? event.discordDescription : event.discordDescription + "\n\n" + event.description);
-            if (!blank(description)) embed.put("description", description);
-            List<Map<String, Object>> fields = new ArrayList<>();
-            addScheduleFields(fields, event);
-            if (!blank(event.world)) addField(fields, "Wereld", event.world);
-            if (!blank(event.host)) addField(fields, "Host", event.host);
-            if (!blank(event.checklist)) addField(fields, "Voorbereiding", event.checklist.replace(";", ", "));
-            if (!blank(event.requiredPlugins)) addField(fields, "Benodigde plug-ins", event.requiredPlugins.replace(";", ", "));
-            if (!blank(event.strategyWikiUrl)) addField(fields, "📖 Strategie", "[Strategie openen](" + event.strategyWikiUrl + ")");
-            if (!blank(event.youtubeUrl)) addField(fields, "▶️ Video", "[Video openen](" + event.youtubeUrl + ")");
-            if (!blank(event.registrationUrl)) addField(fields, "Aanmelden", "[Open aanmeldlink](" + event.registrationUrl + ")");
-            embed.put("fields", fields);
-            Map<String, Object> payload = new HashMap<>();
-            payload.put("username", "Dutch Nation Events");
-            payload.put("allowed_mentions", java.util.Collections.singletonMap("parse", java.util.Collections.emptyList()));
-            payload.put("embeds", java.util.Collections.singletonList(embed));
-            return payload;
-        }
-
-        private static void addScheduleFields(List<Map<String, Object>> fields, Event event)
-        {
-            try
-            {
-                ZoneId zone = ZoneId.of("Europe/Amsterdam");
-                ZonedDateTime start = OffsetDateTime.parse(event.startsAt).atZoneSameInstant(zone);
-                ZonedDateTime end = OffsetDateTime.parse(event.endsAt).atZoneSameInstant(zone);
-                DateTimeFormatter date = DateTimeFormatter.ofPattern("EEE d MMMM yyyy", new Locale("nl", "NL"));
-                DateTimeFormatter time = DateTimeFormatter.ofPattern("HH:mm");
-                if (start.toLocalDate().equals(end.toLocalDate()))
-                {
-                    addField(fields, "Datum", date.format(start));
-                    addField(fields, "Tijd", time.format(start) + " - " + time.format(end));
-                }
-                else
-                {
-                    addField(fields, "Start", date.format(start) + ", " + time.format(start));
-                    addField(fields, "Einde", date.format(end) + ", " + time.format(end));
-                }
-            }
-            catch (RuntimeException exception) { addField(fields, "Datum en tijd", event.startsAt + " tot " + event.endsAt); }
-        }
-
-        private static void addField(List<Map<String, Object>> fields, String name, String value)
-        {
-            Map<String, Object> field = new HashMap<>();
-            field.put("name", name); field.put("value", value); field.put("inline", false);
-            fields.add(field);
-        }
-    }    static final class State
+    static final class State
     {
         String updatedAt;
         List<Member> members = new ArrayList<>();
