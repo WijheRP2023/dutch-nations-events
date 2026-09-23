@@ -215,6 +215,7 @@ public final class DutchNationsApi
             event.type = event.type == null ? "" : event.type.toUpperCase(Locale.ROOT);
             if (!actor.canManageEventType(event.type)) { sendError(exchange, 403, "Deze rol mag alleen learner-events beheren"); return; }
             if (("BOSS".equals(event.type) || "CLAN_EVENT".equals(event.type) || "CLAN_VS_CLAN".equals(event.type) || ("MASS".equals(event.type) && event.codewordRequired)) && blank(event.codeword)) event.codeword = existing.codeword;
+            boolean codewordChanged = !String.valueOf(existing.codeword).equals(String.valueOf(event.codeword));
             String error = validateEvent(event);
             if (error != null) { System.out.println("Event create afgewezen: " + error); store.error("Event", actor.rsn + ": " + error); sendError(exchange, 400, error); return; }
             if ("BOSS".equals(event.type) || "CLAN_EVENT".equals(event.type) || "CLAN_VS_CLAN".equals(event.type)) event.codewordRequired = true;
@@ -229,6 +230,7 @@ public final class DutchNationsApi
             if (conflict != null && !event.allowConflict) { sendError(exchange, 409, "Event overlapt met " + conflict.title); return; }
             store.updateEvent(existing.id, event);
             store.audit(actor, "Event aangepast: " + event.title);
+            if (codewordChanged) store.audit(actor, "Codewoord gewijzigd voor event: " + event.title);
             if (!blank(event.discordMessageId)) discordWebhookExecutor.execute(() -> discordWebhook.update(event));
             send(exchange, 200, event);
             return;
