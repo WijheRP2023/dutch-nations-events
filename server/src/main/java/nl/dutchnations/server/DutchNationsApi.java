@@ -93,6 +93,7 @@ public final class DutchNationsApi
         server.createContext("/api/events", this::events);
         server.createContext("/api/roles", this::roles);
         server.createContext("/api/announcement-channel", this::announcementChannel);
+        server.createContext("/api/event-announcement-channel", this::eventAnnouncementChannel);
         server.createContext("/api/owner-logs", this::ownerLogs);
         server.setExecutor(Executors.newFixedThreadPool(8));
         server.start();
@@ -271,7 +272,18 @@ public final class DutchNationsApi
         store.audit(actor, "Mededelingenkanaal gewijzigd");
         send(exchange, 200, map("announcementsUrl", change.url.trim()));
     }
-    private void roles(HttpExchange exchange) throws IOException
+    private void eventAnnouncementChannel(HttpExchange exchange) throws IOException
+    {
+        Actor actor = authenticate(exchange);
+        if (actor == null || !actor.owner()) { sendError(exchange, 403, "Alleen de owner kan het eventmeldingenkanaal wijzigen"); return; }
+        if (!"POST".equals(exchange.getRequestMethod())) { methodNotAllowed(exchange); return; }
+        AnnouncementChannel change = read(exchange, AnnouncementChannel.class);
+        if (change == null || !validDiscordChannelUrl(change.url))
+        { sendError(exchange, 400, "Geldige Discord-kanaallink is verplicht"); return; }
+        store.saveEventAnnouncementsUrl(change.url.trim());
+        store.audit(actor, "Eventmeldingenkanaal gewijzigd");
+        send(exchange, 200, map("eventAnnouncementsUrl", change.url.trim()));
+    }    private void roles(HttpExchange exchange) throws IOException
     {
         Actor actor = authenticate(exchange);
         if (actor == null) { sendError(exchange, 401, "Ongeldige management-token"); return; }
@@ -560,6 +572,7 @@ public final class DutchNationsApi
             Feed feed = new Feed();
             feed.updatedAt = state.updatedAt;
             feed.announcementsUrl = state.announcementsUrl;
+            feed.eventAnnouncementsUrl = state.eventAnnouncementsUrl;
             feed.announcementsSequence = state.announcementsSequence;
             feed.events = new ArrayList<>();
             for (Event stored : state.events)
@@ -617,6 +630,11 @@ public final class DutchNationsApi
         synchronized void saveAnnouncementsUrl(String value)
         {
             state.announcementsUrl = value;
+            changed();
+        }
+        synchronized void saveEventAnnouncementsUrl(String value)
+        {
+            state.eventAnnouncementsUrl = value;
             changed();
         }
         synchronized void recordAnnouncement(String channelId, String messageId)
@@ -930,12 +948,13 @@ public final class DutchNationsApi
         List<Event> events = new ArrayList<>();
         Map<String, String> tokenHashes = new HashMap<>();
         String announcementsUrl = "";
+        String eventAnnouncementsUrl = "";
         long announcementsSequence;
         String lastAnnouncementMessageId = "";
         List<LogEntry> managementLogs = new ArrayList<>();
         List<LogEntry> errorLogs = new ArrayList<>();
     }
-    static final class Feed { String updatedAt; String announcementsUrl; long announcementsSequence; List<Event> events; }
+    static final class Feed { String updatedAt; String announcementsUrl; String eventAnnouncementsUrl; long announcementsSequence; List<Event> events; }
     static final class OwnerLogs { List<LogEntry> management; List<LogEntry> errors; }
     static final class LogEntry { String at; String source; String message; }
     static final class Member { String rsn; String role; String updatedAt; }
