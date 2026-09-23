@@ -150,6 +150,22 @@ public final class DutchNationsApi
     {
         Actor actor = authenticate(exchange);
         if (actor == null || !actor.canManageEvents()) { sendError(exchange, 403, "Geen eventrechten"); return; }
+        if ("GET".equals(exchange.getRequestMethod()))
+        {
+            if (!actor.owner()) { sendError(exchange, 403, "Alleen de owner kan een codewoord bekijken"); return; }
+            String prefix = "/api/events/";
+            String suffix = "/codeword";
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith(prefix) || !path.endsWith(suffix) || path.length() <= prefix.length() + suffix.length())
+            { sendError(exchange, 400, "Event-id ontbreekt"); return; }
+            Event existing = store.event(path.substring(prefix.length(), path.length() - suffix.length()));
+            if (existing == null) { sendError(exchange, 404, "Event niet gevonden"); return; }
+            Map<String, Object> response = new HashMap<>();
+            response.put("id", existing.id);
+            response.put("codeword", existing.codeword);
+            send(exchange, 200, response);
+            return;
+        }
         if ("POST".equals(exchange.getRequestMethod()))
         {
             Event event = read(exchange, Event.class);
