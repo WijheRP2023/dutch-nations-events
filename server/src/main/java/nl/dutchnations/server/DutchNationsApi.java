@@ -6,6 +6,7 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
+import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.requests.GatewayIntent;
@@ -126,6 +127,38 @@ public final class DutchNationsApi
             .build();
         System.out.println("Discord-bot wordt verbonden");
     }
+    private void publishEventWithBot(Event event)
+    {
+        if (discordBot == null)
+        {
+            store.error("Discord-bot", "Eventbericht niet geplaatst: bot is niet verbonden");
+            return;
+        }
+        String channelId = store.eventAnnouncementsChannelId();
+        if (blank(channelId)) return;
+        TextChannel channel = discordBot.getTextChannelById(channelId);
+        if (channel == null)
+        {
+            store.error("Discord-bot", "Eventbericht niet geplaatst: eventmeldingenkanaal niet bereikbaar");
+            return;
+        }
+        channel.sendMessage(discordEventText(event)).queue(
+            message -> store.setDiscordMessageId(event.id, message.getId()),
+            error -> store.error("Discord-bot", "Eventbericht kon niet worden geplaatst in het eventmeldingenkanaal"));
+    }
+
+    private static String discordEventText(Event event)
+    {
+        String type = event.type == null ? "EVENT" : event.type.replace('_', ' ');
+        String description = blank(event.discordDescription) ? event.description :
+            (blank(event.description) ? event.discordDescription : event.discordDescription + "\n\n" + event.description);
+        StringBuilder text = new StringBuilder("**" + type + ": " + event.title + "**");
+        if (!blank(description)) text.append("\n\n").append(description);
+        if (!blank(event.world)) text.append("\nWereld: ").append(event.world);
+        if (!blank(event.host)) text.append("\nHost: ").append(event.host);
+        if (!blank(event.registrationUrl)) text.append("\nAanmelden: ").append(event.registrationUrl);
+        return text.length() <= 2000 ? text.toString() : text.substring(0, 1997) + "...";
+    }
     private void root(HttpExchange exchange) throws IOException
     {
         if (!"/".equals(exchange.getRequestURI().getPath())) { sendError(exchange, 404, "Route niet gevonden"); return; }
@@ -188,6 +221,7 @@ public final class DutchNationsApi
             event.discordText = "";
             store.addEvent(event);
             store.audit(actor, "Event gemaakt: " + event.title);
+            publishEventWithBot(event);
             send(exchange, 201, event);
             return;
         }
@@ -613,6 +647,10 @@ public final class DutchNationsApi
         {
             state.eventAnnouncementsUrl = value;
             changed();
+        }
+        synchronized String eventAnnouncementsChannelId()
+        {
+            return discordChannelId(state.eventAnnouncementsUrl);
         }
         synchronized void recordAnnouncement(String channelId, String messageId)
         {
