@@ -91,6 +91,7 @@ public final class DutchNationsApi
         server.createContext("/api/events", this::events);
         server.createContext("/api/roles", this::roles);
         server.createContext("/api/announcement-channel", this::announcementChannel);
+        server.createContext("/api/announcement-visibility", this::announcementVisibility);
         server.createContext("/api/event-announcement-channel", this::eventAnnouncementChannel);
         server.createContext("/api/owner-logs", this::ownerLogs);
         server.setExecutor(Executors.newFixedThreadPool(8));
@@ -329,7 +330,21 @@ public final class DutchNationsApi
         store.saveEventAnnouncementsUrl(change.url.trim());
         store.audit(actor, "Eventmeldingenkanaal gewijzigd");
         send(exchange, 200, map("eventAnnouncementsUrl", change.url.trim()));
-    }    private void roles(HttpExchange exchange) throws IOException
+    }
+
+    private void announcementVisibility(HttpExchange exchange) throws IOException
+    {
+        Actor actor = authenticate(exchange);
+        if (actor == null || !actor.owner()) { sendError(exchange, 403, "Alleen de owner kan de mededelingenknop wijzigen"); return; }
+        if (!"POST".equals(exchange.getRequestMethod())) { methodNotAllowed(exchange); return; }
+        AnnouncementVisibility change = read(exchange, AnnouncementVisibility.class);
+        if (change == null) { sendError(exchange, 400, "Instelling ontbreekt"); return; }
+        store.saveAnnouncementsVisible(change.visible);
+        store.audit(actor, change.visible ? "Mededelingenknop zichtbaar gemaakt" : "Mededelingenknop verborgen");
+        send(exchange, 200, map("announcementsVisible", change.visible));
+    }
+
+    private void roles(HttpExchange exchange) throws IOException
     {
         Actor actor = authenticate(exchange);
         if (actor == null) { sendError(exchange, 401, "Ongeldige management-token"); return; }
@@ -604,6 +619,7 @@ public final class DutchNationsApi
             Feed feed = new Feed();
             feed.updatedAt = state.updatedAt;
             feed.announcementsUrl = state.announcementsUrl;
+            feed.announcementsVisible = !Boolean.FALSE.equals(state.announcementsVisible);
             feed.eventAnnouncementsUrl = state.eventAnnouncementsUrl;
             feed.announcementsSequence = state.announcementsSequence;
             feed.events = new ArrayList<>();
@@ -662,6 +678,11 @@ public final class DutchNationsApi
         synchronized void saveAnnouncementsUrl(String value)
         {
             state.announcementsUrl = value;
+            changed();
+        }
+        synchronized void saveAnnouncementsVisible(boolean value)
+        {
+            state.announcementsVisible = value;
             changed();
         }
         synchronized void saveEventAnnouncementsUrl(String value)
@@ -807,6 +828,7 @@ public final class DutchNationsApi
             if (state.members == null) state.members = new ArrayList<>();
             if (state.events == null) state.events = new ArrayList<>();
             if (state.tokenHashes == null) state.tokenHashes = new HashMap<>();
+            if (state.announcementsVisible == null) state.announcementsVisible = true;
             if (state.members.stream().noneMatch(m -> OWNER_RSN.equals(normalize(m.rsn))))
             { Member owner = new Member(); owner.rsn = OWNER_RSN; owner.role = "OWNER"; owner.updatedAt = OffsetDateTime.now(ZoneOffset.UTC).toString(); state.members.add(owner); }
             if (blank(state.updatedAt)) state.updatedAt = OffsetDateTime.now(ZoneOffset.UTC).toString();
@@ -876,13 +898,15 @@ public final class DutchNationsApi
         List<Event> events = new ArrayList<>();
         Map<String, String> tokenHashes = new HashMap<>();
         String announcementsUrl = "";
+        Boolean announcementsVisible = true;
         String eventAnnouncementsUrl = "";
         long announcementsSequence;
         String lastAnnouncementMessageId = "";
         List<LogEntry> managementLogs = new ArrayList<>();
         List<LogEntry> errorLogs = new ArrayList<>();
     }
-    static final class Feed { String updatedAt; String announcementsUrl; String eventAnnouncementsUrl; long announcementsSequence; List<Event> events; }
+    static final class Feed { String updatedAt; String announcementsUrl; boolean announcementsVisible; String eventAnnouncementsUrl; long announcementsSequence; List<Event> events; }
+    static final class AnnouncementVisibility { boolean visible; }
     static final class OwnerLogs { List<LogEntry> management; List<LogEntry> errors; }
     static final class LogEntry { String at; String source; String message; }
     static final class Member { String rsn; String role; String updatedAt; }
