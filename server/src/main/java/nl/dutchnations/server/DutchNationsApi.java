@@ -154,8 +154,6 @@ public final class DutchNationsApi
             (blank(event.description) ? event.discordDescription : event.discordDescription + "\n\n" + event.description);
         StringBuilder text = new StringBuilder("**" + type + ": " + event.title + "**");
         if (!blank(description)) text.append("\n\n").append(description);
-        if (!blank(event.world)) text.append("\nWereld: ").append(event.world);
-        if (!blank(event.host)) text.append("\nHost: ").append(event.host);
         if (!blank(event.registrationUrl)) text.append("\nAanmelden: ").append(event.registrationUrl);
         return text.length() <= 2000 ? text.toString() : text.substring(0, 1997) + "...";
     }
