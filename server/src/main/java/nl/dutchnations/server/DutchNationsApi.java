@@ -149,11 +149,36 @@ public final class DutchNationsApi
 
     private static String discordEventText(Event event)
     {
-        String type = event.type == null ? "EVENT" : event.type.replace('_', ' ');
-        StringBuilder text = new StringBuilder("**" + type + ": " + event.title + "**");
-        if (!blank(event.discordDescription)) text.append("\n\n").append(event.discordDescription);
+        StringBuilder text = new StringBuilder("**" + event.title + "**");
+        if (!blank(event.bossList)) text.append("\nBosses/activiteiten: ").append(event.bossList.replace(";", ", "));
+        else if (!blank(event.activity)) text.append("\nActiviteit: ").append(event.activity);
+        appendDiscordDateTime(text, event);
         if (!blank(event.registrationUrl)) text.append("\nAanmelden: ").append(event.registrationUrl);
+        if (!blank(event.discordDescription)) text.append("\n\n").append(event.discordDescription);
         return text.length() <= 2000 ? text.toString() : text.substring(0, 1997) + "...";
+    }
+
+    private static void appendDiscordDateTime(StringBuilder text, Event event)
+    {
+        try
+        {
+            ZoneId zone = ZoneId.of("Europe/Amsterdam");
+            ZonedDateTime start = OffsetDateTime.parse(event.startsAt).atZoneSameInstant(zone);
+            ZonedDateTime end = OffsetDateTime.parse(event.endsAt).atZoneSameInstant(zone);
+            DateTimeFormatter date = DateTimeFormatter.ofPattern("EEEE d MMMM yyyy", Locale.forLanguageTag("nl-NL"));
+            DateTimeFormatter time = DateTimeFormatter.ofPattern("HH:mm");
+            if (start.toLocalDate().equals(end.toLocalDate()))
+            {
+                text.append("\nDatum: ").append(date.format(start));
+                text.append("\nTijd: ").append(time.format(start)).append(" - ").append(time.format(end));
+            }
+            else
+            {
+                text.append("\nStart: ").append(date.format(start)).append(" om ").append(time.format(start));
+                text.append("\nEinde: ").append(date.format(end)).append(" om ").append(time.format(end));
+            }
+        }
+        catch (RuntimeException ignored) { }
     }
     private void root(HttpExchange exchange) throws IOException
     {
