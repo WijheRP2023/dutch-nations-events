@@ -150,10 +150,8 @@ public final class DutchNationsApi
     private static String discordEventText(Event event)
     {
         String type = event.type == null ? "EVENT" : event.type.replace('_', ' ');
-        String description = blank(event.discordDescription) ? event.description :
-            (blank(event.description) ? event.discordDescription : event.discordDescription + "\n\n" + event.description);
         StringBuilder text = new StringBuilder("**" + type + ": " + event.title + "**");
-        if (!blank(description)) text.append("\n\n").append(description);
+        if (!blank(event.discordDescription)) text.append("\n\n").append(event.discordDescription);
         if (!blank(event.registrationUrl)) text.append("\nAanmelden: ").append(event.registrationUrl);
         return text.length() <= 2000 ? text.toString() : text.substring(0, 1997) + "...";
     }
