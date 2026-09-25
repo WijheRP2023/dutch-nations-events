@@ -4,6 +4,7 @@ import java.awt.Color;
 import java.awt.Component;
 import java.awt.Cursor;
 import java.awt.Dimension;
+import java.awt.Desktop;
 import java.awt.Font;
 import java.awt.Image;
 import java.awt.Insets;
@@ -11,6 +12,7 @@ import java.awt.Toolkit;
 import java.awt.datatransfer.StringSelection;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.net.URI;
 import java.net.URL;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
@@ -26,11 +28,14 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.BiConsumer;
 import java.util.function.Supplier;
+import java.util.function.LongConsumer;
+import java.util.function.LongSupplier;
 import java.util.stream.Collectors;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
+import javax.swing.JCheckBox;
 import javax.swing.ImageIcon;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
@@ -63,11 +68,18 @@ final class DutchNationsPanel extends PluginPanel
     private final BooleanSupplier isLearnerHost;
     private final BooleanSupplier canManageRoles;
     private final Runnable loadRoles;
+    private final Runnable loadOwnerLogs;
+    private final BooleanSupplier hasClanAccess;
     private final Consumer<EventDraft> saveEvent;
     private final BiConsumer<String, EventDraft> updateEvent;
     private final Supplier<String> currentRsn;
     private final Consumer<String> deleteEvent;
     private final Consumer<RoleDraft> saveRole;
+    private final Consumer<String> saveAnnouncementChannel;
+    private final Consumer<String> saveEventAnnouncementChannel;
+    private final Consumer<Boolean> saveAnnouncementsVisibility;
+    private final LongSupplier announcementReadSequence;
+    private final LongConsumer markAnnouncementsRead;
     private ClanFeed feed;
     private List<ManagementRole> roles = new ArrayList<>();
     private List<String> pluginCatalog = new ArrayList<>();
@@ -75,6 +87,12 @@ final class DutchNationsPanel extends PluginPanel
     private boolean clanChannelAvailable;
     private Set<String> installedPluginNames = new HashSet<>();
     private String rolesMessage = "Rollenoverzicht laden...";
+    private List<FeedService.OwnerLogEntry> managementLogs = new ArrayList<>();
+    private List<FeedService.OwnerLogEntry> errorLogs = new ArrayList<>();
+    private String ownerLogsMessage = "Logs nog niet geladen.";
+    private String announcementSettingsStatus = "";
+    private String eventAnnouncementSettingsStatus = "";
+    private String announcementVisibilityStatus = "";
     private String viewMode = "LIJST";
     private String roleFilter = "ADMINS";
     private boolean serverOnline;
@@ -83,23 +101,50 @@ final class DutchNationsPanel extends PluginPanel
     private boolean competitionLoaded;
 
     DutchNationsPanel(DutchNationsConfig config, Runnable refresh, BooleanSupplier canManage, BooleanSupplier isOwner,
-        BooleanSupplier isAdministrator, BooleanSupplier isLearnerHost, BooleanSupplier canManageRoles, Runnable loadRoles,
-        Consumer<EventDraft> saveEvent, BiConsumer<String, EventDraft> updateEvent, Consumer<String> deleteEvent, Consumer<RoleDraft> saveRole, Supplier<String> currentRsn)
+        BooleanSupplier isAdministrator, BooleanSupplier isLearnerHost, BooleanSupplier canManageRoles, Runnable loadRoles, Runnable loadOwnerLogs, BooleanSupplier hasClanAccess,
+        Consumer<EventDraft> saveEvent, BiConsumer<String, EventDraft> updateEvent, Consumer<String> deleteEvent, Consumer<RoleDraft> saveRole, Consumer<String> saveAnnouncementChannel, Consumer<String> saveEventAnnouncementChannel, Consumer<Boolean> saveAnnouncementsVisibility, LongSupplier announcementReadSequence, LongConsumer markAnnouncementsRead, Supplier<String> currentRsn)
     {
         this.config = config; this.refresh = refresh; this.canManage = canManage; this.isOwner = isOwner;
-        this.isAdministrator = isAdministrator; this.isLearnerHost = isLearnerHost; this.canManageRoles = canManageRoles; this.loadRoles = loadRoles;
-        this.saveEvent = saveEvent; this.updateEvent = updateEvent; this.deleteEvent = deleteEvent; this.saveRole = saveRole; this.currentRsn = currentRsn;
+        this.isAdministrator = isAdministrator; this.isLearnerHost = isLearnerHost; this.canManageRoles = canManageRoles; this.loadRoles = loadRoles; this.loadOwnerLogs = loadOwnerLogs; this.hasClanAccess = hasClanAccess;
+        this.saveEvent = saveEvent; this.updateEvent = updateEvent; this.deleteEvent = deleteEvent; this.saveRole = saveRole; this.saveAnnouncementChannel = saveAnnouncementChannel; this.saveEventAnnouncementChannel = saveEventAnnouncementChannel; this.saveAnnouncementsVisibility = saveAnnouncementsVisibility; this.announcementReadSequence = announcementReadSequence; this.markAnnouncementsRead = markAnnouncementsRead; this.currentRsn = currentRsn;
         setLayout(new BoxLayout(this, BoxLayout.Y_AXIS)); setBackground(BACKGROUND); render();
     }
 
     void update(ClanFeed value, String message) { feed = value; status = message; render(); }
     void status(String message) { status = message; render(); }
-    void permissionsChanged() { if (!canManageRoles.getAsBoolean()) { viewMode = "LIJST"; roles = new ArrayList<>(); } render(); }
+    void permissionsChanged() { if (!canManageRoles.getAsBoolean() || ("INSTELLINGEN".equals(viewMode) && !isOwner.getAsBoolean())) { viewMode = "LIJST"; roles = new ArrayList<>(); } render(); }
     void connectionChanged(boolean online) { serverOnline = online; render(); }
     void updateRoles(List<ManagementRole> value) { roles = value == null ? new ArrayList<>() : new ArrayList<>(value); rolesMessage = ""; render(); }
     void rolesStatus(String message) { rolesMessage = message; render(); }
+    void updateOwnerLogs(FeedService.OwnerLogsResponse logs) { managementLogs = logs == null || logs.management == null ? new ArrayList<>() : new ArrayList<>(logs.management); errorLogs = logs == null || logs.errors == null ? new ArrayList<>() : new ArrayList<>(logs.errors); ownerLogsMessage = ""; render(); }
+    void ownerLogsStatus(String message) { ownerLogsMessage = message; render(); }
+    void announcementChannelSaving() { announcementSettingsStatus = "Mededelingenkanaal opslaan..."; render(); }
+    void announcementChannelSaved(String url)
+    {
+        if (feed != null) feed.announcementsUrl = url;
+        announcementSettingsStatus = "Mededelingenkanaal opgeslagen.";
+        render();
+    }
+    void announcementChannelFailed(String message) { announcementSettingsStatus = message; render(); }
+    void announcementVisibilitySaving() { announcementVisibilityStatus = "Mededelingenknop opslaan..."; render(); }
+    void announcementVisibilitySaved(boolean visible)
+    {
+        if (feed != null) feed.announcementsVisible = visible;
+        announcementVisibilityStatus = visible ? "Mededelingenknop is zichtbaar voor leden." : "Mededelingenknop is verborgen voor leden.";
+        render();
+    }
+    void announcementVisibilityFailed(String message) { announcementVisibilityStatus = message; render(); }
+    void eventAnnouncementChannelSaving() { eventAnnouncementSettingsStatus = "Eventmeldingenkanaal opslaan..."; render(); }
+    void eventAnnouncementChannelSaved(String url)
+    {
+        if (feed != null) feed.eventAnnouncementsUrl = url;
+        eventAnnouncementSettingsStatus = "Eventmeldingenkanaal opgeslagen.";
+        render();
+    }
+    void eventAnnouncementChannelFailed(String message) { eventAnnouncementSettingsStatus = message; render(); }
     void updateCompetition(List<WomCompetition> values, boolean loaded) { competitions = values == null ? new ArrayList<>() : new ArrayList<>(values); competitionLoaded = loaded; render(); }
     void competitionUnavailable() { competitionLoaded = false; render(); }
+    void updateClanAccess(boolean allowed) { render(); }
     void updateOnlineMembers(List<OnlineClanMember> members, boolean available)
     {
         onlineMembers = members == null ? new ArrayList<>() : new ArrayList<>(members);
@@ -116,13 +161,35 @@ final class DutchNationsPanel extends PluginPanel
         add(Box.createRigidArea(new Dimension(0, 7)));
         add(actionBar());
         add(Box.createRigidArea(new Dimension(0, 7)));
+        if ("INSTELLINGEN".equals(viewMode))
+        {
+            addSettingsSection();
+            add(Box.createVerticalGlue()); revalidate(); repaint(); return;
+        }
+        if ("BEHEERLOG".equals(viewMode))
+        {
+            addLogPage("BEHEERLOG", "Wijzigingen aan events, rollen en instellingen.", managementLogs, new Color(80, 160, 255));
+            add(Box.createVerticalGlue()); revalidate(); repaint(); return;
+        }
+        if ("FOUTLOG".equals(viewMode))
+        {
+            addLogPage("FOUTLOG", "Fouten van events en Discord.", errorLogs, new Color(255, 120, 120));
+            add(Box.createVerticalGlue()); revalidate(); repaint(); return;
+        }
         if ("ROLLEN".equals(viewMode))
         {
             addManagementSection();
             add(Box.createVerticalGlue()); revalidate(); repaint(); return;
         }
-        add(viewBar());
-        add(Box.createRigidArea(new Dimension(0, 14)));
+        if (!hasClanAccess.getAsBoolean())
+        {
+            JPanel locked = card(DARK_STONE);
+            locked.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createMatteBorder(0, 4, 0, 0, RED), BorderFactory.createEmptyBorder(8, 8, 8, 8)));
+            locked.add(bodyLabel("KALENDER AFGESLOTEN", GOLD, Font.BOLD, 12f));
+            locked.add(bodyText("Deze plug-in is alleen voor leden van de Dutch Nation-clan.", Color.WHITE, Font.PLAIN, 12f));
+            add(locked); add(Box.createVerticalGlue()); revalidate(); repaint(); return;
+        }
+        add(viewBar());        add(Box.createRigidArea(new Dimension(0, 14)));
         if ("ONLINE".equals(viewMode))
         {
             addOnlineMembersSection();
@@ -217,13 +284,35 @@ final class DutchNationsPanel extends PluginPanel
     {
         JPanel actions = new JPanel(); actions.setLayout(new BoxLayout(actions, BoxLayout.Y_AXIS));
         actions.setOpaque(false); actions.setAlignmentX(Component.LEFT_ALIGNMENT);
+        if (!hasClanAccess.getAsBoolean()) return actions;
+        if (announcementsVisible())
+        {
+            long unreadAnnouncements = unreadAnnouncements();
+            String unreadLabel = unreadAnnouncements > 99 ? "99+" : Long.toString(unreadAnnouncements);
+            JButton announcements = button(unreadAnnouncements > 0 ? "Mededelingen  ● " + unreadLabel : "Mededelingen");
+            if (unreadAnnouncements > 0) announcements.setForeground(new Color(255, 230, 230));
+            announcements.addActionListener(event -> openDiscordAnnouncements());
+            actions.add(announcements); actions.add(Box.createRigidArea(new Dimension(0, 5)));
+        }
+        if (isOwner.getAsBoolean())
+        {
+            boolean logPage = "BEHEERLOG".equals(viewMode) || "FOUTLOG".equals(viewMode);
+            JButton settings = button("INSTELLINGEN".equals(viewMode) ? "Terug naar events" : (logPage ? "Terug naar instellingen" : "Instellingen"));
+            settings.addActionListener(event ->
+            {
+                viewMode = "INSTELLINGEN".equals(viewMode) ? "LIJST" : "INSTELLINGEN";
+                if ("INSTELLINGEN".equals(viewMode)) loadOwnerLogs.run();
+                render();
+            });
+            actions.add(settings); actions.add(Box.createRigidArea(new Dimension(0, 5)));
+        }
         JButton reload = button("Vernieuwen"); reload.addActionListener(event -> refresh.run()); actions.add(reload);
-        if (canManage.getAsBoolean())
+        if (canManage.getAsBoolean() && hasClanAccess.getAsBoolean())
         {
             actions.add(Box.createRigidArea(new Dimension(0, 5))); JButton create = button("+ Event maken");
             create.addActionListener(event -> { EventDraft draft = EventEditorDialog.show(pluginCatalog, isLearnerHost.getAsBoolean()); if (draft != null) saveEvent.accept(draft); }); actions.add(create);
         }
-        if (canManageRoles.getAsBoolean())
+        if (canManageRoles.getAsBoolean() && !isOwner.getAsBoolean() && hasClanAccess.getAsBoolean())
         {
             actions.add(Box.createRigidArea(new Dimension(0, 5)));
             JButton roles = button("ROLLEN".equals(viewMode) ? "Terug naar events" : "Managementrollen");
@@ -239,6 +328,102 @@ final class DutchNationsPanel extends PluginPanel
         return actions;
     }
 
+    private void addSettingsSection()
+    {
+        JPanel heading = card(STONE);
+        heading.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createMatteBorder(0, 5, 0, 0, GOLD), BorderFactory.createEmptyBorder(7, 8, 7, 8)));
+        heading.add(label("INSTELLINGEN", GOLD, Font.BOLD, 13f));
+        heading.add(bodyLabel("Alleen zichtbaar voor de owner.", Color.WHITE, Font.PLAIN, 12f));
+        add(heading); add(Box.createRigidArea(new Dimension(0, 7)));
+
+        JPanel announcements = card(CARD_BROWN);
+        announcements.add(bodyLabel("DISCORD-MEDEDELINGEN", GOLD, Font.BOLD, 12f));
+        announcements.add(bodyText("Kies het kanaal dat leden openen vanuit de plug-in.", Color.LIGHT_GRAY, Font.PLAIN, 12f));
+        JButton channel = button("Mededelingenkanaal instellen");
+        channel.addActionListener(event -> configureAnnouncementChannel());
+        announcements.add(Box.createRigidArea(new Dimension(0, 7))); announcements.add(channel);
+        JCheckBox announcementsVisible = new JCheckBox("Mededelingenknop tonen voor leden", announcementsVisible());
+        announcementsVisible.setOpaque(false); announcementsVisible.setForeground(Color.WHITE); announcementsVisible.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
+        announcementsVisible.addActionListener(event -> saveAnnouncementsVisibility.accept(announcementsVisible.isSelected()));
+        announcements.add(Box.createRigidArea(new Dimension(0, 5))); announcements.add(announcementsVisible);
+        if (!blank(announcementVisibilityStatus))
+            announcements.add(bodyText(announcementVisibilityStatus, announcementVisibilityStatus.endsWith("leden.") ? new Color(120, 220, 140) : new Color(255, 175, 145), Font.PLAIN, 11f));
+        if (!blank(announcementSettingsStatus))
+            announcements.add(bodyText(announcementSettingsStatus, announcementSettingsStatus.endsWith("opgeslagen.") ? new Color(120, 220, 140) : new Color(255, 175, 145), Font.PLAIN, 11f));
+        add(announcements); add(Box.createRigidArea(new Dimension(0, 7)));
+
+        JPanel eventAnnouncements = card(CARD_BROWN);
+        eventAnnouncements.add(bodyLabel("EVENTMELDINGEN", GOLD, Font.BOLD, 12f));
+        eventAnnouncements.add(bodyText("Kies het kanaal waarin de bot straks eventmeldingen plaatst.", Color.LIGHT_GRAY, Font.PLAIN, 12f));
+        JButton eventChannel = button("Eventmeldingenkanaal instellen");
+        eventChannel.addActionListener(event -> configureEventAnnouncementChannel());
+        eventAnnouncements.add(Box.createRigidArea(new Dimension(0, 7))); eventAnnouncements.add(eventChannel);
+        if (!blank(eventAnnouncementSettingsStatus))
+            eventAnnouncements.add(bodyText(eventAnnouncementSettingsStatus, eventAnnouncementSettingsStatus.endsWith("opgeslagen.") ? new Color(120, 220, 140) : new Color(255, 175, 145), Font.PLAIN, 11f));
+        add(eventAnnouncements); add(Box.createRigidArea(new Dimension(0, 7)));
+
+        JPanel management = card(CARD_BROWN);
+        management.add(bodyLabel("MANAGEMENTROLLEN", GOLD, Font.BOLD, 12f));
+        management.add(bodyText("Beheer administrators, managers en teachers.", Color.LIGHT_GRAY, Font.PLAIN, 12f));
+        JButton roles = button("Managementrollen");
+        roles.addActionListener(event ->
+        {
+            viewMode = "ROLLEN";
+            loadRoles.run();
+            render();
+        });
+        management.add(Box.createRigidArea(new Dimension(0, 7))); management.add(roles);
+        add(management); add(Box.createRigidArea(new Dimension(0, 7)));
+
+        JPanel logs = card(CARD_BROWN);
+        logs.add(bodyLabel("LOGS", GOLD, Font.BOLD, 12f));
+        logs.add(bodyText("Bekijk beheerwijzigingen en foutmeldingen op een aparte pagina.", Color.LIGHT_GRAY, Font.PLAIN, 11f));
+        JButton managementLog = button("Beheerlog");
+        managementLog.addActionListener(event -> { viewMode = "BEHEERLOG"; loadOwnerLogs.run(); render(); });
+        JButton errorLog = button("Foutlog");
+        errorLog.addActionListener(event -> { viewMode = "FOUTLOG"; loadOwnerLogs.run(); render(); });
+        logs.add(Box.createRigidArea(new Dimension(0, 7))); logs.add(managementLog);
+        logs.add(Box.createRigidArea(new Dimension(0, 5))); logs.add(errorLog);
+        add(logs);
+        if (!ownerLogsMessage.isEmpty()) { add(Box.createRigidArea(new Dimension(0, 5))); add(bodyText(ownerLogsMessage, Color.LIGHT_GRAY, Font.PLAIN, 11f)); }
+    }
+
+    private void addLogPage(String title, String note, List<FeedService.OwnerLogEntry> entries, Color color)
+    {
+        JPanel heading = card(STONE);
+        heading.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createMatteBorder(0, 5, 0, 0, color), BorderFactory.createEmptyBorder(7, 8, 7, 8)));
+        heading.add(label(title, color, Font.BOLD, 13f));
+        heading.add(bodyLabel(note, Color.WHITE, Font.PLAIN, 12f));
+        add(heading); add(Box.createRigidArea(new Dimension(0, 7)));
+        JButton back = button("Terug naar instellingen");
+        back.addActionListener(event -> { viewMode = "INSTELLINGEN"; render(); });
+        add(back); add(Box.createRigidArea(new Dimension(0, 7)));
+        if (entries.isEmpty())
+        {
+            JPanel empty = card(DARK_STONE);
+            empty.add(bodyText("Nog geen meldingen.", Color.WHITE, Font.PLAIN, 12f));
+            add(empty); return;
+        }
+        for (FeedService.OwnerLogEntry entry : entries)
+        {
+            JPanel log = card(CARD_BROWN);
+            log.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, 3, 0, 0, color), BorderFactory.createEmptyBorder(6, 8, 6, 8)));
+            log.add(bodyText(formatOwnerLog(entry), Color.WHITE, Font.PLAIN, 11f));
+            add(log); add(Box.createRigidArea(new Dimension(0, 5)));
+        }
+    }
+
+    private static String formatOwnerLog(FeedService.OwnerLogEntry entry)
+    {
+        if (entry == null) return "Onbekende logmelding";
+        String when;
+        try { when = DATE.format(OffsetDateTime.parse(entry.at).atZoneSameInstant(ZoneId.systemDefault())) + " " + TIME.format(OffsetDateTime.parse(entry.at).atZoneSameInstant(ZoneId.systemDefault())); }
+        catch (RuntimeException exception) { when = "Onbekend tijdstip"; }
+        return when + " — " + (entry.source == null ? "Systeem" : entry.source) + ": " + (entry.message == null ? "" : entry.message);
+    }
 
     private List<WomCompetition> competitionsForView(OffsetDateTime now)
     {
@@ -339,6 +524,67 @@ final class DutchNationsPanel extends PluginPanel
         addViewButton(views, "Online", "ONLINE");
         views.setMaximumSize(new Dimension(Integer.MAX_VALUE, views.getPreferredSize().height));
         return views;
+    }
+    private boolean announcementsVisible()
+    {
+        return feed == null || !Boolean.FALSE.equals(feed.announcementsVisible);
+    }
+
+    private long unreadAnnouncements()
+    {
+        if (feed == null) return 0L;
+        return Math.max(0L, feed.announcementsSequence - announcementReadSequence.getAsLong());
+    }
+    private void openDiscordAnnouncements()
+    {
+        String url = feed == null || feed.announcementsUrl == null ? "" : feed.announcementsUrl.trim();
+        if (!validDiscordChannelUrl(url))
+        {
+            status("De owner heeft nog geen Discord-mededelingenkanaal ingesteld.");
+            return;
+        }
+        markAnnouncementsRead.accept(feed.announcementsSequence);
+        openDiscordChannel(url);
+        render();
+    }
+
+    private static void openDiscordChannel(String browserUrl)
+    {
+        try
+        {
+            String[] parts = URI.create(browserUrl).getPath().split("/");
+            if (parts.length == 4 && Desktop.isDesktopSupported())
+            {
+                Desktop.getDesktop().browse(URI.create("discord://-/channels/" + parts[2] + "/" + parts[3]));
+                return;
+            }
+        }
+        catch (Exception ignored) { }
+        LinkBrowser.browse(browserUrl);
+    }
+    private void configureAnnouncementChannel()
+    {
+        String current = feed == null || feed.announcementsUrl == null ? "" : feed.announcementsUrl;
+        String url = JOptionPane.showInputDialog(this, "Plak de gekopieerde link van het Discord-mededelingenkanaal:", current);
+        if (url != null) saveAnnouncementChannel.accept(url.trim());
+    }
+
+    private void configureEventAnnouncementChannel()
+    {
+        String current = feed == null || feed.eventAnnouncementsUrl == null ? "" : feed.eventAnnouncementsUrl;
+        String url = JOptionPane.showInputDialog(this, "Plak de gekopieerde link van het Discord-eventmeldingenkanaal:", current);
+        if (url != null) saveEventAnnouncementChannel.accept(url.trim());
+    }
+
+    private static boolean validDiscordChannelUrl(String value)
+    {
+        try
+        {
+            URI uri = URI.create(value);
+            return "https".equalsIgnoreCase(uri.getScheme()) && "discord.com".equalsIgnoreCase(uri.getHost()) &&
+                uri.getUserInfo() == null && uri.getPath() != null && uri.getPath().matches("/channels/[0-9]+/[0-9]+/?");
+        }
+        catch (RuntimeException exception) { return false; }
     }
     private void addViewButton(JPanel panel, String title, String mode)
     {
@@ -515,7 +761,6 @@ final class DutchNationsPanel extends PluginPanel
         if (!"BOSS".equalsIgnoreCase(event.type) && !clanVsClan && !blank(event.world)) panel.add(bodyLabel("Wereld: " + event.world, Color.WHITE, Font.PLAIN, 13f));
         if (clanEvent && !blank(event.bossList)) panel.add(bodyLabel("Bosses/activiteiten: " + event.bossList.replace(";", ", "), Color.WHITE, Font.PLAIN, 13f));
         if (!blank(event.host)) panel.add(bodyLabel("Host: " + event.host, Color.WHITE, Font.PLAIN, 13f));
-        if (!blank(event.description)) panel.add(bodyLabel("Info: " + event.description, Color.WHITE, Font.PLAIN, 13f));
         if (event.supportsPreparation() && !blank(event.checklist))
         {
             panel.add(Box.createRigidArea(new Dimension(0, 5)));
@@ -565,8 +810,10 @@ final class DutchNationsPanel extends PluginPanel
             panel.add(Box.createRigidArea(new Dimension(0, 6)));
             panel.add(wiki);
         }
-        String codeInfo = ("BOSS".equalsIgnoreCase(event.type) || clanEvent || clanVsClan || ("MASS".equalsIgnoreCase(event.type) && event.codewordRequired)) ? "Codewoord verschijnt in popup" : "Geen codewoord nodig";
+        boolean requiresCodeword = "BOSS".equalsIgnoreCase(event.type) || clanEvent || clanVsClan || ("MASS".equalsIgnoreCase(event.type) && event.codewordRequired);
+        String codeInfo = requiresCodeword ? "Codewoord verschijnt in popup" : "Geen codewoord nodig";
         panel.add(Box.createRigidArea(new Dimension(0, 5))); panel.add(bodyLabel(codeInfo, accent, Font.BOLD, 12f));
+
         if (canEdit(event))
         {
             JButton edit = button("Event aanpassen");

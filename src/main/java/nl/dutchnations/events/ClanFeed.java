@@ -7,6 +7,10 @@ import java.util.List;
 final class ClanFeed
 {
     String updatedAt;
+    String announcementsUrl;
+    Boolean announcementsVisible = true;
+    String eventAnnouncementsUrl;
+    long announcementsSequence;
     List<ClanEvent> events = new ArrayList<>();
 
 

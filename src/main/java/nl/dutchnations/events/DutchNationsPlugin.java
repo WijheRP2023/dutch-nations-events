@@ -51,10 +51,12 @@ import net.runelite.client.ui.NavigationButton;
 import net.runelite.client.ui.overlay.OverlayManager;
 import okhttp3.OkHttpClient;
 
-@PluginDescriptor(name = "Dutch Nation Events", description = "Centrale eventkalender met tijdelijke codewoord-popup")
+@PluginDescriptor(name = "Dutch Nation Events", description = "Clan eventkalender Dutch Nation")
 public class DutchNationsPlugin extends Plugin
 {
     private static final String CACHE = "cachedFeed";
+    private static final String ANNOUNCEMENT_READ_SEQUENCE = "announcementReadSequence";
+    private static final String DUTCH_NATION_CLAN = "Dutch Nation";
     private static final DateTimeFormatter CHAT_DATE_TIME = DateTimeFormatter.ofPattern("d MMM HH:mm", new java.util.Locale("nl", "NL"));
     @Inject private Client client;
     @Inject private ChatMessageManager chatMessages;
@@ -90,8 +92,8 @@ public class DutchNationsPlugin extends Plugin
         service = new FeedService(http, gson);
         womService = new WomCompetitionService(http, gson);
         panel = new DutchNationsPanel(config, this::refresh, this::canManage, this::isOwner,
-            this::isAdministrator, this::isLearnerHost, this::canManageRoles, this::fetchRoles,
-            this::createEvent, this::updateEvent, this::deleteEvent, this::saveRole, this::localPlayerName);
+            this::isAdministrator, this::isLearnerHost, this::canManageRoles, this::fetchRoles, this::fetchOwnerLogs, this::hasClanAccess,
+            this::createEvent, this::updateEvent, this::deleteEvent, this::saveRole, this::saveAnnouncementChannel, this::saveEventAnnouncementChannel, this::saveAnnouncementsVisibility, this::announcementReadSequence, this::markAnnouncementsRead, this::localPlayerName);
         ClanFeed cached = service.parse(configs.getConfiguration(DutchNationsConfig.GROUP, CACHE));
         if (cached != null) { feed = cached; panel.update(cached, "Opgeslagen versie; update wordt gecontroleerd."); }
         button = NavigationButton.builder().tooltip("Dutch Nation").icon(icon()).priority(6).panel(panel).build();
@@ -166,11 +168,12 @@ public class DutchNationsPlugin extends Plugin
             ticksUntilClanRefresh = 10;
             updateOnlineClanMembers();
         }
+        if (!hasClanAccess()) return;
         ClanFeed current = feed;
         if (current == null) return;
         if (--ticksUntilRefresh <= 0)
         {
-            ticksUntilRefresh = 50;
+            ticksUntilRefresh = 25;
             refreshWom(false);
             refresh(false);
         }
@@ -193,13 +196,20 @@ public class DutchNationsPlugin extends Plugin
         }
     }
 
+    private volatile boolean clanAccessGranted;
+    private boolean hasClanAccess() { return clanAccessGranted; }
     private void updateOnlineClanMembers()
     {
         ClanChannel channel = client.getClanChannel();
+        ClanSettings settings = client.getClanSettings();
+        boolean inDutchNation = channel != null && settings != null
+            && DUTCH_NATION_CLAN.equalsIgnoreCase(channel.getName() == null ? "" : channel.getName().trim())
+            && DUTCH_NATION_CLAN.equalsIgnoreCase(settings.getName() == null ? "" : settings.getName().trim());
+        if (channel != null || settings != null) clanAccessGranted = inDutchNation;
+        else if (client.getGameState() == GameState.LOGGED_IN) clanAccessGranted = false;
         java.util.List<OnlineClanMember> members = new java.util.ArrayList<>();
-        if (channel != null)
+        if (inDutchNation)
         {
-            ClanSettings settings = client.getClanSettings();
             for (ClanChannelMember member : channel.getMembers())
             {
                 String name = member.getName();
@@ -214,10 +224,10 @@ public class DutchNationsPlugin extends Plugin
             members.sort(java.util.Comparator.comparingInt((OnlineClanMember value) -> value.rank).reversed()
                 .thenComparing(value -> value.name.toLowerCase(java.util.Locale.ROOT)));
         }
-        String signature = (channel != null) + ":" + members.toString();
+        String signature = inDutchNation + ":" + clanAccessGranted + ":" + members.toString();
         if (signature.equals(clanMembersSignature)) return;
         clanMembersSignature = signature;
-        SwingUtilities.invokeLater(() -> { if (panel != null) panel.updateOnlineMembers(members, channel != null); });
+        SwingUtilities.invokeLater(() -> { if (panel != null) { panel.updateClanAccess(clanAccessGranted); panel.updateOnlineMembers(members, inDutchNation); } });
     }
 
     private void queueScheduleChanges(ClanFeed previous, ClanFeed updated)
@@ -284,6 +294,7 @@ public class DutchNationsPlugin extends Plugin
 
     ClanFeed.ClanEvent activeEvent(OffsetDateTime now)
     {
+        if (!hasClanAccess()) return null;
         ClanFeed current = feed;
         if (current == null) return null;
         return current.events.stream().filter(e -> ("BOSS".equalsIgnoreCase(e.type) || "CLAN_EVENT".equalsIgnoreCase(e.type) || "CLAN_VS_CLAN".equalsIgnoreCase(e.type) || ("MASS".equalsIgnoreCase(e.type) && e.codewordRequired)) && e.active(now)).findFirst().orElse(null);
@@ -357,6 +368,74 @@ public class DutchNationsPlugin extends Plugin
     {
         Player local = client.getLocalPlayer();
         return local == null ? "" : local.getName();
+    }
+    private long announcementReadSequence()
+    {
+        try { return Long.parseLong(configs.getConfiguration(DutchNationsConfig.GROUP, ANNOUNCEMENT_READ_SEQUENCE)); }
+        catch (RuntimeException exception) { return 0L; }
+    }
+
+    private void markAnnouncementsRead(long sequence)
+    {
+        if (sequence > announcementReadSequence())
+            configs.setConfiguration(DutchNationsConfig.GROUP, ANNOUNCEMENT_READ_SEQUENCE, Long.toString(sequence));
+    }
+    private void saveAnnouncementChannel(String url)
+    {
+        if (!isOwner()) { panel.announcementChannelFailed("Alleen de owner kan het mededelingenkanaal instellen."); return; }
+        panel.announcementChannelSaving();
+        service.saveAnnouncementChannel(url, config.managementToken(), new FeedService.AnnouncementChannelListener()
+        {
+            @Override public void success(String savedUrl)
+            {
+                SwingUtilities.invokeLater(() ->
+                {
+                    if (panel != null) panel.announcementChannelSaved(savedUrl);
+                    fetchOwnerLogs();
+                    refresh();
+                });
+            }
+            @Override public void failure(String message)
+            { SwingUtilities.invokeLater(() -> { if (panel != null) panel.announcementChannelFailed(message); }); }
+        });
+    }
+    private void saveAnnouncementsVisibility(boolean visible)
+    {
+        if (!isOwner()) { panel.announcementVisibilityFailed("Alleen de owner kan de mededelingenknop wijzigen."); return; }
+        panel.announcementVisibilitySaving();
+        service.saveAnnouncementsVisibility(visible, config.managementToken(), new FeedService.AnnouncementVisibilityListener()
+        {
+            @Override public void success(boolean savedVisible)
+            {
+                SwingUtilities.invokeLater(() ->
+                {
+                    if (panel != null) panel.announcementVisibilitySaved(savedVisible);
+                    fetchOwnerLogs();
+                    refresh();
+                });
+            }
+            @Override public void failure(String message)
+            { SwingUtilities.invokeLater(() -> { if (panel != null) panel.announcementVisibilityFailed(message); }); }
+        });
+    }
+    private void saveEventAnnouncementChannel(String url)
+    {
+        if (!isOwner()) { panel.eventAnnouncementChannelFailed("Alleen de owner kan het eventmeldingenkanaal instellen."); return; }
+        panel.eventAnnouncementChannelSaving();
+        service.saveEventAnnouncementChannel(url, config.managementToken(), new FeedService.AnnouncementChannelListener()
+        {
+            @Override public void success(String savedUrl)
+            {
+                SwingUtilities.invokeLater(() ->
+                {
+                    if (panel != null) panel.eventAnnouncementChannelSaved(savedUrl);
+                    fetchOwnerLogs();
+                    refresh();
+                });
+            }
+            @Override public void failure(String message)
+            { SwingUtilities.invokeLater(() -> { if (panel != null) panel.eventAnnouncementChannelFailed(message); }); }
+        });
     }
     private void deleteEvent(String eventId)
     {
@@ -462,6 +541,18 @@ public class DutchNationsPlugin extends Plugin
             { if (panel != null) SwingUtilities.invokeLater(() -> panel.rolesStatus(message)); }
         });
     }
+    private void fetchOwnerLogs()
+    {
+        if (!isOwner() || service == null || config.managementToken().trim().isEmpty()) return;
+        service.fetchOwnerLogs(config.managementToken(), new FeedService.OwnerLogsListener()
+        {
+            @Override public void success(FeedService.OwnerLogsResponse logs)
+            { if (panel != null) SwingUtilities.invokeLater(() -> panel.updateOwnerLogs(logs)); }
+            @Override public void failure(String message)
+            { if (panel != null) SwingUtilities.invokeLater(() -> panel.ownerLogsStatus(message)); }
+        });
+    }
+
     private void refresh(boolean showStatus)
     {
         if (service == null) return;

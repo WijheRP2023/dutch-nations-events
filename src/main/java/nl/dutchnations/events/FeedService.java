@@ -25,11 +25,18 @@ final class FeedService
     static final String FEED_URL = API_BASE_URL + "/feed.json";
     static final String EVENTS_URL = API_BASE_URL + "/api/events";
     static final String ROLES_URL = API_BASE_URL + "/api/roles";
+    static final String ANNOUNCEMENT_CHANNEL_URL = API_BASE_URL + "/api/announcement-channel";
+    static final String ANNOUNCEMENT_VISIBILITY_URL = API_BASE_URL + "/api/announcement-visibility";
+    static final String EVENT_ANNOUNCEMENT_CHANNEL_URL = API_BASE_URL + "/api/event-announcement-channel";
+    static final String OWNER_LOGS_URL = API_BASE_URL + "/api/owner-logs";
     interface Listener { void success(ClanFeed feed, String json); void failure(String message); }
     interface SaveListener { void success(); void failure(String message); }
     interface RoleSaveListener { void success(String managementToken); void failure(String message); }
     interface RoleStatusListener { void success(String rsn, String role); void failure(); }
     interface RolesListener { void success(List<ManagementRole> roles); void failure(String message); }
+    interface OwnerLogsListener { void success(OwnerLogsResponse logs); void failure(String message); }
+    interface AnnouncementChannelListener { void success(String url); void failure(String message); }
+    interface AnnouncementVisibilityListener { void success(boolean visible); void failure(String message); }
     private static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
     private final OkHttpClient client;
     private final Gson gson;
@@ -104,6 +111,69 @@ final class FeedService
         execute(request, "Event", listener);
     }
 
+    void saveAnnouncementChannel(String url, String token, AnnouncementChannelListener listener)
+    {
+        saveDiscordChannel(ANNOUNCEMENT_CHANNEL_URL, url, token, false, listener);
+    }
+    void saveEventAnnouncementChannel(String url, String token, AnnouncementChannelListener listener)
+    {
+        saveDiscordChannel(EVENT_ANNOUNCEMENT_CHANNEL_URL, url, token, true, listener);
+    }
+    void saveAnnouncementsVisibility(boolean visible, String token, AnnouncementVisibilityListener listener)
+    {
+        HttpUrl parsed = https(ANNOUNCEMENT_VISIBILITY_URL);
+        if (parsed == null || blank(token)) { listener.failure("Owner-token ontbreekt."); return; }
+        Request request = new Request.Builder().url(parsed).header("Authorization", "Bearer " + token.trim())
+            .post(RequestBody.create(JSON, gson.toJson(new AnnouncementVisibility(visible)))).build();
+        client.newCall(request).enqueue(new Callback()
+        {
+            @Override public void onFailure(Call call, IOException e) { listener.failure("Mededelingenknop is niet opgeslagen: server niet bereikbaar."); }
+            @Override public void onResponse(Call call, Response response) throws IOException
+            {
+                try (Response ignored = response)
+                {
+                    String body = response.body() == null ? "" : response.body().string();
+                    if (!response.isSuccessful())
+                    {
+                        ApiError error = gson.fromJson(body, ApiError.class);
+                        listener.failure(error != null && !blank(error.error) ? error.error : "Opslaan gaf HTTP " + response.code() + ".");
+                        return;
+                    }
+                    AnnouncementVisibilityResponse saved = gson.fromJson(body, AnnouncementVisibilityResponse.class);
+                    if (saved == null || saved.announcementsVisible == null) { listener.failure("Server bevestigde geen zichtbaarheidsinstelling."); return; }
+                    listener.success(saved.announcementsVisible);
+                }
+            }
+        });
+    }
+    private void saveDiscordChannel(String endpoint, String url, String token, boolean eventChannel, AnnouncementChannelListener listener)
+    {
+        HttpUrl parsed = https(endpoint);
+        if (parsed == null || blank(token)) { listener.failure("Owner-token ontbreekt."); return; }
+        Request request = new Request.Builder().url(parsed).header("Authorization", "Bearer " + token.trim())
+            .post(RequestBody.create(JSON, gson.toJson(new AnnouncementChannel(url)))).build();
+        client.newCall(request).enqueue(new Callback()
+        {
+            @Override public void onFailure(Call call, IOException e) { listener.failure("Mededelingenkanaal is niet opgeslagen: server niet bereikbaar."); }
+            @Override public void onResponse(Call call, Response response) throws IOException
+            {
+                try (Response ignored = response)
+                {
+                    String body = response.body() == null ? "" : response.body().string();
+                    if (!response.isSuccessful())
+                    {
+                        ApiError error = gson.fromJson(body, ApiError.class);
+                        listener.failure(error != null && !blank(error.error) ? error.error : "Opslaan gaf HTTP " + response.code() + ".");
+                        return;
+                    }
+                    AnnouncementChannelResponse saved = gson.fromJson(body, AnnouncementChannelResponse.class);
+                    String savedUrl = saved == null ? "" : (eventChannel ? saved.eventAnnouncementsUrl : saved.announcementsUrl);
+                    if (blank(savedUrl)) { listener.failure("Server bevestigde geen kanaalinstelling."); return; }
+                    listener.success(savedUrl);
+                }
+            }
+        });
+    }
     void fetchRole(String url, String token, RoleStatusListener listener)
     {
         HttpUrl parsed = https(url);
@@ -141,6 +211,25 @@ final class FeedService
                     RolesResponse saved = gson.fromJson(response.body().string(), RolesResponse.class);
                     if (saved == null || saved.roles == null) listener.failure("Ongeldig rollenoverzicht.");
                     else listener.success(saved.roles);
+                }
+            }
+        });
+    }
+    void fetchOwnerLogs(String token, OwnerLogsListener listener)
+    {
+        HttpUrl parsed = https(OWNER_LOGS_URL);
+        if (parsed == null || blank(token)) { listener.failure("Owner-token ontbreekt."); return; }
+        Request request = new Request.Builder().url(parsed).header("Authorization", "Bearer " + token.trim()).get().build();
+        client.newCall(request).enqueue(new Callback()
+        {
+            @Override public void onFailure(Call call, IOException e) { listener.failure("Logs niet bereikbaar."); }
+            @Override public void onResponse(Call call, Response response) throws IOException
+            {
+                try (Response ignored = response)
+                {
+                    if (!response.isSuccessful() || response.body() == null) { listener.failure("Logs gaven HTTP " + response.code() + "."); return; }
+                    OwnerLogsResponse logs = gson.fromJson(response.body().string(), OwnerLogsResponse.class);
+                    if (logs == null) listener.failure("Ongeldige loggegevens."); else listener.success(logs);
                 }
             }
         });
@@ -199,10 +288,21 @@ final class FeedService
         });
     }
 
+    private static final class AnnouncementChannel
+    {
+        final String url;
+        AnnouncementChannel(String url) { this.url = url; }
+    }
+    private static final class AnnouncementVisibility { final boolean visible; AnnouncementVisibility(boolean visible) { this.visible = visible; } }
+    private static final class AnnouncementVisibilityResponse { Boolean announcementsVisible; }
+    private static final class AnnouncementChannelResponse { String announcementsUrl; String eventAnnouncementsUrl; }
+    private static final class ApiError { String error; }
     private static final class RolesResponse
     {
         List<ManagementRole> roles;
     }
+    static final class OwnerLogsResponse { List<OwnerLogEntry> management; List<OwnerLogEntry> errors; }
+    static final class OwnerLogEntry { String at; String source; String message; }
     private static final class RoleResponse
     {
         String managementToken;
