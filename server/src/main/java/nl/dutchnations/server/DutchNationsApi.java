@@ -144,8 +144,38 @@ public final class DutchNationsApi
             return;
         }
         channel.sendMessage(discordEventText(event)).queue(
-            message -> store.setDiscordMessageId(event.id, message.getId()),
+            message -> store.setDiscordMessage(event.id, message.getId(), channelId),
             error -> store.error("Discord-bot", "Eventbericht kon niet worden geplaatst in het eventmeldingenkanaal"));
+    }
+
+    private void updateDiscordEvent(Event event)
+    {
+        TextChannel channel = discordEventChannel(event);
+        if (channel == null) return;
+        channel.retrieveMessageById(event.discordMessageId).queue(
+            message -> message.editMessage(discordEventText(event)).queue(
+                updated -> { }, error -> store.error("Discord-bot", "Eventbericht kon niet worden aangepast")),
+            error -> store.error("Discord-bot", "Eventbericht kon niet worden gevonden om aan te passen"));
+    }
+
+    private void deleteDiscordEvent(Event event)
+    {
+        TextChannel channel = discordEventChannel(event);
+        if (channel == null) return;
+        channel.retrieveMessageById(event.discordMessageId).queue(
+            message -> message.delete().queue(
+                deleted -> { }, error -> store.error("Discord-bot", "Eventbericht kon niet worden verwijderd")),
+            error -> store.error("Discord-bot", "Eventbericht kon niet worden gevonden om te verwijderen"));
+    }
+
+    private TextChannel discordEventChannel(Event event)
+    {
+        if (discordBot == null || blank(event.discordMessageId)) return null;
+        String channelId = blank(event.discordChannelId) ? store.eventAnnouncementsChannelId() : event.discordChannelId;
+        if (blank(channelId)) { store.error("Discord-bot", "Eventbericht kon niet worden verwerkt: eventmeldingenkanaal ontbreekt"); return null; }
+        TextChannel channel = discordBot.getTextChannelById(channelId);
+        if (channel == null) store.error("Discord-bot", "Eventbericht kon niet worden verwerkt: eventmeldingenkanaal niet bereikbaar");
+        return channel;
     }
 
     private static String discordEventText(Event event)
@@ -258,8 +288,9 @@ public final class DutchNationsApi
             Event event = read(exchange, Event.class);
             if (event == null) { sendError(exchange, 400, "Ongeldige eventgegevens"); return; }
             event.id = existing.id;
-            event.discordDescription = existing.discordDescription;
+            event.discordDescription = blank(event.discordText) ? existing.discordDescription : event.discordText;
             event.discordMessageId = existing.discordMessageId;
+            event.discordChannelId = existing.discordChannelId;
             event.discordText = "";
             event.type = event.type == null ? "" : event.type.toUpperCase(Locale.ROOT);
             if (!actor.canManageEventType(event.type)) { sendError(exchange, 403, "Deze rol mag alleen learner-events beheren"); return; }
@@ -278,6 +309,7 @@ public final class DutchNationsApi
             Event conflict = store.findConflict(event, existing.id);
             if (conflict != null && !event.allowConflict) { sendError(exchange, 409, "Event overlapt met " + conflict.title); return; }
             store.updateEvent(existing.id, event);
+            updateDiscordEvent(event);
             store.audit(actor, "Event aangepast: " + event.title);
             if (codewordChanged) store.audit(actor, "Codewoord gewijzigd voor event: " + event.title);
             send(exchange, 200, event);
@@ -292,7 +324,7 @@ public final class DutchNationsApi
             if (existing == null) { sendError(exchange, 404, "Event niet gevonden"); return; }
             if (!actor.canManageEventType(existing.type)) { sendError(exchange, 403, "Deze rol mag alleen learner-events beheren"); return; }
             boolean removed = store.deleteEvent(existing.id);
-            if (removed) store.audit(actor, "Event verwijderd: " + existing.title);
+            if (removed) { deleteDiscordEvent(existing); store.audit(actor, "Event verwijderd: " + existing.title); }
             if (!removed) { sendError(exchange, 404, "Event niet gevonden"); return; }
             send(exchange, 200, map("deleted", true));
             return;
@@ -632,6 +664,7 @@ public final class DutchNationsApi
                 if (!active) visible.codeword = "";
                 visible.discordDescription = "";
                 visible.discordMessageId = "";
+                visible.discordChannelId = "";
                 feed.events.add(visible);
             }
             return feed;
@@ -657,11 +690,12 @@ public final class DutchNationsApi
             }
             return false;
         }
-        synchronized void setDiscordMessageId(String id, String messageId)
+        synchronized void setDiscordMessage(String id, String messageId, String channelId)
         {
             Event event = event(id);
             if (event == null) return;
             event.discordMessageId = messageId;
+            event.discordChannelId = channelId;
             changed();
         }
 
@@ -925,7 +959,7 @@ public final class DutchNationsApi
     static final class Event
     {
         String id; String startsAt; String endsAt; String type; String title;
-        String world; String host; String description; String codeword; String checklist; String requiredPlugins; String strategyWikiUrl; String driveUrl; String registrationUrl; String registrationEndsAt; String youtubeUrl; String discordText; String discordDescription; String discordMessageId;
+        String world; String host; String description; String codeword; String checklist; String requiredPlugins; String strategyWikiUrl; String driveUrl; String registrationUrl; String registrationEndsAt; String youtubeUrl; String discordText; String discordDescription; String discordMessageId; String discordChannelId;
         String clansOne; String clansTwo; String activity; String bossList;
         boolean codewordRequired;
         boolean allowConflict;
