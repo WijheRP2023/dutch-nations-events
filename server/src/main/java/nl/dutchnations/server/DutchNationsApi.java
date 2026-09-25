@@ -793,7 +793,19 @@ public final class DutchNationsApi
                 try { return !OffsetDateTime.parse(event.endsAt).isAfter(now); }
                 catch (RuntimeException ex) { return true; }
             });
-            if (removed) changed();
+            OffsetDateTime cutoff = now.minusDays(7);
+            boolean logsRemoved = removeLogsOlderThan(state.managementLogs, cutoff) | removeLogsOlderThan(state.errorLogs, cutoff);
+            if (removed || logsRemoved) changed();
+        }
+
+        private static boolean removeLogsOlderThan(List<LogEntry> logs, OffsetDateTime cutoff)
+        {
+            if (logs == null) return false;
+            return logs.removeIf(entry ->
+            {
+                try { return entry == null || entry.at == null || !OffsetDateTime.parse(entry.at).isAfter(cutoff); }
+                catch (RuntimeException ex) { return true; }
+            });
         }
 
         private State load()
