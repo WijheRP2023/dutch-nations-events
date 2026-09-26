@@ -26,7 +26,7 @@ final class CodewordOverlay extends OverlayPanel
     {
         this.plugin = plugin;
         this.config = config;
-        setPosition(OverlayPosition.TOP_CENTER);
+        setPosition(OverlayPosition.TOP_LEFT);
     }
 
     @Override
@@ -36,11 +36,11 @@ final class CodewordOverlay extends OverlayPanel
         ClanFeed.ClanEvent event = plugin.activeEvent(currentMoment);
         if (!config.showOverlay() || event == null || event.codeword == null || event.codeword.trim().isEmpty()) return null;
 
-        String title = "DUTCH NATION - " + event.title;
+        String title = "DUTCH NATION - " + compactTitle(event.title);
         String timestamp = DUTCH_TIME.format(currentMoment.atZoneSameInstant(DUTCH_TIME_ZONE));
         int titleWidth = graphics.getFontMetrics().stringWidth(title);
-        int detailWidth = graphics.getFontMetrics().stringWidth(event.codeword + "    " + timestamp);
-        int requiredWidth = Math.max(250, Math.min(500, Math.max(titleWidth, detailWidth) + 28));
+        int detailWidth = graphics.getFontMetrics().stringWidth(event.codeword + "  " + timestamp);
+        int requiredWidth = Math.max(170, Math.min(310, Math.max(titleWidth, detailWidth) + 14));
         panelComponent.setPreferredSize(new Dimension(requiredWidth, 0));
 
         panelComponent.getChildren().add(TitleComponent.builder()
@@ -54,5 +54,11 @@ final class CodewordOverlay extends OverlayPanel
             .rightColor(Color.WHITE)
             .build());
         return super.render(graphics);
+    }
+
+    private static String compactTitle(String title)
+    {
+        String value = title == null ? "Event" : title.trim();
+        return value.length() <= 22 ? value : value.substring(0, 21) + "…";
     }
 }
