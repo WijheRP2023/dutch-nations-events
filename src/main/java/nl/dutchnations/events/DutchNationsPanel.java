@@ -4,7 +4,6 @@ import java.awt.Color;
 import java.awt.Component;
 import java.awt.Cursor;
 import java.awt.Dimension;
-import java.awt.Desktop;
 import java.awt.Font;
 import java.awt.Image;
 import java.awt.Insets;
@@ -550,16 +549,6 @@ final class DutchNationsPanel extends PluginPanel
 
     private static void openDiscordChannel(String browserUrl)
     {
-        try
-        {
-            String[] parts = URI.create(browserUrl).getPath().split("/");
-            if (parts.length == 4 && Desktop.isDesktopSupported())
-            {
-                Desktop.getDesktop().browse(URI.create("discord://-/channels/" + parts[2] + "/" + parts[3]));
-                return;
-            }
-        }
-        catch (Exception ignored) { }
         LinkBrowser.browse(browserUrl);
     }
     private void configureAnnouncementChannel()
