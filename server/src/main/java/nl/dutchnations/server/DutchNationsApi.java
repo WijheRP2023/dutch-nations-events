@@ -89,6 +89,7 @@ public final class DutchNationsApi
         server.createContext("/health", exchange -> send(exchange, 200, map("status", "ok")));
         server.createContext("/feed.json", this::feed);
         server.createContext("/api/events", this::events);
+        server.createContext("/api/learner-templates", this::learnerTemplates);
         server.createContext("/api/roles", this::roles);
         server.createContext("/api/announcement-channel", this::announcementChannel);
         server.createContext("/api/announcement-visibility", this::announcementVisibility);
@@ -339,6 +340,44 @@ public final class DutchNationsApi
         if (!"GET".equals(exchange.getRequestMethod())) { methodNotAllowed(exchange); return; }
         send(exchange, 200, store.ownerLogs());
     }
+
+    private void learnerTemplates(HttpExchange exchange) throws IOException
+    {
+        Actor actor = authenticate(exchange);
+        if (actor == null || !actor.owner()) { sendError(exchange, 403, "Alleen de owner mag learner-sjablonen beheren"); return; }
+        String path = exchange.getRequestURI().getPath();
+        String prefix = "/api/learner-templates/";
+        if ("POST".equals(exchange.getRequestMethod()) && "/api/learner-templates".equals(path))
+        {
+            LearnerTemplate template = read(exchange, LearnerTemplate.class);
+            String error = validateLearnerTemplate(template);
+            if (error != null) { sendError(exchange, 400, error); return; }
+            template.id = UUID.randomUUID().toString();
+            store.addLearnerTemplate(template);
+            store.audit(actor, "Learner-sjabloon toegevoegd: " + template.name);
+            send(exchange, 201, template); return;
+        }
+        if (("PUT".equals(exchange.getRequestMethod()) || "DELETE".equals(exchange.getRequestMethod())) && path.startsWith(prefix) && path.length() > prefix.length())
+        {
+            String id = path.substring(prefix.length());
+            if ("DELETE".equals(exchange.getRequestMethod()))
+            {
+                LearnerTemplate existing = store.learnerTemplate(id);
+                if (existing == null) { sendError(exchange, 404, "Learner-sjabloon niet gevonden"); return; }
+                store.deleteLearnerTemplate(id);
+                store.audit(actor, "Learner-sjabloon verwijderd: " + existing.name);
+                send(exchange, 200, map("deleted", true)); return;
+            }
+            LearnerTemplate template = read(exchange, LearnerTemplate.class);
+            String error = validateLearnerTemplate(template);
+            if (error != null) { sendError(exchange, 400, error); return; }
+            template.id = id;
+            if (!store.updateLearnerTemplate(id, template)) { sendError(exchange, 404, "Learner-sjabloon niet gevonden"); return; }
+            store.audit(actor, "Learner-sjabloon aangepast: " + template.name);
+            send(exchange, 200, template); return;
+        }
+        methodNotAllowed(exchange);
+    }
     private void announcementChannel(HttpExchange exchange) throws IOException
     {
         Actor actor = authenticate(exchange);
@@ -499,6 +538,54 @@ public final class DutchNationsApi
         return null;
     }
 
+    private static String validateLearnerTemplate(LearnerTemplate template)
+    {
+        if (template == null || !valid(template.name, 60) || !valid(template.title, 80) ||
+            !validOptional(template.description, 240) || !validOptional(template.checklist, 400) ||
+            !validOptional(template.requiredPlugins, 300) || !validWikiUrl(template.strategyWikiUrl) ||
+            !validYoutubeUrl(template.youtubeUrl)) return "Sjabloontekst of link is ongeldig";
+        return null;
+    }
+
+    private static List<LearnerTemplate> defaultLearnerTemplates()
+    {
+        List<LearnerTemplate> templates = new ArrayList<>();
+        addDefaultTemplate(templates, "Chambers of Xeric (CoX)", "https://oldschool.runescape.wiki/w/Chambers_of_Xeric/Strategies");
+        addDefaultTemplate(templates, "Theatre of Blood (ToB)", "https://oldschool.runescape.wiki/w/Theatre_of_Blood/Strategies");
+        addDefaultTemplate(templates, "Tombs of Amascut (ToA)", "https://oldschool.runescape.wiki/w/Tombs_of_Amascut/Strategies");
+        addDefaultTemplate(templates, "General Graardor (Bandos)", "https://oldschool.runescape.wiki/w/General_Graardor/Strategies");
+        addDefaultTemplate(templates, "Commander Zilyana (Saradomin)", "https://oldschool.runescape.wiki/w/Commander_Zilyana/Strategies");
+        addDefaultTemplate(templates, "Kree'arra (Armadyl)", "https://oldschool.runescape.wiki/w/Kree%27arra/Strategies");
+        addDefaultTemplate(templates, "K'ril Tsutsaroth (Zamorak)", "https://oldschool.runescape.wiki/w/K%27ril_Tsutsaroth/Strategies");
+        addDefaultTemplate(templates, "Callisto", "https://oldschool.runescape.wiki/w/Callisto/Strategies");
+        addDefaultTemplate(templates, "Vet'ion", "https://oldschool.runescape.wiki/w/Vet%27ion/Strategies");
+        addDefaultTemplate(templates, "Venenatis", "https://oldschool.runescape.wiki/w/Venenatis/Strategies");
+        addDefaultTemplate(templates, "Artio", "https://oldschool.runescape.wiki/w/Artio/Strategies");
+        addDefaultTemplate(templates, "Calvar'ion", "https://oldschool.runescape.wiki/w/Calvar%27ion/Strategies");
+        addDefaultTemplate(templates, "Spindel", "https://oldschool.runescape.wiki/w/Spindel/Strategies");
+        addDefaultTemplate(templates, "King Black Dragon (KBD)", "https://oldschool.runescape.wiki/w/King_Black_Dragon/Strategies");
+        addDefaultTemplate(templates, "Nex", "https://oldschool.runescape.wiki/w/Nex/Strategies");
+        addDefaultTemplate(templates, "Dagannoth Kings", "https://oldschool.runescape.wiki/w/Dagannoth_Kings/Strategies");
+        addDefaultTemplate(templates, "Corporeal Beast", "https://oldschool.runescape.wiki/w/Corporeal_Beast/Strategies");
+        addDefaultTemplate(templates, "Sarachnis", "https://oldschool.runescape.wiki/w/Sarachnis/Strategies");
+        addDefaultTemplate(templates, "The Nightmare", "https://oldschool.runescape.wiki/w/The_Nightmare/Strategies");
+        addDefaultTemplate(templates, "Hueycoatl", "https://oldschool.runescape.wiki/w/Hueycoatl/Strategies");
+        addDefaultTemplate(templates, "Royal Titans", "https://oldschool.runescape.wiki/w/Royal_Titans/Strategies");
+        addDefaultTemplate(templates, "Scurrius", "https://oldschool.runescape.wiki/w/Scurrius/Strategies");
+        addDefaultTemplate(templates, "God Wars Dungeon", "https://oldschool.runescape.wiki/w/God_Wars_Dungeon");
+        addDefaultTemplate(templates, "Wilderness bosses", "https://oldschool.runescape.wiki/w/Wilderness_bosses");
+        return templates;
+    }
+
+    private static void addDefaultTemplate(List<LearnerTemplate> templates, String name, String wikiUrl)
+    {
+        LearnerTemplate template = new LearnerTemplate();
+        template.id = UUID.randomUUID().toString(); template.name = name; template.title = name;
+        template.strategyWikiUrl = wikiUrl; template.description = ""; template.checklist = "";
+        template.requiredPlugins = ""; template.youtubeUrl = "";
+        templates.add(template);
+    }
+
     private static <T> T read(HttpExchange exchange, Class<T> type) throws IOException
     {
         byte[] body = exchange.getRequestBody().readNBytes(16_385);
@@ -654,6 +741,9 @@ public final class DutchNationsApi
             feed.announcementsVisible = !Boolean.FALSE.equals(state.announcementsVisible);
             feed.eventAnnouncementsUrl = state.eventAnnouncementsUrl;
             feed.announcementsSequence = state.announcementsSequence;
+            feed.learnerTemplates = new ArrayList<>();
+            for (LearnerTemplate template : state.learnerTemplates)
+                feed.learnerTemplates.add(GSON.fromJson(GSON.toJson(template), LearnerTemplate.class));
             feed.events = new ArrayList<>();
             for (Event stored : state.events)
             {
@@ -708,6 +798,29 @@ public final class DutchNationsApi
         synchronized Event event(String id)
         {
             return state.events.stream().filter(value -> id.equals(value.id)).findFirst().orElse(null);
+        }
+        synchronized LearnerTemplate learnerTemplate(String id)
+        {
+            return state.learnerTemplates.stream().filter(value -> id.equals(value.id)).findFirst().orElse(null);
+        }
+        synchronized void addLearnerTemplate(LearnerTemplate template)
+        {
+            state.learnerTemplates.add(template);
+            changed();
+        }
+        synchronized boolean updateLearnerTemplate(String id, LearnerTemplate replacement)
+        {
+            for (int i = 0; i < state.learnerTemplates.size(); i++)
+            {
+                if (id.equals(state.learnerTemplates.get(i).id)) { state.learnerTemplates.set(i, replacement); changed(); return true; }
+            }
+            return false;
+        }
+        synchronized boolean deleteLearnerTemplate(String id)
+        {
+            boolean removed = state.learnerTemplates.removeIf(template -> id.equals(template.id));
+            if (removed) changed();
+            return removed;
         }
         synchronized void saveAnnouncementsUrl(String value)
         {
@@ -873,6 +986,8 @@ public final class DutchNationsApi
         {
             if (state.members == null) state.members = new ArrayList<>();
             if (state.events == null) state.events = new ArrayList<>();
+            if (state.learnerTemplates == null) state.learnerTemplates = new ArrayList<>();
+            if (state.learnerTemplates.isEmpty()) state.learnerTemplates.addAll(defaultLearnerTemplates());
             if (state.tokenHashes == null) state.tokenHashes = new HashMap<>();
             if (state.announcementsVisible == null) state.announcementsVisible = true;
             if (state.members.stream().noneMatch(m -> OWNER_RSN.equals(normalize(m.rsn))))
@@ -942,6 +1057,7 @@ public final class DutchNationsApi
         String updatedAt;
         List<Member> members = new ArrayList<>();
         List<Event> events = new ArrayList<>();
+        List<LearnerTemplate> learnerTemplates = new ArrayList<>();
         Map<String, String> tokenHashes = new HashMap<>();
         String announcementsUrl = "";
         Boolean announcementsVisible = true;
@@ -951,7 +1067,7 @@ public final class DutchNationsApi
         List<LogEntry> managementLogs = new ArrayList<>();
         List<LogEntry> errorLogs = new ArrayList<>();
     }
-    static final class Feed { String updatedAt; String announcementsUrl; boolean announcementsVisible; String eventAnnouncementsUrl; long announcementsSequence; List<Event> events; }
+    static final class Feed { String updatedAt; String announcementsUrl; boolean announcementsVisible; String eventAnnouncementsUrl; long announcementsSequence; List<LearnerTemplate> learnerTemplates; List<Event> events; }
     static final class AnnouncementVisibility { boolean visible; }
     static final class OwnerLogs { List<LogEntry> management; List<LogEntry> errors; }
     static final class LogEntry { String at; String source; String message; }
@@ -963,6 +1079,11 @@ public final class DutchNationsApi
         String clansOne; String clansTwo; String activity; String bossList;
         boolean codewordRequired;
         boolean allowConflict;
+    }
+    static final class LearnerTemplate
+    {
+        String id; String name; String title; String description; String checklist;
+        String requiredPlugins; String strategyWikiUrl; String youtubeUrl;
     }
     static final class RoleChange { String rsn; String role; }
     static final class AnnouncementChannel { String url; }
