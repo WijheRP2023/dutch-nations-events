@@ -91,6 +91,22 @@ public class DutchNationsApiSecurityTest
         store.removeRole("KOENB1");
         assertFalse(store.hasAssignedRole("Koenb1"));
     }
+
+    @Test
+    public void roleTokenSurvivesServerRestart() throws Exception
+    {
+        Path directory = Files.createTempDirectory("dutch-nations-role-restart-test");
+        Path state = directory.resolve("state.json");
+        DutchNationsApi.Store beforeRestart = new DutchNationsApi.Store(state);
+        beforeRestart.saveRole("Q-Dance Jr", "ADMINISTRATOR", "current-token-hash");
+
+        DutchNationsApi.Store afterRestart = new DutchNationsApi.Store(state);
+        DutchNationsApi.Actor actor = afterRestart.actorForHash("current-token-hash");
+
+        assertTrue(actor != null);
+        assertEquals("Q-Dance Jr", actor.rsn);
+        assertTrue(actor.administrator());
+    }
     private static DutchNationsApi.Event event(String id, OffsetDateTime start, OffsetDateTime end, String codeword)
     {
         DutchNationsApi.Event event = new DutchNationsApi.Event();

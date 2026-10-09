@@ -972,12 +972,19 @@ public final class DutchNationsApi
             try (Connection connection = connection(); Statement statement = connection.createStatement())
             {
                 statement.executeUpdate("CREATE TABLE IF NOT EXISTS dutch_nations_state (id INTEGER PRIMARY KEY, payload TEXT NOT NULL)");
+                statement.executeUpdate("CREATE TABLE IF NOT EXISTS dutch_nations_role_tokens (rsn TEXT PRIMARY KEY, token_hash TEXT NOT NULL)");
+                State loaded;
                 try (ResultSet result = statement.executeQuery("SELECT payload FROM dutch_nations_state WHERE id = 1"))
                 {
-                    if (!result.next()) return new State();
-                    State loaded = GSON.fromJson(result.getString(1), State.class);
-                    return loaded == null ? new State() : loaded;
+                    loaded = result.next() ? GSON.fromJson(result.getString(1), State.class) : new State();
                 }
+                if (loaded == null) loaded = new State();
+                if (loaded.tokenHashes == null) loaded.tokenHashes = new HashMap<>();
+                try (ResultSet result = statement.executeQuery("SELECT rsn, token_hash FROM dutch_nations_role_tokens"))
+                {
+                    while (result.next()) loaded.tokenHashes.put(result.getString(1), result.getString(2));
+                }
+                return loaded;
             }
             catch (Exception ex) { throw new IllegalStateException("Kan PostgreSQL-data niet lezen", ex); }
         }
@@ -1024,10 +1031,35 @@ public final class DutchNationsApi
         {
             String sql = "INSERT INTO dutch_nations_state (id, payload) VALUES (1, ?) " +
                 "ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload";
-            try (Connection connection = connection(); PreparedStatement statement = connection.prepareStatement(sql))
+            try (Connection connection = connection())
             {
-                statement.setString(1, GSON.toJson(state));
-                statement.executeUpdate();
+                connection.setAutoCommit(false);
+                try (Statement statement = connection.createStatement())
+                {
+                    statement.executeUpdate("CREATE TABLE IF NOT EXISTS dutch_nations_state (id INTEGER PRIMARY KEY, payload TEXT NOT NULL)");
+                    statement.executeUpdate("CREATE TABLE IF NOT EXISTS dutch_nations_role_tokens (rsn TEXT PRIMARY KEY, token_hash TEXT NOT NULL)");
+                }
+                try (PreparedStatement statement = connection.prepareStatement(sql))
+                {
+                    statement.setString(1, GSON.toJson(state));
+                    statement.executeUpdate();
+                }
+                try (Statement statement = connection.createStatement())
+                {
+                    statement.executeUpdate("DELETE FROM dutch_nations_role_tokens");
+                }
+                try (PreparedStatement statement = connection.prepareStatement(
+                    "INSERT INTO dutch_nations_role_tokens (rsn, token_hash) VALUES (?, ?)"))
+                {
+                    for (Map.Entry<String, String> token : state.tokenHashes.entrySet())
+                    {
+                        statement.setString(1, token.getKey());
+                        statement.setString(2, token.getValue());
+                        statement.addBatch();
+                    }
+                    statement.executeBatch();
+                }
+                connection.commit();
             }
             catch (SQLException ex) { throw new IllegalStateException("Kan PostgreSQL-data niet opslaan", ex); }
         }
