@@ -73,6 +73,9 @@ final class DutchNationsPanel extends PluginPanel
     private final BiConsumer<String, EventDraft> updateEvent;
     private final Supplier<String> currentRsn;
     private final Consumer<String> deleteEvent;
+    private final Consumer<ClanFeed.LearnerTemplate> createLearnerTemplate;
+    private final BiConsumer<String, ClanFeed.LearnerTemplate> updateLearnerTemplate;
+    private final Consumer<String> deleteLearnerTemplate;
     private final Consumer<RoleDraft> saveRole;
     private final Consumer<String> saveAnnouncementChannel;
     private final Consumer<String> saveEventAnnouncementChannel;
@@ -92,6 +95,7 @@ final class DutchNationsPanel extends PluginPanel
     private String announcementSettingsStatus = "";
     private String eventAnnouncementSettingsStatus = "";
     private String announcementVisibilityStatus = "";
+    private String templateStatus = "";
     private String viewMode = "LIJST";
     private String roleFilter = "ADMINS";
     private boolean serverOnline;
@@ -101,11 +105,11 @@ final class DutchNationsPanel extends PluginPanel
 
     DutchNationsPanel(DutchNationsConfig config, Runnable refresh, BooleanSupplier canManage, BooleanSupplier isOwner,
         BooleanSupplier isAdministrator, BooleanSupplier isLearnerHost, BooleanSupplier canManageRoles, Runnable loadRoles, Runnable loadOwnerLogs, BooleanSupplier hasClanAccess,
-        Consumer<EventDraft> saveEvent, BiConsumer<String, EventDraft> updateEvent, Consumer<String> deleteEvent, Consumer<RoleDraft> saveRole, Consumer<String> saveAnnouncementChannel, Consumer<String> saveEventAnnouncementChannel, Consumer<Boolean> saveAnnouncementsVisibility, LongSupplier announcementReadSequence, LongConsumer markAnnouncementsRead, Supplier<String> currentRsn)
+        Consumer<EventDraft> saveEvent, BiConsumer<String, EventDraft> updateEvent, Consumer<String> deleteEvent, Consumer<ClanFeed.LearnerTemplate> createLearnerTemplate, BiConsumer<String, ClanFeed.LearnerTemplate> updateLearnerTemplate, Consumer<String> deleteLearnerTemplate, Consumer<RoleDraft> saveRole, Consumer<String> saveAnnouncementChannel, Consumer<String> saveEventAnnouncementChannel, Consumer<Boolean> saveAnnouncementsVisibility, LongSupplier announcementReadSequence, LongConsumer markAnnouncementsRead, Supplier<String> currentRsn)
     {
         this.config = config; this.refresh = refresh; this.canManage = canManage; this.isOwner = isOwner;
         this.isAdministrator = isAdministrator; this.isLearnerHost = isLearnerHost; this.canManageRoles = canManageRoles; this.loadRoles = loadRoles; this.loadOwnerLogs = loadOwnerLogs; this.hasClanAccess = hasClanAccess;
-        this.saveEvent = saveEvent; this.updateEvent = updateEvent; this.deleteEvent = deleteEvent; this.saveRole = saveRole; this.saveAnnouncementChannel = saveAnnouncementChannel; this.saveEventAnnouncementChannel = saveEventAnnouncementChannel; this.saveAnnouncementsVisibility = saveAnnouncementsVisibility; this.announcementReadSequence = announcementReadSequence; this.markAnnouncementsRead = markAnnouncementsRead; this.currentRsn = currentRsn;
+        this.saveEvent = saveEvent; this.updateEvent = updateEvent; this.deleteEvent = deleteEvent; this.createLearnerTemplate = createLearnerTemplate; this.updateLearnerTemplate = updateLearnerTemplate; this.deleteLearnerTemplate = deleteLearnerTemplate; this.saveRole = saveRole; this.saveAnnouncementChannel = saveAnnouncementChannel; this.saveEventAnnouncementChannel = saveEventAnnouncementChannel; this.saveAnnouncementsVisibility = saveAnnouncementsVisibility; this.announcementReadSequence = announcementReadSequence; this.markAnnouncementsRead = markAnnouncementsRead; this.currentRsn = currentRsn;
         setLayout(new BoxLayout(this, BoxLayout.Y_AXIS)); setBackground(BACKGROUND); render();
     }
 
@@ -133,6 +137,7 @@ final class DutchNationsPanel extends PluginPanel
         render();
     }
     void announcementVisibilityFailed(String message) { announcementVisibilityStatus = message; render(); }
+    void templateStatus(String message) { templateStatus = message; render(); }
     void eventAnnouncementChannelSaving() { eventAnnouncementSettingsStatus = "Eventmeldingenkanaal opslaan..."; render(); }
     void eventAnnouncementChannelSaved(String url)
     {
@@ -173,6 +178,11 @@ final class DutchNationsPanel extends PluginPanel
         if ("FOUTLOG".equals(viewMode))
         {
             addLogPage("FOUTLOG", "Fouten van events en Discord.", errorLogs, new Color(255, 120, 120));
+            add(Box.createVerticalGlue()); revalidate(); repaint(); return;
+        }
+        if ("SJABLONEN".equals(viewMode))
+        {
+            addLearnerTemplatesSection();
             add(Box.createVerticalGlue()); revalidate(); repaint(); return;
         }
         if ("ROLLEN".equals(viewMode))
@@ -309,7 +319,7 @@ final class DutchNationsPanel extends PluginPanel
         if (canManage.getAsBoolean() && hasClanAccess.getAsBoolean())
         {
             actions.add(Box.createRigidArea(new Dimension(0, 5))); JButton create = button("+ Event maken");
-            create.addActionListener(event -> { EventDraft draft = EventEditorDialog.show(pluginCatalog, isLearnerHost.getAsBoolean()); if (draft != null) saveEvent.accept(draft); }); actions.add(create);
+            create.addActionListener(event -> { EventDraft draft = EventEditorDialog.show(pluginCatalog, isLearnerHost.getAsBoolean(), learnerTemplates()); if (draft != null) saveEvent.accept(draft); }); actions.add(create);
         }
         if (canManageRoles.getAsBoolean() && !isOwner.getAsBoolean() && hasClanAccess.getAsBoolean())
         {
@@ -375,6 +385,14 @@ final class DutchNationsPanel extends PluginPanel
         management.add(Box.createRigidArea(new Dimension(0, 7))); management.add(roles);
         add(management); add(Box.createRigidArea(new Dimension(0, 7)));
 
+        JPanel templates = card(CARD_BROWN);
+        templates.add(bodyLabel("LEARNER-SJABLONEN", GOLD, Font.BOLD, 12f));
+        templates.add(bodyText("Kies welke voorbereiding, plugins en gids een learner-event automatisch invult.", Color.LIGHT_GRAY, Font.PLAIN, 12f));
+        JButton manageTemplates = button("Learner-sjablonen beheren");
+        manageTemplates.addActionListener(event -> { viewMode = "SJABLONEN"; render(); });
+        templates.add(Box.createRigidArea(new Dimension(0, 7))); templates.add(manageTemplates);
+        add(templates); add(Box.createRigidArea(new Dimension(0, 7)));
+
         JPanel logs = card(CARD_BROWN);
         logs.add(bodyLabel("LOGS", GOLD, Font.BOLD, 12f));
         logs.add(bodyText("Bekijk beheerwijzigingen en foutmeldingen op een aparte pagina.", Color.LIGHT_GRAY, Font.PLAIN, 11f));
@@ -386,6 +404,64 @@ final class DutchNationsPanel extends PluginPanel
         logs.add(Box.createRigidArea(new Dimension(0, 5))); logs.add(errorLog);
         add(logs);
         if (!ownerLogsMessage.isEmpty()) { add(Box.createRigidArea(new Dimension(0, 5))); add(bodyText(ownerLogsMessage, Color.LIGHT_GRAY, Font.PLAIN, 11f)); }
+    }
+
+    private void addLearnerTemplatesSection()
+    {
+        JPanel heading = card(STONE);
+        heading.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createMatteBorder(0, 5, 0, 0, LEARNER_COLOR), BorderFactory.createEmptyBorder(7, 8, 7, 8)));
+        heading.add(label("LEARNER-SJABLONEN", LEARNER_COLOR, Font.BOLD, 13f));
+        heading.add(bodyLabel("Deze velden worden vooraf ingevuld bij een learner-event.", Color.WHITE, Font.PLAIN, 12f));
+        add(heading); add(Box.createRigidArea(new Dimension(0, 7)));
+
+        JButton back = button("Terug naar instellingen");
+        back.addActionListener(event -> { viewMode = "INSTELLINGEN"; render(); });
+        add(back); add(Box.createRigidArea(new Dimension(0, 5)));
+        JButton addTemplate = button("+ Nieuw learner-sjabloon");
+        addTemplate.addActionListener(event ->
+        {
+            ClanFeed.LearnerTemplate template = LearnerTemplateEditorDialog.create(pluginCatalog);
+            if (template != null) createLearnerTemplate.accept(template);
+        });
+        add(addTemplate); add(Box.createRigidArea(new Dimension(0, 7)));
+        if (!blank(templateStatus))
+        {
+            add(bodyText(templateStatus, templateStatus.endsWith("toegevoegd.") || templateStatus.endsWith("aangepast.") || templateStatus.endsWith("verwijderd.") ? new Color(120, 220, 140) : new Color(255, 175, 145), Font.PLAIN, 11f));
+            add(Box.createRigidArea(new Dimension(0, 7)));
+        }
+        List<ClanFeed.LearnerTemplate> templates = new ArrayList<>(learnerTemplates());
+        templates.sort(Comparator.comparing(template -> template.name == null ? "" : template.name, String.CASE_INSENSITIVE_ORDER));
+        if (templates.isEmpty())
+        {
+            JPanel empty = card(DARK_STONE);
+            empty.add(bodyText("Nog geen learner-sjablonen. Maak er hierboven één aan.", Color.WHITE, Font.PLAIN, 12f));
+            add(empty); return;
+        }
+        for (ClanFeed.LearnerTemplate template : templates)
+        {
+            JPanel card = card(CARD_BROWN);
+            card.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, 3, 0, 0, LEARNER_COLOR), BorderFactory.createEmptyBorder(7, 8, 7, 8)));
+            card.add(bodyLabel(template.name, Color.WHITE, Font.BOLD, 13f));
+            if (!blank(template.title) && !template.title.equals(template.name)) card.add(bodyText("Titel: " + template.title, Color.LIGHT_GRAY, Font.PLAIN, 11f));
+            if (!blank(template.requiredPlugins)) card.add(bodyText("Plug-ins: " + template.requiredPlugins, Color.LIGHT_GRAY, Font.PLAIN, 11f));
+            JButton edit = button("Sjabloon aanpassen");
+            edit.addActionListener(event ->
+            {
+                ClanFeed.LearnerTemplate changed = LearnerTemplateEditorDialog.edit(template, pluginCatalog);
+                if (changed != null) updateLearnerTemplate.accept(template.id, changed);
+            });
+            JButton delete = button("Sjabloon verwijderen");
+            delete.addActionListener(event ->
+            {
+                int choice = JOptionPane.showConfirmDialog(null, "Weet je zeker dat je '" + template.name + "' wilt verwijderen?", "Learner-sjabloon verwijderen", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+                if (choice == JOptionPane.YES_OPTION) deleteLearnerTemplate.accept(template.id);
+            });
+            card.add(Box.createRigidArea(new Dimension(0, 6))); card.add(edit);
+            card.add(Box.createRigidArea(new Dimension(0, 5))); card.add(delete);
+            add(card); add(Box.createRigidArea(new Dimension(0, 7)));
+        }
     }
 
     private void addLogPage(String title, String note, List<FeedService.OwnerLogEntry> entries, Color color)
@@ -808,7 +884,7 @@ final class DutchNationsPanel extends PluginPanel
             JButton edit = button("Event aanpassen");
             edit.addActionListener(click ->
             {
-                EventDraft draft = EventEditorDialog.edit(pluginCatalog, isLearnerHost.getAsBoolean(), event);
+                EventDraft draft = EventEditorDialog.edit(pluginCatalog, isLearnerHost.getAsBoolean(), learnerTemplates(), event);
                 if (draft != null) updateEvent.accept(event.id, draft);
             });
             panel.add(Box.createRigidArea(new Dimension(0, 7))); panel.add(edit);
@@ -822,6 +898,11 @@ final class DutchNationsPanel extends PluginPanel
             panel.add(Box.createRigidArea(new Dimension(0, 7))); panel.add(remove);
         }
         return panel;
+    }
+
+    private List<ClanFeed.LearnerTemplate> learnerTemplates()
+    {
+        return feed == null || feed.learnerTemplates == null ? java.util.Collections.emptyList() : feed.learnerTemplates;
     }
 
     private static boolean registrationOpen(ClanFeed.ClanEvent event, OffsetDateTime now)

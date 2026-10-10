@@ -29,6 +29,7 @@ final class FeedService
     static final String ANNOUNCEMENT_VISIBILITY_URL = API_BASE_URL + "/api/announcement-visibility";
     static final String EVENT_ANNOUNCEMENT_CHANNEL_URL = API_BASE_URL + "/api/event-announcement-channel";
     static final String OWNER_LOGS_URL = API_BASE_URL + "/api/owner-logs";
+    static final String LEARNER_TEMPLATES_URL = API_BASE_URL + "/api/learner-templates";
     interface Listener { void success(ClanFeed feed, String json); void failure(String message); }
     interface SaveListener { void success(); void failure(String message); }
     interface RoleSaveListener { void success(String managementToken); void failure(String message); }
@@ -109,6 +110,25 @@ final class FeedService
         HttpUrl target = base.newBuilder().addPathSegment(eventId).build();
         Request request = new Request.Builder().url(target).header("Authorization", "Bearer " + token.trim()).delete().build();
         execute(request, "Event", listener);
+    }
+
+    void createLearnerTemplate(String token, ClanFeed.LearnerTemplate template, SaveListener listener)
+    {
+        post(LEARNER_TEMPLATES_URL, token, gson.toJson(template), "Learner-sjabloon", listener);
+    }
+
+    void updateLearnerTemplate(String token, String templateId, ClanFeed.LearnerTemplate template, SaveListener listener)
+    {
+        put(LEARNER_TEMPLATES_URL, token, templateId, gson.toJson(template), "Learner-sjabloon", listener);
+    }
+
+    void deleteLearnerTemplate(String token, String templateId, SaveListener listener)
+    {
+        HttpUrl base = https(LEARNER_TEMPLATES_URL);
+        if (base == null || blank(token) || blank(templateId)) { listener.failure("Owner-token of sjabloon ontbreekt."); return; }
+        Request request = new Request.Builder().url(base.newBuilder().addPathSegment(templateId).build())
+            .header("Authorization", "Bearer " + token.trim()).delete().build();
+        execute(request, "Learner-sjabloon", listener);
     }
 
     void saveAnnouncementChannel(String url, String token, AnnouncementChannelListener listener)
@@ -270,6 +290,15 @@ final class FeedService
         execute(request, subject, listener);
     }
 
+    private void put(String url, String token, String id, String json, String subject, SaveListener listener)
+    {
+        HttpUrl base = https(url);
+        if (base == null || blank(token) || blank(id)) { listener.failure(subject + " mist gegevens."); return; }
+        Request request = new Request.Builder().url(base.newBuilder().addPathSegment(id).build()).header("Authorization", "Bearer " + token.trim())
+            .put(RequestBody.create(JSON, json)).build();
+        execute(request, subject, listener);
+    }
+
     private void execute(Request request, String subject, SaveListener listener)
     {
         client.newCall(request).enqueue(new Callback()
@@ -316,6 +345,14 @@ final class FeedService
         {
             ClanFeed feed = gson.fromJson(json, ClanFeed.class); OffsetDateTime.parse(feed.updatedAt);
             if (feed.events == null) return null;
+            if (feed.learnerTemplates == null) feed.learnerTemplates = new java.util.ArrayList<>();
+            for (ClanFeed.LearnerTemplate template : feed.learnerTemplates)
+            {
+                if (template == null || blank(template.id) || blank(template.name) || blank(template.title) ||
+                    unsafe(template.name) || unsafe(template.title) || unsafe(template.description) ||
+                    unsafe(template.discordDescription) || unsafe(template.checklist) || unsafe(template.requiredPlugins) || unsafe(template.strategyWikiUrl) ||
+                    unsafe(template.youtubeUrl)) return null;
+            }
             for (ClanFeed.ClanEvent event : feed.events)
             {
                 boolean learner = event.learner();

@@ -12,6 +12,7 @@ final class ClanFeed
     String eventAnnouncementsUrl;
     long announcementsSequence;
     List<ClanEvent> events = new ArrayList<>();
+    List<LearnerTemplate> learnerTemplates = new ArrayList<>();
 
 
     static final class ClanEvent
@@ -43,5 +44,18 @@ final class ClanFeed
         boolean active(OffsetDateTime now) { return !now.isBefore(start()) && now.isBefore(end()); }
         boolean learner() { return "LEARNER".equalsIgnoreCase(type); }
         boolean supportsPreparation() { return learner() || "MASS".equalsIgnoreCase(type); }
+    }
+
+    static final class LearnerTemplate
+    {
+        String id;
+        String name;
+        String title;
+        String description;
+        String discordDescription;
+        String checklist;
+        String requiredPlugins;
+        String strategyWikiUrl;
+        String youtubeUrl;
     }
 }

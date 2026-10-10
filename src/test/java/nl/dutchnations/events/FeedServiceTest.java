@@ -29,6 +29,14 @@ public class FeedServiceTest
         assertNotNull(feed); assertEquals("Gear;Voice-chat", feed.events.get(0).checklist);
         assertEquals("Tile Packs;Quest Helper", feed.events.get(0).requiredPlugins);
     }
+    @Test public void acceptsLearnerTemplates()
+    {
+        ClanFeed feed = service.parse("{\"updatedAt\":\"2026-07-20T18:00:00Z\",\"learnerTemplates\":[{\"id\":\"toa\",\"name\":\"ToA learner\",\"title\":\"ToA learner\",\"discordDescription\":\"Welkom learner!\",\"checklist\":\"Gear;Voice\",\"requiredPlugins\":\"Quest Helper\",\"strategyWikiUrl\":\"https://oldschool.runescape.wiki/w/Tombs_of_Amascut/Strategies\"}],\"events\":[]}");
+        assertNotNull(feed);
+        assertEquals(1, feed.learnerTemplates.size());
+        assertEquals("ToA learner", feed.learnerTemplates.get(0).name);
+        assertEquals("Welkom learner!", feed.learnerTemplates.get(0).discordDescription);
+    }
     @Test public void acceptsMassPreparationAndPlugins()
     {
         ClanFeed feed = service.parse("{\"updatedAt\":\"2026-07-20T18:00:00Z\",\"events\":[{\"id\":\"mass-1\",\"type\":\"MASS\",\"title\":\"Clan mass\",\"world\":\"366\",\"checklist\":\"Voice-chat;Gear\",\"requiredPlugins\":\"Tile Packs\",\"strategyWikiUrl\":\"https://oldschool.runescape.wiki/w/Tombs_of_Amascut/Strategies\",\"startsAt\":\"2026-08-03T20:00:00+02:00\",\"endsAt\":\"2026-08-03T22:00:00+02:00\"}]}");

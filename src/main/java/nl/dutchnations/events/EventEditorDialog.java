@@ -38,15 +38,19 @@ final class EventEditorDialog
     );
     private EventEditorDialog() { }
 
-    static EventDraft show(List<String> pluginCatalog, boolean learnerOnly) { return show(pluginCatalog, learnerOnly, null); }
-
-    static EventDraft edit(List<String> pluginCatalog, boolean learnerOnly, ClanFeed.ClanEvent existing)
+    static EventDraft show(List<String> pluginCatalog, boolean learnerOnly, List<ClanFeed.LearnerTemplate> learnerTemplates)
     {
-        return show(pluginCatalog, learnerOnly, existing);
+        return show(pluginCatalog, learnerOnly, learnerTemplates, null);
     }
 
-    private static EventDraft show(List<String> pluginCatalog, boolean learnerOnly, ClanFeed.ClanEvent existing)
+    static EventDraft edit(List<String> pluginCatalog, boolean learnerOnly, List<ClanFeed.LearnerTemplate> learnerTemplates, ClanFeed.ClanEvent existing)
     {
+        return show(pluginCatalog, learnerOnly, learnerTemplates, existing);
+    }
+
+    private static EventDraft show(List<String> pluginCatalog, boolean learnerOnly, List<ClanFeed.LearnerTemplate> learnerTemplates, ClanFeed.ClanEvent existing)
+    {
+        List<ClanFeed.LearnerTemplate> templates = learnerTemplates == null ? java.util.Collections.emptyList() : learnerTemplates;
         boolean editing = existing != null;
         JComboBox<String> type = new JComboBox<>(learnerOnly ? new String[]{"LEARNER"} : new String[]{"LEARNER", "BOSS", "MASS", "CLAN_EVENT", "CLAN_VS_CLAN"});
         JTextField title = new JTextField();
@@ -59,6 +63,7 @@ final class EventEditorDialog
         JTextField world = new JTextField("366");
         JTextField host = new JTextField();
         JTextField description = new JTextField();
+        JTextArea discordText = new JTextArea(4, 24);
         JTextField clansOne = new JTextField();
         JTextField clansTwo = new JTextField();
         JTextField activity = new JTextField();
@@ -71,6 +76,11 @@ final class EventEditorDialog
         JTextField registrationDeadlineTime = new JTextField(defaultStart.toLocalTime().format(DateTimeFormatter.ofPattern("HH:mm")));
         JTextField checklist = new JTextField();
         JTextField requiredPlugins = new JTextField();
+        DefaultComboBoxModel<String> templateModel = new DefaultComboBoxModel<>();
+        templateModel.addElement("Geen sjabloon");
+        templates.stream().map(template -> template.name).filter(name -> name != null && !name.trim().isEmpty())
+            .distinct().sorted(String.CASE_INSENSITIVE_ORDER).forEach(templateModel::addElement);
+        JComboBox<String> learnerTemplate = new JComboBox<>(templateModel);
         JComboBox<String> strategyWiki = new JComboBox<>(new String[]{
             "", "Chambers of Xeric (CoX)", "Theatre of Blood (ToB)", "Tombs of Amascut (ToA)",
             "General Graardor (Bandos)", "Commander Zilyana (Saradomin)", "Kree'arra (Armadyl)",
@@ -79,6 +89,14 @@ final class EventEditorDialog
             "Sarachnis", "The Nightmare", "Hueycoatl", "Royal Titans", "Scurrius",
             "God Wars Dungeon", "Wilderness bosses"
         });
+        for (ClanFeed.LearnerTemplate template : templates)
+        {
+            if (template.name == null || template.name.trim().isEmpty()) continue;
+            boolean present = false;
+            for (int i = 0; i < strategyWiki.getItemCount(); i++)
+                if (template.name.equals(strategyWiki.getItemAt(i))) { present = true; break; }
+            if (!present) strategyWiki.addItem(template.name);
+        }
         JTextField pluginSearch = new JTextField();
         DefaultComboBoxModel<String> pluginResultsModel = new DefaultComboBoxModel<>();
         JComboBox<String> pluginResults = new JComboBox<>(pluginResultsModel);
@@ -159,6 +177,7 @@ final class EventEditorDialog
         JPanel addPluginRow = row("", addPlugin);
         JPanel selectedPluginsRow = row("Gekozen plug-ins", requiredPlugins);
         JPanel strategyRow = row("Strategie (snelkeuze)", strategyWiki);
+        JPanel templateRow = row("Learner-sjabloon", learnerTemplate);
         JPanel massCodewordRow = row("Mass-event", massCodewordRequired);
         JPanel driveRow = row("Tussenstand-link (optioneel)", driveUrl);
         JPanel registrationLinkRow = row("Discord-aanmeldlink", registrationUrl);
@@ -170,7 +189,7 @@ final class EventEditorDialog
         JPanel clansTwoRow = row("Clans kant 2 (; gescheiden)", clansTwo);
         JPanel activityRow = row("Activiteit", activity);
         JPanel bossListRow = row("Bosses/activiteiten (; gescheiden)", bossList);
-        form.add(row("Eventtype", type)); form.add(titleRow);
+        form.add(row("Eventtype", type)); form.add(templateRow); form.add(titleRow);
         form.add(row("Startdatum/tijd", dateTimeFields(startDate, startTime))); form.add(row("Einddatum/tijd", dateTimeFields(endDate, endTime)));
         form.add(worldRow); form.add(clansOneRow); form.add(clansTwoRow); form.add(activityRow); form.add(bossListRow);
         form.add(row("Host (RSN)", host)); form.add(row("Beschrijving", description)); form.add(youtubeRow);
@@ -187,6 +206,7 @@ final class EventEditorDialog
             boolean supportsResources = learner || mass;
             boolean needsCodeword = boss || clanEvent || clanVsClan || (mass && massCodewordRequired.isSelected());
             titleRow.setVisible(!clanVsClan);
+            templateRow.setVisible(learner && templateModel.getSize() > 1);
             worldRow.setVisible(!boss && !clanVsClan);
             clansOneRow.setVisible(clanVsClan); clansTwoRow.setVisible(clanVsClan); activityRow.setVisible(clanVsClan); bossListRow.setVisible(clanEvent);
             preparationRow.setVisible(learner);
@@ -206,6 +226,28 @@ final class EventEditorDialog
         };
         type.addActionListener(e -> applyTypeRules.run());
         massCodewordRequired.addActionListener(e -> applyTypeRules.run());
+        learnerTemplate.addActionListener(e ->
+        {
+            String selected = (String) learnerTemplate.getSelectedItem();
+            if (selected == null || "Geen sjabloon".equals(selected)) return;
+            for (ClanFeed.LearnerTemplate template : templates)
+            {
+                if (!selected.equals(template.name)) continue;
+                title.setText(value(template.title));
+                description.setText(value(template.description));
+                discordText.setText(value(template.discordDescription));
+                checklist.setText(value(template.checklist));
+                requiredPlugins.setText(value(template.requiredPlugins));
+                youtubeUrl.setText(value(template.youtubeUrl));
+                for (int i = 0; i < strategyWiki.getItemCount(); i++)
+                {
+                    String option = strategyWiki.getItemAt(i);
+                    if (value(template.strategyWikiUrl).equals(strategyWikiUrl(option, templates)))
+                    { strategyWiki.setSelectedItem(option); break; }
+                }
+                break;
+            }
+        });
         applyTypeRules.run();
 
         while (true)
@@ -249,9 +291,14 @@ final class EventEditorDialog
             }
             draft.checklist = checklist.getText().trim();
             draft.requiredPlugins = requiredPlugins.getText().trim();
+            String selectedTemplate = (String) learnerTemplate.getSelectedItem();
+            boolean hasLearnerTemplate = "LEARNER".equals(draft.type) && selectedTemplate != null && !"Geen sjabloon".equals(selectedTemplate);
+            // Een learner-sjabloon bevat zijn eigen vaste Discord-beschrijving. Die moet
+            // automatisch worden opgeslagen, zonder nogmaals een los invulvenster te tonen.
+            draft.discordText = hasLearnerTemplate ? discordText.getText().trim() : "";
             draft.codewordRequired = "BOSS".equals(draft.type) || "CLAN_EVENT".equals(draft.type) || "CLAN_VS_CLAN".equals(draft.type) || ("MASS".equals(draft.type) && massCodewordRequired.isSelected());
             Object selectedStrategy = strategyWiki.getEditor().getItem();
-            draft.strategyWikiUrl = selectedStrategy == null ? "" : strategyWikiUrl(selectedStrategy.toString());
+            draft.strategyWikiUrl = selectedStrategy == null ? "" : strategyWikiUrl(selectedStrategy.toString(), templates);
             boolean boss = "BOSS".equals(draft.type);
             boolean mass = "MASS".equals(draft.type);
             boolean clanEvent = "CLAN_EVENT".equals(draft.type);
@@ -296,9 +343,8 @@ final class EventEditorDialog
             if (!clanEvent) draft.bossList = "";
             if (boss || clanVsClan) draft.world = "";
             if (!boss && !clanEvent && !clanVsClan) { draft.driveUrl = ""; draft.registrationUrl = ""; draft.registrationEndsAt = ""; }
-            if (!editing)
+            if (!editing && !hasLearnerTemplate)
             {
-                JTextArea discordText = new JTextArea(4, 24);
                 discordText.setLineWrap(true);
                 discordText.setWrapStyleWord(true);
                 int extraTextAnswer = JOptionPane.showConfirmDialog(null, discordText,
@@ -351,6 +397,15 @@ final class EventEditorDialog
             default: return "";
         }
     }
+
+    private static String strategyWikiUrl(String name, List<ClanFeed.LearnerTemplate> templates)
+    {
+        for (ClanFeed.LearnerTemplate template : templates)
+            if (name != null && name.trim().equals(template.name == null ? "" : template.name.trim())) return value(template.strategyWikiUrl);
+        return strategyWikiUrl(name);
+    }
+
+    private static String value(String text) { return text == null ? "" : text; }
 
     static LocalDateTime parseDateTime(String value, String fieldName)
     {

@@ -144,29 +144,42 @@ public final class DutchNationsApi
             store.error("Discord-bot", "Eventbericht niet geplaatst: eventmeldingenkanaal niet bereikbaar");
             return;
         }
-        channel.sendMessage(discordEventText(event)).queue(
-            message -> store.setDiscordMessage(event.id, message.getId(), channelId),
+        sendDiscordParts(channel, event, channelId, splitDiscordMessage(discordEventText(event)), 0, new ArrayList<>());
+    }
+
+    private void sendDiscordParts(TextChannel channel, Event event, String channelId, List<String> parts, int index, List<String> messageIds)
+    {
+        if (index >= parts.size())
+        {
+            store.setDiscordMessage(event.id, String.join(",", messageIds), channelId);
+            return;
+        }
+        channel.sendMessage(parts.get(index)).queue(
+            message ->
+            {
+                messageIds.add(message.getId());
+                sendDiscordParts(channel, event, channelId, parts, index + 1, messageIds);
+            },
             error -> store.error("Discord-bot", "Eventbericht kon niet worden geplaatst in het eventmeldingenkanaal"));
     }
 
     private void updateDiscordEvent(Event event)
     {
-        TextChannel channel = discordEventChannel(event);
-        if (channel == null) return;
-        channel.retrieveMessageById(event.discordMessageId).queue(
-            message -> message.editMessage(discordEventText(event)).queue(
-                updated -> { }, error -> store.error("Discord-bot", "Eventbericht kon niet worden aangepast")),
-            error -> store.error("Discord-bot", "Eventbericht kon niet worden gevonden om aan te passen"));
+        deleteDiscordEvent(event);
+        publishEventWithBot(event);
     }
 
     private void deleteDiscordEvent(Event event)
     {
         TextChannel channel = discordEventChannel(event);
         if (channel == null) return;
-        channel.retrieveMessageById(event.discordMessageId).queue(
-            message -> message.delete().queue(
-                deleted -> { }, error -> store.error("Discord-bot", "Eventbericht kon niet worden verwijderd")),
-            error -> store.error("Discord-bot", "Eventbericht kon niet worden gevonden om te verwijderen"));
+        for (String messageId : discordMessageIds(event))
+        {
+            channel.retrieveMessageById(messageId).queue(
+                message -> message.delete().queue(
+                    deleted -> { }, error -> store.error("Discord-bot", "Eventbericht kon niet worden verwijderd")),
+                error -> store.error("Discord-bot", "Eventbericht kon niet worden gevonden om te verwijderen"));
+        }
     }
 
     private TextChannel discordEventChannel(Event event)
@@ -187,7 +200,42 @@ public final class DutchNationsApi
         appendDiscordDateTime(text, event);
         if (!blank(event.registrationUrl)) text.append("\nAanmelden: ").append(event.registrationUrl);
         if (!blank(event.discordDescription)) text.append("\n\n").append(event.discordDescription);
-        return text.length() <= 2000 ? text.toString() : text.substring(0, 1997) + "...";
+        if ("LEARNER".equalsIgnoreCase(event.type)) appendLearnerPreparation(text, event);
+        return text.toString();
+    }
+
+    private static List<String> splitDiscordMessage(String text)
+    {
+        List<String> parts = new ArrayList<>();
+        String remaining = text == null ? "" : text.trim();
+        while (remaining.length() > 2000)
+        {
+            int split = remaining.lastIndexOf('\n', 2000);
+            if (split < 1) split = remaining.lastIndexOf(' ', 2000);
+            if (split < 1) split = 2000;
+            parts.add(remaining.substring(0, split).trim());
+            remaining = remaining.substring(split).trim();
+        }
+        if (!remaining.isEmpty()) parts.add(remaining);
+        return parts;
+    }
+
+    private static List<String> discordMessageIds(Event event)
+    {
+        List<String> ids = new ArrayList<>();
+        if (event == null || blank(event.discordMessageId)) return ids;
+        for (String id : event.discordMessageId.split(",")) if (!blank(id)) ids.add(id.trim());
+        return ids;
+    }
+
+    private static void appendLearnerPreparation(StringBuilder text, Event event)
+    {
+        if (blank(event.checklist) && blank(event.requiredPlugins) && blank(event.strategyWikiUrl) && blank(event.youtubeUrl)) return;
+        text.append("\n\n**Voorbereiden**");
+        if (!blank(event.checklist)) text.append("\n• Vooraf doen: ").append(event.checklist.replace(";", ", "));
+        if (!blank(event.requiredPlugins)) text.append("\n• Plug-ins: ").append(event.requiredPlugins.replace(";", ", "));
+        if (!blank(event.strategyWikiUrl)) text.append("\n• Wiki: ").append(event.strategyWikiUrl);
+        if (!blank(event.youtubeUrl)) text.append("\n• YouTube: ").append(event.youtubeUrl);
     }
 
     private static void appendDiscordDateTime(StringBuilder text, Event event)
@@ -527,10 +575,10 @@ public final class DutchNationsApi
         if (!validOptional(event.clansOne, 300) || !validOptional(event.clansTwo, 300)) return "Clanlijst is ongeldig";
         if (!validOptional(event.activity, 120)) return "Activiteit is ongeldig";
         if (!validOptional(event.bossList, 300)) return "Boss- of activiteitenlijst is ongeldig";
-        if (!validOptional(event.discordText, 3000)) return "Discord-beschrijving is ongeldig of langer dan 3000 tekens";
+        if (!validOptional(event.discordText, 12000)) return "Discord-beschrijving is ongeldig of langer dan 12.000 tekens";
         int descriptionLength = event.description == null ? 0 : event.description.length();
         int discordDescriptionLength = event.discordText == null ? 0 : event.discordText.length();
-        if (descriptionLength + discordDescriptionLength > 4000) return "Beschrijving en Discord-beschrijving samen mogen maximaal 4000 tekens bevatten";
+        if (descriptionLength + discordDescriptionLength > 15000) return "Beschrijving en Discord-beschrijving samen mogen maximaal 15.000 tekens bevatten";
         if (("LEARNER".equals(type) || "MASS".equals(type) || "CLAN_EVENT".equals(type)) && (blank(event.world) || !event.world.matches("\\d{3,4}"))) return "Geldig wereldnummer is verplicht";
         if (("BOSS".equals(type) || "CLAN_EVENT".equals(type) || "CLAN_VS_CLAN".equals(type) || ("MASS".equals(type) && event.codewordRequired)) && !valid(event.codeword, 40)) return "Dit event vereist een geldig codewoord van maximaal 40 tekens";
         if ("CLAN_EVENT".equals(type) && !valid(event.bossList, 300)) return "Vul minimaal één boss of activiteit in";
@@ -541,7 +589,7 @@ public final class DutchNationsApi
     private static String validateLearnerTemplate(LearnerTemplate template)
     {
         if (template == null || !valid(template.name, 60) || !valid(template.title, 80) ||
-            !validOptional(template.description, 240) || !validOptional(template.checklist, 400) ||
+            !validOptional(template.description, 240) || !validOptional(template.discordDescription, 12000) || !validOptional(template.checklist, 400) ||
             !validOptional(template.requiredPlugins, 300) || !validWikiUrl(template.strategyWikiUrl) ||
             !validYoutubeUrl(template.youtubeUrl)) return "Sjabloontekst of link is ongeldig";
         return null;
@@ -581,7 +629,7 @@ public final class DutchNationsApi
     {
         LearnerTemplate template = new LearnerTemplate();
         template.id = UUID.randomUUID().toString(); template.name = name; template.title = name;
-        template.strategyWikiUrl = wikiUrl; template.description = ""; template.checklist = "";
+        template.strategyWikiUrl = wikiUrl; template.description = ""; template.discordDescription = ""; template.checklist = "";
         template.requiredPlugins = ""; template.youtubeUrl = "";
         templates.add(template);
     }
@@ -1114,7 +1162,7 @@ public final class DutchNationsApi
     }
     static final class LearnerTemplate
     {
-        String id; String name; String title; String description; String checklist;
+        String id; String name; String title; String description; String discordDescription; String checklist;
         String requiredPlugins; String strategyWikiUrl; String youtubeUrl;
     }
     static final class RoleChange { String rsn; String role; }

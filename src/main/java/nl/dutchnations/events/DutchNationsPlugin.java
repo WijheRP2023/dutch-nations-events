@@ -93,7 +93,7 @@ public class DutchNationsPlugin extends Plugin
         womService = new WomCompetitionService(http, gson);
         panel = new DutchNationsPanel(config, this::refresh, this::canManage, this::isOwner,
             this::isAdministrator, this::isLearnerHost, this::canManageRoles, this::fetchRoles, this::fetchOwnerLogs, this::hasClanAccess,
-            this::createEvent, this::updateEvent, this::deleteEvent, this::saveRole, this::saveAnnouncementChannel, this::saveEventAnnouncementChannel, this::saveAnnouncementsVisibility, this::announcementReadSequence, this::markAnnouncementsRead, this::localPlayerName);
+            this::createEvent, this::updateEvent, this::deleteEvent, this::createLearnerTemplate, this::updateLearnerTemplate, this::deleteLearnerTemplate, this::saveRole, this::saveAnnouncementChannel, this::saveEventAnnouncementChannel, this::saveAnnouncementsVisibility, this::announcementReadSequence, this::markAnnouncementsRead, this::localPlayerName);
         ClanFeed cached = service.parse(configs.getConfiguration(DutchNationsConfig.GROUP, CACHE));
         if (cached != null) { feed = cached; panel.update(cached, "Opgeslagen versie; update wordt gecontroleerd."); }
         button = NavigationButton.builder().tooltip("Dutch Nation").icon(icon()).priority(6).panel(panel).build();
@@ -362,6 +362,44 @@ public class DutchNationsPlugin extends Plugin
         }
         panel.status("Event aanpassen...");
         service.updateEvent(FeedService.EVENTS_URL, config.managementToken(), eventId, draft, new SaveResult("Event aangepast."));
+    }
+
+    private void createLearnerTemplate(ClanFeed.LearnerTemplate template)
+    {
+        if (!isOwner()) { panel.templateStatus("Alleen de owner mag learner-sjablonen beheren."); return; }
+        panel.templateStatus("Learner-sjabloon opslaan...");
+        service.createLearnerTemplate(config.managementToken(), template, new TemplateSaveResult("Learner-sjabloon toegevoegd."));
+    }
+
+    private void updateLearnerTemplate(String templateId, ClanFeed.LearnerTemplate template)
+    {
+        if (!isOwner()) { panel.templateStatus("Alleen de owner mag learner-sjablonen beheren."); return; }
+        panel.templateStatus("Learner-sjabloon opslaan...");
+        service.updateLearnerTemplate(config.managementToken(), templateId, template, new TemplateSaveResult("Learner-sjabloon aangepast."));
+    }
+
+    private void deleteLearnerTemplate(String templateId)
+    {
+        if (!isOwner()) { panel.templateStatus("Alleen de owner mag learner-sjablonen beheren."); return; }
+        panel.templateStatus("Learner-sjabloon verwijderen...");
+        service.deleteLearnerTemplate(config.managementToken(), templateId, new TemplateSaveResult("Learner-sjabloon verwijderd."));
+    }
+
+    private final class TemplateSaveResult implements FeedService.SaveListener
+    {
+        private final String success;
+        private TemplateSaveResult(String success) { this.success = success; }
+        @Override public void success()
+        {
+            SwingUtilities.invokeLater(() ->
+            {
+                if (panel != null) panel.templateStatus(success);
+                fetchOwnerLogs();
+                refresh();
+            });
+        }
+        @Override public void failure(String message)
+        { SwingUtilities.invokeLater(() -> { if (panel != null) panel.templateStatus(message); }); }
     }
 
     private String localPlayerName()

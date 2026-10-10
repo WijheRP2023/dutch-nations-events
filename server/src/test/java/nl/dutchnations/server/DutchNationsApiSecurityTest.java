@@ -4,6 +4,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.lang.reflect.Method;
+import java.util.List;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
@@ -106,6 +108,40 @@ public class DutchNationsApiSecurityTest
         assertTrue(actor != null);
         assertEquals("Q-Dance Jr", actor.rsn);
         assertTrue(actor.administrator());
+    }
+
+    @Test
+    public void learnerDiscordMessageContainsDescriptionAndPreparation() throws Exception
+    {
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        DutchNationsApi.Event event = event("learner", now.plusDays(1), now.plusDays(1).plusHours(2), "");
+        event.type = "LEARNER";
+        event.title = "CoX Learner";
+        event.discordDescription = "We oefenen de basis samen.";
+        event.checklist = "Gear;Voice-chat";
+        event.requiredPlugins = "Quest Helper;Tile Packs";
+        event.strategyWikiUrl = "https://oldschool.runescape.wiki/w/Chambers_of_Xeric/Strategies";
+        event.youtubeUrl = "https://www.youtube.com/watch?v=test";
+        Method formatter = DutchNationsApi.class.getDeclaredMethod("discordEventText", DutchNationsApi.Event.class);
+        formatter.setAccessible(true);
+        String text = (String) formatter.invoke(null, event);
+        assertTrue(text.contains("We oefenen de basis samen."));
+        assertTrue(text.contains("**Voorbereiden**"));
+        assertTrue(text.contains("• Plug-ins: Quest Helper, Tile Packs"));
+        assertTrue(text.contains("• Wiki: https://oldschool.runescape.wiki/w/Chambers_of_Xeric/Strategies"));
+        assertTrue(text.contains("• YouTube: https://www.youtube.com/watch?v=test"));
+    }
+
+    @Test
+    public void longDiscordMessageIsSplitWithoutLosingText() throws Exception
+    {
+        String longText = "a".repeat(4500);
+        Method splitter = DutchNationsApi.class.getDeclaredMethod("splitDiscordMessage", String.class);
+        splitter.setAccessible(true);
+        @SuppressWarnings("unchecked") List<String> parts = (List<String>) splitter.invoke(null, longText);
+        assertEquals(3, parts.size());
+        assertTrue(parts.stream().allMatch(part -> part.length() <= 2000));
+        assertEquals(longText, String.join("", parts));
     }
     private static DutchNationsApi.Event event(String id, OffsetDateTime start, OffsetDateTime end, String codeword)
     {
