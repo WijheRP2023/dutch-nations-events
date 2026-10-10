@@ -961,7 +961,14 @@ public final class DutchNationsApi
         synchronized List<Member> roles()
         {
             List<Member> roles = new ArrayList<>();
-            for (Member member : state.members) roles.add(GSON.fromJson(GSON.toJson(member), Member.class));
+            for (Member member : state.members)
+            {
+                Member visible = GSON.fromJson(GSON.toJson(member), Member.class);
+                // Alleen de rollen-API voor beheer ziet deze status. De code zelf
+                // blijft gehasht en wordt nooit teruggestuurd.
+                visible.tokenActive = OWNER_RSN.equals(normalize(member.rsn)) || state.tokenHashes.containsKey(normalize(member.rsn));
+                roles.add(visible);
+            }
             roles.sort((left, right) -> left.rsn.compareToIgnoreCase(right.rsn));
             return roles;
         }
@@ -1151,7 +1158,7 @@ public final class DutchNationsApi
     static final class AnnouncementVisibility { boolean visible; }
     static final class OwnerLogs { List<LogEntry> management; List<LogEntry> errors; }
     static final class LogEntry { String at; String source; String message; }
-    static final class Member { String rsn; String role; String updatedAt; }
+    static final class Member { String rsn; String role; String updatedAt; Boolean tokenActive; }
     static final class Event
     {
         String id; String startsAt; String endsAt; String type; String title;
