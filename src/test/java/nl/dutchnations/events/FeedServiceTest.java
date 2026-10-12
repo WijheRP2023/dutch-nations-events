@@ -37,6 +37,12 @@ public class FeedServiceTest
         assertEquals("ToA learner", feed.learnerTemplates.get(0).name);
         assertEquals("Welkom learner!", feed.learnerTemplates.get(0).discordDescription);
     }
+    @Test public void acceptsMultilineTemplateDiscordDescription()
+    {
+        ClanFeed feed = service.parse("{\"updatedAt\":\"2026-07-20T18:00:00Z\",\"learnerTemplates\":[{\"id\":\"cox\",\"name\":\"CoX learner\",\"title\":\"CoX learner\",\"discordDescription\":\"Regel een\\n\\nRegel twee\"}],\"events\":[]}");
+        assertNotNull(feed);
+        assertEquals("Regel een\n\nRegel twee", feed.learnerTemplates.get(0).discordDescription);
+    }
     @Test public void acceptsMassPreparationAndPlugins()
     {
         ClanFeed feed = service.parse("{\"updatedAt\":\"2026-07-20T18:00:00Z\",\"events\":[{\"id\":\"mass-1\",\"type\":\"MASS\",\"title\":\"Clan mass\",\"world\":\"366\",\"checklist\":\"Voice-chat;Gear\",\"requiredPlugins\":\"Tile Packs\",\"strategyWikiUrl\":\"https://oldschool.runescape.wiki/w/Tombs_of_Amascut/Strategies\",\"startsAt\":\"2026-08-03T20:00:00+02:00\",\"endsAt\":\"2026-08-03T22:00:00+02:00\"}]}");

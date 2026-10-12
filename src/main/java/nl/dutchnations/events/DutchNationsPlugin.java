@@ -82,6 +82,8 @@ public class DutchNationsPlugin extends Plugin
     private volatile boolean receivedLiveFeed;
     private int ticksUntilRefresh;
     private int ticksUntilClanRefresh;
+    private int ticksUntilRoleRefresh;
+    private int remainingRoleRefreshAttempts;
     private String clanMembersSignature = "";
     private long lastWomRefresh;
 
@@ -97,7 +99,7 @@ public class DutchNationsPlugin extends Plugin
         ClanFeed cached = service.parse(configs.getConfiguration(DutchNationsConfig.GROUP, CACHE));
         if (cached != null) { feed = cached; panel.update(cached, "Opgeslagen versie; update wordt gecontroleerd."); }
         button = NavigationButton.builder().tooltip("Dutch Nation").icon(icon()).priority(6).panel(panel).build();
-        toolbar.addNavigation(button); overlays.add(overlay); loadPluginCatalog(); refreshRole(); refresh();
+        toolbar.addNavigation(button); overlays.add(overlay); loadPluginCatalog(); scheduleRoleRefresh(); refresh();
     }
 
     private void loadPluginCatalog()
@@ -152,9 +154,11 @@ public class DutchNationsPlugin extends Plugin
 
     @Subscribe public void onGameStateChanged(GameStateChanged event)
     {
-        if (event.getGameState() == GameState.LOGGED_IN) refreshRole();
+        if (event.getGameState() == GameState.LOGGED_IN) scheduleRoleRefresh();
         else if (event.getGameState() == GameState.LOGIN_SCREEN)
         {
+            ticksUntilRoleRefresh = 0;
+            remainingRoleRefreshAttempts = 0;
             authenticatedRole = "";
             if (panel != null) SwingUtilities.invokeLater(panel::permissionsChanged);
         }
@@ -163,6 +167,7 @@ public class DutchNationsPlugin extends Plugin
     @Subscribe
     public void onGameTick(GameTick ignored)
     {
+        refreshRoleWhenPlayerIsReady();
         if (--ticksUntilClanRefresh <= 0)
         {
             ticksUntilClanRefresh = 10;
@@ -194,6 +199,26 @@ public class DutchNationsPlugin extends Plugin
                 queueEventMessage(event, "is nu gestart");
             }
         }
+    }
+
+    private void scheduleRoleRefresh()
+    {
+        remainingRoleRefreshAttempts = 10;
+        ticksUntilRoleRefresh = 1;
+    }
+
+    private void refreshRoleWhenPlayerIsReady()
+    {
+        if (ticksUntilRoleRefresh <= 0 || --ticksUntilRoleRefresh > 0) return;
+        Player player = client.getLocalPlayer();
+        String name = player == null ? "" : player.getName();
+        if (name == null || name.trim().isEmpty())
+        {
+            if (--remainingRoleRefreshAttempts > 0) ticksUntilRoleRefresh = 1;
+            return;
+        }
+        remainingRoleRefreshAttempts = 0;
+        refreshRole();
     }
 
     private volatile boolean clanAccessGranted;

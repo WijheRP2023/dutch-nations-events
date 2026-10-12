@@ -389,5 +389,9 @@ final class FeedService
         return localHttp ? parsed : null;
     }
     private static boolean blank(String value) { return value == null || value.trim().isEmpty(); }
-    private static boolean unsafe(String value) { return value != null && (value.contains("<") || value.contains(">") || value.chars().anyMatch(Character::isISOControl)); }
+    private static boolean unsafe(String value)
+    {
+        return value != null && (value.contains("<") || value.contains(">") ||
+            value.chars().anyMatch(character -> Character.isISOControl(character) && character != '\n' && character != '\r' && character != '\t'));
+    }
 }
