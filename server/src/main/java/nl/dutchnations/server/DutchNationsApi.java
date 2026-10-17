@@ -670,7 +670,7 @@ public final class DutchNationsApi
         if (!validOptional(event.checklist, 400)) return "Voorbereiding is ongeldig";
         if (!validOptional(event.requiredPlugins, 300)) return "Plug-inlijst is ongeldig";
         if (!validWikiUrl(event.strategyWikiUrl)) return "Strategie-link is ongeldig";
-        if (!validDriveUrl(event.driveUrl)) return "Tussenstand-link is ongeldig";
+        if (!validStandingsUrl(event.driveUrl)) return "Tussenstand-link is ongeldig; gebruik een volledig webadres met http:// of https://";
         if (!validDiscordUrl(event.registrationUrl)) return "Discord-aanmeldlink is ongeldig";
         if (!validYoutubeUrl(event.youtubeUrl)) return "YouTube-link is ongeldig";
         if (!validOptional(event.clansOne, 300) || !validOptional(event.clansTwo, 300)) return "Clanlijst is ongeldig";
@@ -834,16 +834,16 @@ public final class DutchNationsApi
         }
         catch (RuntimeException exception) { return false; }
     }
-    private static boolean validDriveUrl(String value)
+    private static boolean validStandingsUrl(String value)
     {
         if (blank(value)) return true;
         if (!validOptional(value, 500)) return false;
         try
         {
             URI uri = URI.create(value);
-            String host = uri.getHost();
-            return "https".equalsIgnoreCase(uri.getScheme()) && uri.getUserInfo() == null &&
-                ("drive.google.com".equalsIgnoreCase(host) || "docs.google.com".equalsIgnoreCase(host));
+            String scheme = uri.getScheme();
+            return ("https".equalsIgnoreCase(scheme) || "http".equalsIgnoreCase(scheme)) &&
+                uri.getHost() != null && uri.getUserInfo() == null && uri.getPort() <= 65535;
         }
         catch (RuntimeException exception) { return false; }
     }

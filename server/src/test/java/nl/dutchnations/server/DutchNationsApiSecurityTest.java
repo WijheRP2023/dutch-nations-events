@@ -53,6 +53,35 @@ public class DutchNationsApiSecurityTest
         assertEquals("MANAGER", member.role);
         assertTrue(member.updatedAt != null && !member.updatedAt.isEmpty());
     }
+
+    @Test
+    public void eventStandingsLinksAcceptWebsitesAndRemainAvailableAfterRestart() throws Exception
+    {
+        Method validate = DutchNationsApi.class.getDeclaredMethod("validateEvent", DutchNationsApi.Event.class);
+        validate.setAccessible(true);
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        DutchNationsApi.Event event = event("standings", now.minusMinutes(1), now.plusHours(1), "CODE");
+        event.host = "Q-Dance Jr";
+
+        for (String link : new String[]{"", "https://drive.google.com/file/d/example/view", "https://docs.google.com/spreadsheets/d/example", "https://osrs-nlbe.com/author/dutch_nation/pvm-war-2026/", "http://example.org/standings"})
+        {
+            event.driveUrl = link;
+            assertEquals("Link should be valid: " + link, null, validate.invoke(null, event));
+        }
+
+        for (String link : new String[]{"javascript:alert(1)", "file:///C:/secret", "example.org/standings", "https://user:password@example.org", "https://example.org:99999", "https://example.org/" + "a".repeat(500)})
+        {
+            event.driveUrl = link;
+            assertTrue("Link should be rejected: " + link, ((String) validate.invoke(null, event)).startsWith("Tussenstand-link is ongeldig"));
+        }
+
+        Path state = Files.createTempDirectory("dutch-nations-standings-test").resolve("state.json");
+        DutchNationsApi.Store store = new DutchNationsApi.Store(state);
+        event.driveUrl = "https://osrs-nlbe.com/author/dutch_nation/pvm-war-2026/";
+        store.addEvent(event);
+        DutchNationsApi.Store restored = new DutchNationsApi.Store(state);
+        assertEquals(event.driveUrl, restored.feed().events.get(0).driveUrl);
+    }
     @Test
     public void removesExpiredEventsRegardlessOfType() throws Exception
     {
