@@ -10,6 +10,7 @@ import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.requests.GatewayIntent;
+import net.dv8tion.jda.api.utils.FileUpload;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
@@ -50,6 +51,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeoutException;
 
 public final class DutchNationsApi
 {
@@ -58,6 +61,7 @@ public final class DutchNationsApi
     private final Store store;
     private final String bootstrapOwnerHash;
     private JDA discordBot;
+    private final Semaphore dropTestPermit = new Semaphore(1);
 
     private DutchNationsApi(Store store, String ownerToken)
     {
@@ -94,6 +98,8 @@ public final class DutchNationsApi
         server.createContext("/api/announcement-channel", this::announcementChannel);
         server.createContext("/api/announcement-visibility", this::announcementVisibility);
         server.createContext("/api/event-announcement-channel", this::eventAnnouncementChannel);
+        server.createContext("/api/drop-channel", this::dropChannel);
+        server.createContext("/api/drop-test", this::dropTest);
         server.createContext("/api/owner-logs", this::ownerLogs);
         server.setExecutor(Executors.newFixedThreadPool(8));
         server.start();
@@ -463,6 +469,101 @@ public final class DutchNationsApi
         send(exchange, 200, map("announcementsVisible", change.visible));
     }
 
+    private void dropChannel(HttpExchange exchange) throws IOException
+    {
+        Actor actor = authenticate(exchange);
+        if (actor == null || !actor.owner()) { sendError(exchange, 403, "Alleen de owner kan het screenshotkanaal beheren"); return; }
+        if ("GET".equals(exchange.getRequestMethod()))
+        {
+            send(exchange, 200, map("dropChannelUrl", store.dropChannelUrl()));
+            return;
+        }
+        if (!"POST".equals(exchange.getRequestMethod())) { methodNotAllowed(exchange); return; }
+        AnnouncementChannel change = read(exchange, AnnouncementChannel.class);
+        if (change == null || !validDiscordChannelUrl(change.url))
+        { sendError(exchange, 400, "Een geldige Discord-kanaallink is verplicht"); return; }
+        store.saveDropChannelUrl(change.url.trim());
+        send(exchange, 200, map("dropChannelUrl", change.url.trim()));
+    }
+
+    private void dropTest(HttpExchange exchange) throws IOException
+    {
+        if (!"POST".equals(exchange.getRequestMethod())) { methodNotAllowed(exchange); return; }
+        Actor actor = authenticate(exchange);
+        if (actor == null || !actor.owner()) { sendError(exchange, 403, "Alleen de owner kan de droptest gebruiken"); return; }
+        if (!dropTestPermit.tryAcquire()) { sendError(exchange, 429, "Een droptest is nog bezig"); return; }
+        try
+        {
+            byte[] body = exchange.getRequestBody().readNBytes(5_600_001);
+            if (body.length > 5_600_000) { sendError(exchange, 413, "Screenshot is te groot"); return; }
+            DropTestReport report;
+            try { report = GSON.fromJson(new String(body, StandardCharsets.UTF_8), DropTestReport.class); }
+            catch (RuntimeException ex) { report = null; }
+            byte[] screenshot = validateDropTest(report);
+            if (screenshot == null) { sendError(exchange, 400, "Ongeldige dropgegevens of screenshot"); return; }
+            Event event = store.event(report.eventId);
+            if (!dropTestEligible(event, report.item, OffsetDateTime.now(ZoneOffset.UTC)))
+            { sendError(exchange, 409, "Deze drop hoort niet bij een actief PvM War-testevent"); return; }
+            String channelUrl = store.dropChannelUrl();
+            if (!validDiscordChannelUrl(channelUrl))
+            { sendError(exchange, 400, "Stel eerst het screenshotkanaal in bij de ownerinstellingen"); return; }
+            String[] channelParts = URI.create(channelUrl).getPath().split("/");
+            TextChannel channel = discordBot == null ? null : discordBot.getTextChannelById(channelParts[3]);
+            if (channel == null || !channelParts[2].equals(channel.getGuild().getId()))
+            { sendError(exchange, 503, "Bot of ingesteld screenshotkanaal niet bereikbaar"); return; }
+            PvmWarProgress.Slots slots;
+            try { slots = PvmWarProgress.fetch().lookup(report.item); }
+            catch (IOException | RuntimeException ex) { sendError(exchange, 503, "PvM War-voortgang niet bereikbaar; geen bericht geplaatst"); return; }
+            if (slots == null) { sendError(exchange, 422, "Item niet herkenbaar op de PvM War-pagina"); return; }
+            if (slots.approved >= 3) { sendError(exchange, 409, "Dit item is al drie keer goedgekeurd en is klaar"); return; }
+            try
+            {
+                channel.sendMessage("**Eventdrop (test)**\nSpeler: " + report.rsn + "\nItem: " + report.item + "\nAantal: " + report.quantity)
+                    .setAllowedMentions(java.util.Collections.emptyList()).addFiles(FileUpload.fromData(screenshot, "drop.png"))
+                    .submit().get(15, TimeUnit.SECONDS);
+            }
+            catch (TimeoutException ex)
+            { sendError(exchange, 504, "Discord reageerde niet op tijd; controleer het kanaal voordat je opnieuw probeert"); return; }
+            catch (InterruptedException ex)
+            { Thread.currentThread().interrupt(); sendError(exchange, 503, "Droptest onderbroken; controleer het kanaal"); return; }
+            catch (Exception ex)
+            { sendError(exchange, 503, "Discord-bericht kon niet worden geplaatst"); return; }
+            Map<String, Object> result = map("delivered", true);
+            result.put("approved", slots.approved);
+            send(exchange, 200, result);
+        }
+        finally { dropTestPermit.release(); }
+    }
+
+    static byte[] validateDropTest(DropTestReport report)
+    {
+        if (report == null || blank(report.eventId) || report.eventId.length() > 120 || blank(report.rsn) || !report.rsn.matches("[A-Za-z0-9 _-]{1,12}")
+            || !valid(report.item, 100) || report.quantity <= 0 || report.screenshot == null
+            || report.screenshot.length() > 5_592_408) return null;
+        try
+        {
+            byte[] image = Base64.getDecoder().decode(report.screenshot);
+            byte[] signature = {(byte) 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a};
+            if (image.length < signature.length || image.length > 4 * 1024 * 1024) return null;
+            for (int i = 0; i < signature.length; i++) if (image[i] != signature[i]) return null;
+            return image;
+        }
+        catch (IllegalArgumentException ex) { return null; }
+    }
+
+    static boolean dropTestEligible(Event event, String item, OffsetDateTime now)
+    {
+        if (event == null || !PvmWarProgress.SOURCE.equals(event.dropSource) || blank(event.dropItems) || blank(item)) return false;
+        try
+        {
+            if (now.isBefore(OffsetDateTime.parse(event.startsAt)) || !now.isBefore(OffsetDateTime.parse(event.endsAt))) return false;
+            for (String candidate : event.dropItems.split(";"))
+                if (candidate.trim().replace('\u2019', '\'').equalsIgnoreCase(item.trim().replace('\u2019', '\''))) return true;
+        }
+        catch (RuntimeException ex) { return false; }
+        return false;
+    }
+
     private void roles(HttpExchange exchange) throws IOException
     {
         Actor actor = authenticate(exchange);
@@ -575,6 +676,8 @@ public final class DutchNationsApi
         if (!validOptional(event.clansOne, 300) || !validOptional(event.clansTwo, 300)) return "Clanlijst is ongeldig";
         if (!validOptional(event.activity, 120)) return "Activiteit is ongeldig";
         if (!validOptional(event.bossList, 300)) return "Boss- of activiteitenlijst is ongeldig";
+        if (!validOptional(event.dropItems, 12000)) return "Droplijst is ongeldig";
+        if (!blank(event.dropSource) && !PvmWarProgress.SOURCE.equals(event.dropSource)) return "Ongeldige dropbron";
         if (!validOptional(event.discordText, 12000)) return "Discord-beschrijving is ongeldig of langer dan 12.000 tekens";
         int descriptionLength = event.description == null ? 0 : event.description.length();
         int discordDescriptionLength = event.discordText == null ? 0 : event.discordText.length();
@@ -889,6 +992,47 @@ public final class DutchNationsApi
         {
             return discordChannelId(state.eventAnnouncementsUrl);
         }
+        synchronized String dropChannelUrl()
+        {
+            if (databaseUrl == null)
+            {
+                Path settings = file.resolveSibling(file.getFileName() + ".drop-channel");
+                try { return Files.exists(settings) ? new String(Files.readAllBytes(settings), StandardCharsets.UTF_8).trim() : ""; }
+                catch (IOException ex) { throw new IllegalStateException("Kan screenshotkanaal niet lezen", ex); }
+            }
+            try (Connection connection = connection(); Statement statement = connection.createStatement();
+                 ResultSet result = statement.executeQuery("SELECT channel_url FROM dutch_nations_drop_settings WHERE id = 1"))
+            { return result.next() ? result.getString(1) : ""; }
+            catch (SQLException ex)
+            {
+                if ("42P01".equals(ex.getSQLState())) return ""; // No setting has been saved yet.
+                throw new IllegalStateException("Kan screenshotkanaal niet lezen", ex);
+            }
+        }
+        synchronized void saveDropChannelUrl(String value)
+        {
+            if (databaseUrl == null)
+            {
+                Path settings = file.resolveSibling(file.getFileName() + ".drop-channel");
+                try
+                {
+                    Files.createDirectories(settings.getParent());
+                    Path temp = settings.resolveSibling(settings.getFileName() + ".tmp");
+                    Files.write(temp, value.getBytes(StandardCharsets.UTF_8));
+                    try { Files.move(temp, settings, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE); }
+                    catch (IOException ex) { Files.move(temp, settings, StandardCopyOption.REPLACE_EXISTING); }
+                    return;
+                }
+                catch (IOException ex) { throw new IllegalStateException("Kan screenshotkanaal niet opslaan", ex); }
+            }
+            try (Connection connection = connection(); Statement statement = connection.createStatement())
+            {
+                statement.executeUpdate("CREATE TABLE IF NOT EXISTS dutch_nations_drop_settings (id INTEGER PRIMARY KEY, channel_url TEXT NOT NULL)");
+                try (PreparedStatement update = connection.prepareStatement("INSERT INTO dutch_nations_drop_settings (id, channel_url) VALUES (1, ?) ON CONFLICT (id) DO UPDATE SET channel_url = EXCLUDED.channel_url"))
+                { update.setString(1, value); update.executeUpdate(); }
+            }
+            catch (SQLException ex) { throw new IllegalStateException("Kan screenshotkanaal niet opslaan", ex); }
+        }
         synchronized void recordAnnouncement(String channelId, String messageId)
         {
             if (blank(channelId) || blank(messageId) || !channelId.equals(discordChannelId(state.announcementsUrl))) return;
@@ -1164,6 +1308,7 @@ public final class DutchNationsApi
         String id; String startsAt; String endsAt; String type; String title;
         String world; String host; String description; String codeword; String checklist; String requiredPlugins; String strategyWikiUrl; String driveUrl; String registrationUrl; String registrationEndsAt; String youtubeUrl; String discordText; String discordDescription; String discordMessageId; String discordChannelId;
         String clansOne; String clansTwo; String activity; String bossList;
+        String dropItems; String dropSource;
         boolean codewordRequired;
         boolean allowConflict;
     }
@@ -1174,6 +1319,7 @@ public final class DutchNationsApi
     }
     static final class RoleChange { String rsn; String role; }
     static final class AnnouncementChannel { String url; }
+    static final class DropTestReport { String eventId; String rsn; String item; int quantity; String screenshot; }
     static final class Actor
     {
         final String rsn; final String role;
