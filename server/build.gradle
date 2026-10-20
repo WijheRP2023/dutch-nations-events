@@ -7,6 +7,7 @@ repositories { mavenCentral() }
 
 dependencies {
     implementation 'com.google.code.gson:gson:2.10.1'
+    implementation 'com.google.auth:google-auth-library-oauth2-http:1.30.1'
     implementation 'org.postgresql:postgresql:42.7.7'
     implementation 'net.dv8tion:JDA:5.0.0'
     testImplementation 'junit:junit:4.13.2'
@@ -29,4 +30,40 @@ tasks.register('runLocal', JavaExec) {
     environment 'DN_PORT', '8787'
     environment 'DN_OWNER_TOKEN', 'dutch-nations-local-owner'
     environment 'DN_DATA_FILE', file('../server-data/state.json').absolutePath
+}
+
+tasks.register('runDropTestLocal', JavaExec) {
+    group = 'application'
+    description = 'Run an isolated local drop-test API without a Discord connection.'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = application.mainClass
+    systemProperty 'dutch.nations.local', 'true'
+    environment 'DN_BIND', '127.0.0.1'
+    environment 'DN_PORT', '8787'
+    environment 'DN_OWNER_TOKEN', 'dutch-nations-local-owner'
+    environment 'DN_DATA_FILE', providers.systemProperty('dutch.nations.dropTestData').orElse(file('../server-data/drop-test/state.json').absolutePath).get()
+    environment 'DATABASE_URL', ''
+    environment 'DISCORD_BOT_TOKEN', ''
+}
+
+tasks.register('runDropTestDiscord', JavaExec) {
+    group = 'application'
+    description = 'Run an isolated local drop test against one explicitly allowed Discord test channel.'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = application.mainClass
+    systemProperty 'dutch.nations.local', 'true'
+    systemProperty 'dutch.nations.localDropSend', 'true'
+    environment 'DN_BIND', '127.0.0.1'
+    environment 'DN_PORT', '8787'
+    environment 'DN_OWNER_TOKEN', 'dutch-nations-local-owner'
+    environment 'DN_DATA_FILE', providers.systemProperty('dutch.nations.dropTestData').orElse(new File(System.getProperty('java.io.tmpdir'), 'dutch-nations-discord-drop-local-state.json').absolutePath).get()
+    environment 'DATABASE_URL', ''
+    doFirst {
+        def channelFile = file('../server-data/drop-discord-test/channel.txt')
+        def channel = System.getenv('DN_DROP_TEST_CHANNEL')?.trim() ?: (channelFile.isFile() ? channelFile.getText('UTF-8').trim() : '')
+        if (!channel) throw new GradleException('Een toegestaan Discord-testkanaal is verplicht.')
+        if (!System.getenv('DISCORD_BOT_TOKEN')?.trim())
+            throw new GradleException('Een lokale bot-token is verplicht; deel de token niet in de chat.')
+        environment 'DN_DROP_TEST_CHANNEL', channel
+    }
 }

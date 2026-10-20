@@ -14,12 +14,13 @@ final class RoleEditorDialog
     static RoleDraft show(boolean owner, boolean administrator)
     {
         JTextField rsn = new JTextField();
-        String[] choices = owner ? new String[]{"MANAGER", "ADMINISTRATOR", "TEACHER"} :
+        String[] choices = owner ? new String[]{"MANAGER", "ADMINISTRATOR", "TEACHER", "OWNER"} :
             (administrator ? new String[]{"MANAGER", "TEACHER"} : new String[0]);
         JComboBox<String> role = new JComboBox<>(choices);
         JPanel form = new JPanel(new GridLayout(0, 2, 6, 6));
         form.add(new JLabel("Exacte RuneScape-naam")); form.add(rsn);
         form.add(new JLabel("Nieuwe rol")); form.add(role);
+        if (owner) form.add(new JLabel("OWNER draagt ownership over en trekt jouw ownerrechten in."));
         int result = JOptionPane.showConfirmDialog(null, form, "Dutch Nation - rollen beheren",
             JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
         if (result != JOptionPane.OK_OPTION || rsn.getText().trim().isEmpty()) return null;

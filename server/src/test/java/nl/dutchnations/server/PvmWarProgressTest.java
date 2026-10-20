@@ -46,4 +46,18 @@ public class PvmWarProgressTest
         assertNull(progress.lookup("duplicate"));
         assertNull(progress.lookup("changed"));
     }
+
+    @Test public void liveListUsesApprovedCapAndRecognizesJars() throws Exception
+    {
+        PvmWarProgress progress = PvmWarProgress.parse("<table>"
+            + row("Blue moon helm", "approved", "", "")
+            + row("Blue moon tassets", "approved", "approved", "approved")
+            + row("Jar Tier 1", "waiting", "", "")
+            + row("Pet Tier 1", "", "", "") + "</table>");
+        assertTrue(progress.availableItems().contains("blue moon helm"));
+        assertFalse(progress.availableItems().contains("blue moon tassets"));
+        assertTrue(progress.availableItems().contains("jar of dreams"));
+        assertFalse(progress.availableItems().contains("jar tier 1"));
+        assertFalse(progress.availableItems().contains("pet tier 1"));
+    }
 }

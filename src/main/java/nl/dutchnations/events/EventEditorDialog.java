@@ -70,6 +70,7 @@ final class EventEditorDialog
         JTextField bossList = new JTextField();
         JTextField codeword = new JTextField();
         JTextField driveUrl = new JTextField();
+        JTextField dropListUrl = new JTextField();
         JTextField registrationUrl = new JTextField();
         JTextField youtubeUrl = new JTextField();
         JTextField registrationDeadlineDate = new JTextField(defaultStart.toLocalDate().toString());
@@ -148,6 +149,8 @@ final class EventEditorDialog
             activity.setText(existing.activity == null ? "" : existing.activity);
             bossList.setText(existing.bossList == null ? "" : existing.bossList);
             driveUrl.setText(existing.driveUrl == null ? "" : existing.driveUrl);
+            dropListUrl.setText(existing.dropListUrl == null
+                ? ((GoogleSheetLink.supported(existing.driveUrl) || "PVM_WAR_2026".equals(existing.dropSource)) ? existing.driveUrl : "") : existing.dropListUrl);
             registrationUrl.setText(existing.registrationUrl == null ? "" : existing.registrationUrl);
             youtubeUrl.setText(existing.youtubeUrl == null ? "" : existing.youtubeUrl);
             if (existing.registrationEndsAt != null && !existing.registrationEndsAt.trim().isEmpty())
@@ -179,7 +182,8 @@ final class EventEditorDialog
         JPanel strategyRow = row("Strategie (snelkeuze)", strategyWiki);
         JPanel templateRow = row("Learner-sjabloon", learnerTemplate);
         JPanel massCodewordRow = row("Mass-event", massCodewordRequired);
-        JPanel driveRow = row("Tussenstand-link (optioneel)", driveUrl);
+        JPanel driveRow = row("Tussenstand-link (leden)", driveUrl);
+        JPanel dropListRow = row("Screenshot-droplijst-link (Sheet)", dropListUrl);
         JPanel registrationLinkRow = row("Discord-aanmeldlink", registrationUrl);
         JPanel youtubeRow = row("YouTube-link (optioneel)", youtubeUrl);
         JPanel registrationDeadlineRow = row("Aanmelden tot", dateTimeFields(registrationDeadlineDate, registrationDeadlineTime));
@@ -194,7 +198,7 @@ final class EventEditorDialog
         form.add(worldRow); form.add(clansOneRow); form.add(clansTwoRow); form.add(activityRow); form.add(bossListRow);
         form.add(row("Host (RSN)", host)); form.add(row("Beschrijving", description)); form.add(youtubeRow);
         form.add(preparationRow); form.add(pluginSearchRow); form.add(pluginResultsRow); form.add(addPluginRow);
-        form.add(selectedPluginsRow); form.add(strategyRow); form.add(massCodewordRow); form.add(driveRow); form.add(registrationLinkRow); form.add(registrationDeadlineRow); form.add(codewordRow);
+        form.add(selectedPluginsRow); form.add(strategyRow); form.add(massCodewordRow); form.add(driveRow); form.add(dropListRow); form.add(registrationLinkRow); form.add(registrationDeadlineRow); form.add(codewordRow);
 
         Runnable applyTypeRules = () ->
         {
@@ -212,9 +216,9 @@ final class EventEditorDialog
             preparationRow.setVisible(learner);
             pluginSearchRow.setVisible(supportsResources); pluginResultsRow.setVisible(supportsResources);
             addPluginRow.setVisible(supportsResources); selectedPluginsRow.setVisible(supportsResources); strategyRow.setVisible(supportsResources);
-            massCodewordRow.setVisible(mass); driveRow.setVisible(boss || clanEvent || clanVsClan); registrationLinkRow.setVisible(boss || clanEvent || clanVsClan); registrationDeadlineRow.setVisible(boss || clanEvent || clanVsClan); codewordRow.setVisible(needsCodeword);
+            massCodewordRow.setVisible(mass); driveRow.setVisible(boss || clanEvent || clanVsClan || mass); dropListRow.setVisible(boss || clanEvent || clanVsClan || mass); registrationLinkRow.setVisible(boss || clanEvent || clanVsClan); registrationDeadlineRow.setVisible(boss || clanEvent || clanVsClan); codewordRow.setVisible(needsCodeword);
             if (!needsCodeword) codeword.setText("");
-            if (!boss && !clanEvent && !clanVsClan) { driveUrl.setText(""); registrationUrl.setText(""); }
+            if (!boss && !clanEvent && !clanVsClan && !mass) { driveUrl.setText(""); dropListUrl.setText(""); registrationUrl.setText(""); }
             if (!learner) checklist.setText("");
             if (!supportsResources) { requiredPlugins.setText(""); strategyWiki.setSelectedItem(""); }
             if (!clanVsClan) { clansOne.setText(""); clansTwo.setText(""); activity.setText(""); }
@@ -281,7 +285,8 @@ final class EventEditorDialog
             draft.startsAt = localStart.atZone(ZoneId.systemDefault()).toOffsetDateTime().toString();
             draft.endsAt = localEnd.atZone(ZoneId.systemDefault()).toOffsetDateTime().toString();
             draft.world = world.getText().trim(); draft.host = host.getText().trim();
-            draft.description = description.getText().trim(); draft.codeword = codeword.getText().trim(); draft.driveUrl = driveUrl.getText().trim();
+            draft.description = description.getText().trim(); draft.codeword = codeword.getText().trim(); draft.driveUrl = driveUrl.getText().trim(); draft.dropListUrl = dropListUrl.getText().trim();
+            configureDropSource(draft, existing);
             draft.registrationUrl = registrationUrl.getText().trim();
             draft.youtubeUrl = youtubeUrl.getText().trim();
             if (!draft.registrationUrl.isEmpty())
@@ -342,7 +347,7 @@ final class EventEditorDialog
             if (!clanVsClan) { draft.clansOne = ""; draft.clansTwo = ""; draft.activity = ""; }
             if (!clanEvent) draft.bossList = "";
             if (boss || clanVsClan) draft.world = "";
-            if (!boss && !clanEvent && !clanVsClan) { draft.driveUrl = ""; draft.registrationUrl = ""; draft.registrationEndsAt = ""; }
+            if (!boss && !clanEvent && !clanVsClan && !mass) { draft.driveUrl = ""; draft.dropListUrl = ""; draft.registrationUrl = ""; draft.registrationEndsAt = ""; }
             if (!editing && !hasLearnerTemplate)
             {
                 discordText.setLineWrap(true);
@@ -406,6 +411,30 @@ final class EventEditorDialog
     }
 
     private static String value(String text) { return text == null ? "" : text; }
+
+    static void configureDropSource(EventDraft draft, ClanFeed.ClanEvent existing)
+    {
+        // Keep old saved data for the live server and older clients, despite hiding the inputs.
+        draft.dropItems = existing == null ? "" : value(existing.dropItems);
+        draft.dropChannelUrl = existing == null ? "" : value(existing.dropChannelUrl);
+        String link = value(draft.dropListUrl).trim();
+        if (pvmWarLink(link)) draft.dropSource = "PVM_WAR_2026";
+        else if (existing != null && link.equals(value(existing.dropListUrl == null ? existing.driveUrl : existing.dropListUrl).trim())) draft.dropSource = value(existing.dropSource);
+        else draft.dropSource = "";
+    }
+
+    private static boolean pvmWarLink(String link)
+    {
+        try
+        {
+            java.net.URI uri = java.net.URI.create(link);
+            String path = uri.getPath();
+            return "https".equalsIgnoreCase(uri.getScheme()) && "osrs-nlbe.com".equalsIgnoreCase(uri.getHost())
+                && uri.getUserInfo() == null && (uri.getPort() == -1 || uri.getPort() == 443)
+                && ("/author/dutch_nation/pvm-war-2026".equals(path) || "/author/dutch_nation/pvm-war-2026/".equals(path));
+        }
+        catch (RuntimeException ex) { return false; }
+    }
 
     static LocalDateTime parseDateTime(String value, String fieldName)
     {

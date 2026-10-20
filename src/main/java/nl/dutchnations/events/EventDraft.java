@@ -14,6 +14,7 @@ final class EventDraft
     String requiredPlugins;
     String strategyWikiUrl;
     String driveUrl;
+    String dropListUrl;
     String registrationUrl;
     String registrationEndsAt;
     String youtubeUrl;
@@ -22,6 +23,9 @@ final class EventDraft
     String clansTwo;
     String activity;
     String bossList;
+    String dropItems;
+    String dropChannelUrl;
+    String dropSource;
     boolean codewordRequired;
     boolean allowConflict;
 }

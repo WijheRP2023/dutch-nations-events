@@ -13,7 +13,8 @@ final class WomCompetition
     String metric;
     String startsAt;
     String endsAt;
-    int participantCount;
+    // Supplied by Wise Old Man and retained when parsing their response.
+    @SuppressWarnings("unused") int participantCount;
 
     OffsetDateTime start() { return OffsetDateTime.parse(startsAt); }
     OffsetDateTime end() { return OffsetDateTime.parse(endsAt); }
@@ -31,8 +32,7 @@ final class WomCompetition
         if (candidates.isEmpty()) return Collections.emptyList();
         List<WomCompetition> visible = candidates.stream()
             .filter(competition -> competition.active(now)).collect(Collectors.toList());
-        WomCompetition next = candidates.stream().filter(competition -> !competition.active(now)).findFirst().orElse(null);
-        if (next != null) visible.add(next);
+        candidates.stream().filter(competition -> !competition.active(now)).findFirst().ifPresent(visible::add);
         return visible;
     }
 }

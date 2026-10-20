@@ -10,6 +10,8 @@ final class ClanFeed
     String announcementsUrl;
     Boolean announcementsVisible = true;
     String eventAnnouncementsUrl;
+    // Kept for compatibility with older feed responses.
+    @SuppressWarnings("unused") String dropChannelUrl;
     long announcementsSequence;
     List<ClanEvent> events = new ArrayList<>();
     List<LearnerTemplate> learnerTemplates = new ArrayList<>();
@@ -30,6 +32,7 @@ final class ClanFeed
         String requiredPlugins;
         String strategyWikiUrl;
         String driveUrl;
+        String dropListUrl;
         String registrationUrl;
         String registrationEndsAt;
         String youtubeUrl;
@@ -37,6 +40,9 @@ final class ClanFeed
         String clansTwo;
         String activity;
         String bossList;
+        String dropItems;
+        String dropChannelUrl;
+        String dropSource;
         boolean codewordRequired;
 
         OffsetDateTime start() { return OffsetDateTime.parse(startsAt); }

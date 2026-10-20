@@ -15,7 +15,23 @@ tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8'; options.
 tasks.register('run', JavaExec) {
     classpath = sourceSets.test.runtimeClasspath
     mainClass = pluginMainClass
-    jvmArgs '-ea'
+    jvmArgs '-ea', '-Ddutch.nations.dropTest=true'
+    args '--developer-mode'
+}
+tasks.register('runDropTestLocal', JavaExec) {
+    group = 'application'
+    description = 'Run the plugin against the isolated local drop-test API.'
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = pluginMainClass
+    jvmArgs '-ea', '-Ddutch.nations.local=true'
+    args '--developer-mode'
+}
+tasks.register('runDropTestOnline', JavaExec) {
+    group = 'application'
+    description = 'Run the local plugin against the online server for the owner screenshot test.'
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = pluginMainClass
+    jvmArgs '-ea', '-Ddutch.nations.dropTest=true'
     args '--developer-mode'
 }
 

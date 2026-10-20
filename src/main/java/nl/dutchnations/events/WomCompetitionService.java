@@ -25,8 +25,8 @@ final class WomCompetitionService
             .header("User-Agent", "Dutch-Nations-RuneLite-Plugin").get().build();
         client.newCall(request).enqueue(new Callback()
         {
-            @Override public void onFailure(Call call, IOException exception) { listener.failure(); }
-            @Override public void onResponse(Call call, Response response)
+            @Override public void onFailure(@javax.annotation.Nonnull Call call, @javax.annotation.Nonnull IOException exception) { listener.failure(); }
+            @Override public void onResponse(@javax.annotation.Nonnull Call call, @javax.annotation.Nonnull Response response)
             {
                 try (Response closeable = response)
                 {

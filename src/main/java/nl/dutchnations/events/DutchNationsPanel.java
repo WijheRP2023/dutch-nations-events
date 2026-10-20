@@ -79,6 +79,7 @@ final class DutchNationsPanel extends PluginPanel
     private final Consumer<RoleDraft> saveRole;
     private final Consumer<String> saveAnnouncementChannel;
     private final Consumer<String> saveEventAnnouncementChannel;
+    private final Consumer<String> saveDropChannel;
     private final Consumer<Boolean> saveAnnouncementsVisibility;
     private final LongSupplier announcementReadSequence;
     private final LongConsumer markAnnouncementsRead;
@@ -94,6 +95,8 @@ final class DutchNationsPanel extends PluginPanel
     private String ownerLogsMessage = "Logs nog niet geladen.";
     private String announcementSettingsStatus = "";
     private String eventAnnouncementSettingsStatus = "";
+    private String dropChannelStatus = "";
+    private String dropChannelUrl = "";
     private String announcementVisibilityStatus = "";
     private String templateStatus = "";
     private String viewMode = "LIJST";
@@ -105,11 +108,12 @@ final class DutchNationsPanel extends PluginPanel
 
     DutchNationsPanel(DutchNationsConfig config, Runnable refresh, BooleanSupplier canManage, BooleanSupplier isOwner,
         BooleanSupplier isAdministrator, BooleanSupplier isLearnerHost, BooleanSupplier canManageRoles, Runnable loadRoles, Runnable loadOwnerLogs, BooleanSupplier hasClanAccess,
-        Consumer<EventDraft> saveEvent, BiConsumer<String, EventDraft> updateEvent, Consumer<String> deleteEvent, Consumer<ClanFeed.LearnerTemplate> createLearnerTemplate, BiConsumer<String, ClanFeed.LearnerTemplate> updateLearnerTemplate, Consumer<String> deleteLearnerTemplate, Consumer<RoleDraft> saveRole, Consumer<String> saveAnnouncementChannel, Consumer<String> saveEventAnnouncementChannel, Consumer<Boolean> saveAnnouncementsVisibility, LongSupplier announcementReadSequence, LongConsumer markAnnouncementsRead, Supplier<String> currentRsn)
+        Consumer<EventDraft> saveEvent, BiConsumer<String, EventDraft> updateEvent, Consumer<String> deleteEvent, Consumer<ClanFeed.LearnerTemplate> createLearnerTemplate, BiConsumer<String, ClanFeed.LearnerTemplate> updateLearnerTemplate, Consumer<String> deleteLearnerTemplate, Consumer<RoleDraft> saveRole, Consumer<String> saveAnnouncementChannel, Consumer<String> saveEventAnnouncementChannel, Consumer<String> saveDropChannel, Consumer<Boolean> saveAnnouncementsVisibility, LongSupplier announcementReadSequence, LongConsumer markAnnouncementsRead, Supplier<String> currentRsn)
     {
         this.config = config; this.refresh = refresh; this.canManage = canManage; this.isOwner = isOwner;
         this.isAdministrator = isAdministrator; this.isLearnerHost = isLearnerHost; this.canManageRoles = canManageRoles; this.loadRoles = loadRoles; this.loadOwnerLogs = loadOwnerLogs; this.hasClanAccess = hasClanAccess;
         this.saveEvent = saveEvent; this.updateEvent = updateEvent; this.deleteEvent = deleteEvent; this.createLearnerTemplate = createLearnerTemplate; this.updateLearnerTemplate = updateLearnerTemplate; this.deleteLearnerTemplate = deleteLearnerTemplate; this.saveRole = saveRole; this.saveAnnouncementChannel = saveAnnouncementChannel; this.saveEventAnnouncementChannel = saveEventAnnouncementChannel; this.saveAnnouncementsVisibility = saveAnnouncementsVisibility; this.announcementReadSequence = announcementReadSequence; this.markAnnouncementsRead = markAnnouncementsRead; this.currentRsn = currentRsn;
+        this.saveDropChannel = saveDropChannel;
         setLayout(new BoxLayout(this, BoxLayout.Y_AXIS)); setBackground(BACKGROUND); render();
     }
 
@@ -146,7 +150,10 @@ final class DutchNationsPanel extends PluginPanel
         render();
     }
     void eventAnnouncementChannelFailed(String message) { eventAnnouncementSettingsStatus = message; render(); }
-    void updateCompetition(List<WomCompetition> values, boolean loaded) { competitions = values == null ? new ArrayList<>() : new ArrayList<>(values); competitionLoaded = loaded; render(); }
+    void dropChannelStatus(String message) { dropChannelStatus = message; render(); }
+    void dropChannelLoaded(String url) { dropChannelUrl = url == null ? "" : url; }
+    void dropChannelSaved(String url) { dropChannelLoaded(url); dropChannelStatus("Screenshotkanaal opgeslagen."); }
+    void updateCompetition(List<WomCompetition> values) { competitions = values == null ? new ArrayList<>() : new ArrayList<>(values); competitionLoaded = true; render(); }
     void competitionUnavailable() { competitionLoaded = false; render(); }
     void updateClanAccess(boolean allowed) { render(); }
     void updateOnlineMembers(List<OnlineClanMember> members, boolean available)
@@ -371,6 +378,18 @@ final class DutchNationsPanel extends PluginPanel
         if (!blank(eventAnnouncementSettingsStatus))
             eventAnnouncements.add(bodyText(eventAnnouncementSettingsStatus, eventAnnouncementSettingsStatus.endsWith("opgeslagen.") ? new Color(120, 220, 140) : new Color(255, 175, 145), Font.PLAIN, 11f));
         add(eventAnnouncements); add(Box.createRigidArea(new Dimension(0, 7)));
+
+        if (FeedService.dropTestEnabled())
+        {
+            JPanel drops = card(CARD_BROWN);
+            drops.add(bodyLabel("DROP-SCREENSHOTS (LOKALE TEST)", GOLD, Font.BOLD, 12f));
+            drops.add(bodyText("Kies het Discord-kanaal voor de screenshot-test.", Color.LIGHT_GRAY, Font.PLAIN, 12f));
+            JButton dropChannel = button("Screenshotkanaal instellen");
+            dropChannel.addActionListener(event -> configureDropChannel());
+            drops.add(dropChannel);
+            if (!blank(dropChannelStatus)) drops.add(bodyText(dropChannelStatus, Color.LIGHT_GRAY, Font.PLAIN, 11f));
+            add(drops); add(Box.createRigidArea(new Dimension(0, 7)));
+        }
 
         JPanel management = card(CARD_BROWN);
         management.add(bodyLabel("MANAGEMENTROLLEN", GOLD, Font.BOLD, 12f));
@@ -640,6 +659,13 @@ final class DutchNationsPanel extends PluginPanel
         String url = JOptionPane.showInputDialog(this, "Plak de gekopieerde link van het Discord-eventmeldingenkanaal:", current);
         if (url != null) saveEventAnnouncementChannel.accept(url.trim());
     }
+    private void configureDropChannel()
+    {
+        String current = blank(dropChannelUrl) && Boolean.getBoolean("dutch.nations.dropTest")
+            ? "https://discord.com/channels/1239712812822167688/1548661330209280060" : dropChannelUrl;
+        String url = JOptionPane.showInputDialog(this, "Plak de link van het Discord-screenshotkanaal:", current);
+        if (url != null) saveDropChannel.accept(url.trim());
+    }
 
     private static boolean validDiscordChannelUrl(String value)
     {
@@ -757,25 +783,6 @@ final class DutchNationsPanel extends PluginPanel
             add(eventCard(event, accentFor(event))); add(Box.createRigidArea(new Dimension(0, 8)));
         }
     }
-    private void addSection(String title, String subtitle, List<ClanFeed.ClanEvent> events, Color accent)
-    {
-        JPanel heading = card(STONE);
-        heading.setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createMatteBorder(0, 5, 0, 0, accent),
-            BorderFactory.createEmptyBorder(7, 8, 7, 8)));
-        heading.add(label(title + "  (" + events.size() + ")", accent, Font.BOLD, 13f));
-        heading.add(bodyLabel(subtitle, Color.WHITE, Font.PLAIN, 12f));
-        add(heading); add(Box.createRigidArea(new Dimension(0, 7)));
-
-        if (events.isEmpty())
-        {
-            JPanel empty = card(DARK_STONE);
-            empty.add(bodyLabel("Geen geplande events in deze categorie.", Color.LIGHT_GRAY, Font.ITALIC, 12f));
-            add(empty); return;
-        }
-        for (ClanFeed.ClanEvent event : events) { add(eventCard(event, accent)); add(Box.createRigidArea(new Dimension(0, 8))); }
-    }
-
     private JPanel eventCard(ClanFeed.ClanEvent event, Color accent)
     {
         JPanel panel = card(CARD_BROWN);
@@ -841,10 +848,10 @@ final class DutchNationsPanel extends PluginPanel
                 String pluginName = value.trim();
                 if (pluginName.isEmpty()) continue;
                 boolean installed = installedPluginNames.stream().anyMatch(name -> name.equalsIgnoreCase(pluginName));
-                panel.add(bodyLabel((installed ? "\u2713 Ge\u00efnstalleerd: " : "\u2717 Ontbreekt: ") + pluginName,
+                panel.add(bodyLabel((installed ? "✓ Geïnstalleerd: " : "✗ Ontbreekt: ") + pluginName,
                     installed ? new Color(120, 220, 140) : new Color(255, 125, 105), Font.BOLD, 12f));
                 if (installed) continue;
-                JButton pluginLink = button("Naam kopi\u00ebren: " + pluginName);
+                JButton pluginLink = button("Naam kopiëren: " + pluginName);
                 pluginLink.setForeground(new Color(180, 225, 255));
                 pluginLink.setBackground(new Color(32, 52, 66));
                 pluginLink.addActionListener(click ->
@@ -960,7 +967,7 @@ final class DutchNationsPanel extends PluginPanel
             }
             boolean owner = isOwner.getAsBoolean();
             boolean lowerRole = "MANAGER".equalsIgnoreCase(role.role) || "LEARNER_HOST".equalsIgnoreCase(role.role) || "TEACHER".equalsIgnoreCase(role.role);
-            if (owner && !"heavenskill".equalsIgnoreCase(role.rsn))
+            if (owner && !"OWNER".equalsIgnoreCase(role.role))
             {
                 JButton rotate = button("Token vernieuwen");
                 rotate.addActionListener(event ->
@@ -1076,7 +1083,7 @@ final class DutchNationsPanel extends PluginPanel
     {
         JLabel label = new JLabel(text == null ? "" : text);
         label.setForeground(color);
-        label.setFont(new Font(Font.SANS_SERIF, style, Math.round(size)));
+        label.setFont(new Font(Font.SANS_SERIF, fontStyle(style), Math.round(size)));
         label.setAlignmentX(Component.LEFT_ALIGNMENT);
         return label;
     }
@@ -1084,7 +1091,7 @@ final class DutchNationsPanel extends PluginPanel
     {
         JTextArea area = new JTextArea(text == null ? "" : text);
         area.setLineWrap(true); area.setWrapStyleWord(true); area.setEditable(false); area.setFocusable(false);
-        area.setOpaque(false); area.setForeground(color); area.setFont(new Font(Font.SANS_SERIF, style, Math.round(size)));
+        area.setOpaque(false); area.setForeground(color); area.setFont(new Font(Font.SANS_SERIF, fontStyle(style), Math.round(size)));
         area.setAlignmentX(Component.LEFT_ALIGNMENT);
         return area;
     }
@@ -1092,6 +1099,11 @@ final class DutchNationsPanel extends PluginPanel
     {
         JLabel label = new JLabel(text == null ? "" : text); label.setForeground(color);
         label.setFont(label.getFont().deriveFont(style, size)); label.setAlignmentX(Component.LEFT_ALIGNMENT); return label;
+    }
+    private static int fontStyle(int style)
+    {
+        return style == Font.PLAIN || style == Font.BOLD || style == Font.ITALIC || style == (Font.BOLD | Font.ITALIC)
+            ? style : Font.PLAIN;
     }
     private static boolean blank(String value) { return value == null || value.trim().isEmpty(); }
 }

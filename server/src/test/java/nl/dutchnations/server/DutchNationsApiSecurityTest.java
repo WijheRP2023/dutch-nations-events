@@ -140,6 +140,86 @@ public class DutchNationsApiSecurityTest
     }
 
     @Test
+    public void ownershipCanBeTransferredAndStaysTransferredAfterRestart() throws Exception
+    {
+        Path state = Files.createTempDirectory("dutch-nations-owner-transfer-test").resolve("state.json");
+        DutchNationsApi.Store store = new DutchNationsApi.Store(state);
+        assertEquals("heavenskill", store.ownerRsn());
+        assertTrue(store.bootstrapOwnerActive());
+
+        store.transferOwner("Q-Dance Jr", "new-owner-token-hash");
+        assertEquals("Q-Dance Jr", store.ownerRsn());
+        assertFalse(store.bootstrapOwnerActive());
+        assertFalse(store.hasAssignedRole("heavenskill"));
+        DutchNationsApi.Actor newOwner = store.actorForHash("new-owner-token-hash");
+        assertTrue(newOwner != null && newOwner.owner());
+
+        DutchNationsApi.Store restored = new DutchNationsApi.Store(state);
+        assertEquals("Q-Dance Jr", restored.ownerRsn());
+        assertFalse(restored.bootstrapOwnerActive());
+        assertTrue(restored.actorForHash("new-owner-token-hash").owner());
+    }
+
+    @Test
+    public void dropChannelAndEventDropsSurviveRestartWithoutLosingRoles() throws Exception
+    {
+        Path state = Files.createTempDirectory("dutch-nations-drop-test").resolve("state.json");
+        DutchNationsApi.Store store = new DutchNationsApi.Store(state);
+        store.saveRole("Q-Dance Jr", "ADMINISTRATOR", "token-hash");
+        store.saveDropChannelUrl("https://discord.com/channels/123/456");
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        DutchNationsApi.Event event = event("drop-event", now.minusMinutes(1), now.plusMinutes(2), "");
+        event.dropItems = "Dragon claws; Twisted bow";
+        event.dropSource = PvmWarProgress.SOURCE;
+        event.dropChannelUrl = "https://discord.com/channels/123/789";
+        store.addEvent(event);
+        DutchNationsApi.Store restored = new DutchNationsApi.Store(state);
+        assertEquals("https://discord.com/channels/123/456", restored.feed().dropChannelUrl);
+        assertEquals("Dragon claws; Twisted bow", restored.event("drop-event").dropItems);
+        assertEquals(PvmWarProgress.SOURCE, restored.event("drop-event").dropSource);
+        assertEquals("https://discord.com/channels/123/789", restored.event("drop-event").dropChannelUrl);
+        assertEquals("ADMINISTRATOR", restored.actorForHash("token-hash").role);
+    }
+
+    @Test
+    public void localDropRejectsUnselectedItemsAndInactiveEvents()
+    {
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        DutchNationsApi.Event event = event("drop", now.minusMinutes(1), now.plusMinutes(1), "");
+        event.dropItems = "Dragon claws";
+        DutchNationsApi.DropTestReport report = new DutchNationsApi.DropTestReport();
+        report.rsn = "Q-Dance Jr"; report.item = "dragon claws"; report.quantity = 1;
+        report.screenshot = java.util.Base64.getEncoder().encodeToString(new byte[]{(byte) 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a});
+        assertEquals(null, DutchNationsApi.validateLocalDrop(report, event, now));
+        report.item = "Twisted bow";
+        assertEquals("Item staat niet op de droplijst", DutchNationsApi.validateLocalDrop(report, event, now));
+        assertEquals(null, DutchNationsApi.validateLocalDrop(report, event, now, "Abyssal whip; Twisted bow"));
+        assertEquals("Item staat niet op de droplijst", DutchNationsApi.validateLocalDrop(report, event, now, "Abyssal whip"));
+        report.item = "Dragon claws";
+        assertEquals("Event is niet actief", DutchNationsApi.validateLocalDrop(report, event, now.plusHours(1)));
+        report.screenshot = "niet geldig";
+        assertEquals("Ongeldige dropgegevens", DutchNationsApi.validateLocalDrop(report, event, now));
+    }
+
+    @Test public void eventDropChannelOverridesOwnerDefault()
+    {
+        DutchNationsApi.Event event = new DutchNationsApi.Event();
+        String ownerChannel = "https://discord.com/channels/123/456";
+        assertEquals(ownerChannel, DutchNationsApi.dropChannelFor(event, ownerChannel));
+        event.dropChannelUrl = "https://discord.com/channels/123/789";
+        assertEquals(event.dropChannelUrl, DutchNationsApi.dropChannelFor(event, ownerChannel));
+    }
+
+    @Test public void discordDropTestAcceptsOnlyTheExplicitTestChannel()
+    {
+        String testChannel = "https://discord.com/channels/123/456";
+        assertTrue(DutchNationsApi.localDropChannelAllowed(testChannel, testChannel));
+        assertFalse(DutchNationsApi.localDropChannelAllowed("https://discord.com/channels/123/789", testChannel));
+        assertFalse(DutchNationsApi.localDropChannelAllowed(testChannel, null));
+        assertFalse(DutchNationsApi.localDropChannelAllowed("https://example.org/123/456", "https://example.org/123/456"));
+    }
+
+    @Test
     public void learnerDiscordMessageContainsDescriptionAndPreparation() throws Exception
     {
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);

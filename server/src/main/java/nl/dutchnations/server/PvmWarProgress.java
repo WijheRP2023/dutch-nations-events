@@ -16,7 +16,7 @@ import javax.swing.text.html.HTML;
 import javax.swing.text.html.HTMLEditorKit;
 import javax.swing.text.html.parser.ParserDelegator;
 
-/** Read-only view of the public PvM War progress for the screenshot test. */
+/** Read-only, local-test view of the public PvM War progress. */
 final class PvmWarProgress
 {
     static final String SOURCE = "PVM_WAR_2026";
@@ -32,7 +32,7 @@ final class PvmWarProgress
         connection.setConnectTimeout(6000);
         connection.setReadTimeout(10000);
         connection.setInstanceFollowRedirects(false);
-        connection.setRequestProperty("User-Agent", "DutchNationDropTest/1.0");
+        connection.setRequestProperty("User-Agent", "DutchNationLocalDropTest/1.0");
         try
         {
             if (connection.getResponseCode() != 200) throw new IOException("PvM War-pagina niet beschikbaar");
@@ -116,6 +116,28 @@ final class PvmWarProgress
         }
         Slots slots = items.get(key);
         return slots == null || slots.approved < 0 ? null : slots;
+    }
+
+    /** Live item names and recognized jar aliases; ambiguous grouped pets are not guessed. */
+    java.util.Set<String> availableItems()
+    {
+        java.util.Set<String> result = new java.util.LinkedHashSet<>();
+        for (Map.Entry<String, Slots> entry : items.entrySet())
+        {
+            String name = entry.getKey(); Slots slots = entry.getValue();
+            if (slots.approved < 0 || slots.approved >= 3 || name.startsWith("jar tier ") || name.startsWith("pet tier ")
+                || name.length() > 100 || name.indexOf(';') >= 0 || name.chars().anyMatch(Character::isISOControl)) continue;
+            result.add(name);
+        }
+        String[] jars = {"dreams", "spirits", "stone", "chemicals", "decay", "sand", "souls", "swamp", "venom",
+            "dirt", "eyes", "feathers", "light", "miasma", "smoke"};
+        for (String jar : jars)
+        {
+            String name = "jar of " + jar;
+            Slots slots = lookup(name);
+            if (slots != null && slots.approved < 3) result.add(name);
+        }
+        return result;
     }
 
     private static String normalize(String item) { return item.trim().replace('\u2019', '\'').toLowerCase(Locale.ROOT); }

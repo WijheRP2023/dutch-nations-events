@@ -16,7 +16,7 @@ import static org.junit.Assert.*;
 
 public class DropTestAuthorizationTest
 {
-    @Test public void onlyOwnerCanSubmitAndNoStateChangesWhenBotIsUnavailable() throws Exception
+    @Test public void onlyOwnerCanSubmitAndRejectedDropDoesNotChangeState() throws Exception
     {
         Path path = Files.createTempDirectory("dutch-drop-auth-test").resolve("state.json");
         DutchNationsApi.Store store = new DutchNationsApi.Store(path);
@@ -30,10 +30,11 @@ public class DropTestAuthorizationTest
         event.startsAt = java.time.OffsetDateTime.now().minusHours(1).toString();
         event.endsAt = java.time.OffsetDateTime.now().plusHours(1).toString();
         event.codeword = "LOKAAL-TESTWOORD";
-        event.dropSource = "PVM_WAR_2026";
+        // This test verifies authorization and the unavailable-bot path. It must
+        // not depend on the finished public PvM War page being available.
+        event.dropSource = "";
         event.dropItems = "Dragon claws;Twisted bow";
         store.addEvent(event);
-        byte[] before = Files.readAllBytes(path);
         Constructor<DutchNationsApi> constructor = DutchNationsApi.class.getDeclaredConstructor(DutchNationsApi.Store.class, String.class);
         constructor.setAccessible(true);
         DutchNationsApi api = constructor.newInstance(store, "local-test-owner");
@@ -60,15 +61,16 @@ public class DropTestAuthorizationTest
             assertEquals(403, request(url, adminToken, body, true));
             assertEquals(400, request(url, "local-test-owner", "{}", true));
             assertEquals(409, request(url, "local-test-owner", body.replace("Dragon claws", "Other item"), true));
-            assertEquals(400, request(url, "local-test-owner", body, true));
+            assertEquals(409, request(url, "local-test-owner", body, true));
             URI settingUrl = URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/api/drop-channel");
             String setting = "{\"url\":\"https://discord.com/channels/1239712812822167688/1548661330209280060\"}";
             assertEquals(403, request(settingUrl, adminToken, setting, true));
             assertEquals(200, request(settingUrl, "local-test-owner", setting, true));
-            assertEquals(200, request(settingUrl, "local-test-owner", "", false));
+            assertEquals(405, request(settingUrl, "local-test-owner", "", false));
             assertEquals("https://discord.com/channels/1239712812822167688/1548661330209280060", store.dropChannelUrl());
             assertEquals(store.dropChannelUrl(), new DutchNationsApi.Store(path).dropChannelUrl());
-            assertEquals(503, request(url, "local-test-owner", body, true));
+            byte[] before = Files.readAllBytes(path);
+            assertEquals(409, request(url, "local-test-owner", body, true));
             assertArrayEquals(before, Files.readAllBytes(path));
             DutchNationsApi.Store afterRestart = new DutchNationsApi.Store(path);
             assertEquals("LOKAAL-TESTWOORD", afterRestart.event("test-event").codeword);

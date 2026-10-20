@@ -28,10 +28,15 @@ final class FeedService
     static final String ANNOUNCEMENT_CHANNEL_URL = API_BASE_URL + "/api/announcement-channel";
     static final String ANNOUNCEMENT_VISIBILITY_URL = API_BASE_URL + "/api/announcement-visibility";
     static final String EVENT_ANNOUNCEMENT_CHANNEL_URL = API_BASE_URL + "/api/event-announcement-channel";
+    static final String DROP_CHANNEL_URL = (Boolean.getBoolean("dutch.nations.dropTest") ? PRODUCTION_URL : LOCAL_URL) + "/api/drop-channel";
+    static final String DROP_TEST_URL = Boolean.getBoolean("dutch.nations.dropTest") ? PRODUCTION_URL + "/api/drop-test" : LOCAL_URL + "/api/local-drop-test";
+    static final String DROP_LIST_URL = API_BASE_URL + "/api/drop-list";
     static final String OWNER_LOGS_URL = API_BASE_URL + "/api/owner-logs";
     static final String LEARNER_TEMPLATES_URL = API_BASE_URL + "/api/learner-templates";
     interface Listener { void success(ClanFeed feed, String json); void failure(String message); }
     interface SaveListener { void success(); void failure(String message); }
+    interface DropTestListener { void success(boolean queued); void failure(String message); }
+    interface DropListListener { void success(String source, String items); void failure(String message); }
     interface RoleSaveListener { void success(String managementToken); void failure(String message); }
     interface RoleStatusListener { void success(String rsn, String role); void failure(); }
     interface RolesListener { void success(List<ManagementRole> roles); void failure(String message); }
@@ -42,6 +47,11 @@ final class FeedService
     private final OkHttpClient client;
     private final Gson gson;
 
+    static final class DropTestReport
+    {
+        String eventId; String rsn; String item; int quantity; String screenshot;
+    }
+
     FeedService(OkHttpClient client, Gson gson) { this.client = client; this.gson = gson; }
 
     void fetch(String url, Listener listener)
@@ -51,8 +61,8 @@ final class FeedService
         if (isExample(url)) { loadBundledFeed(listener); return; }
         client.newCall(new Request.Builder().url(parsed).header("Cache-Control", "no-cache").build()).enqueue(new Callback()
         {
-            @Override public void onFailure(Call call, IOException e) { listener.failure("Feed niet bereikbaar."); }
-            @Override public void onResponse(Call call, Response response) throws IOException
+            @Override public void onFailure(@javax.annotation.Nonnull Call call, @javax.annotation.Nonnull IOException e) { listener.failure("Feed niet bereikbaar."); }
+            @Override public void onResponse(@javax.annotation.Nonnull Call call, @javax.annotation.Nonnull Response response) throws IOException
             {
                 try (Response ignored = response)
                 {
@@ -133,12 +143,95 @@ final class FeedService
 
     void saveAnnouncementChannel(String url, String token, AnnouncementChannelListener listener)
     {
-        saveDiscordChannel(ANNOUNCEMENT_CHANNEL_URL, url, token, false, listener);
+        saveDiscordChannel(ANNOUNCEMENT_CHANNEL_URL, url, token, 0, listener);
     }
     void saveEventAnnouncementChannel(String url, String token, AnnouncementChannelListener listener)
     {
-        saveDiscordChannel(EVENT_ANNOUNCEMENT_CHANNEL_URL, url, token, true, listener);
+        saveDiscordChannel(EVENT_ANNOUNCEMENT_CHANNEL_URL, url, token, 1, listener);
     }
+    void saveDropChannel(String url, String token, AnnouncementChannelListener listener)
+    {
+        if (!dropTestEnabled()) { listener.failure("Screenshotkanaal is alleen beschikbaar in de lokale test."); return; }
+        saveDiscordChannel(DROP_CHANNEL_URL, url, token, 2, listener);
+    }
+    static boolean dropTestEnabled()
+    { return Boolean.getBoolean("dutch.nations.local") || Boolean.getBoolean("dutch.nations.dropTest"); }
+    void fetchDropChannel(String token, AnnouncementChannelListener listener)
+    {
+        HttpUrl parsed = https(DROP_CHANNEL_URL);
+        if (!dropTestEnabled() || parsed == null || blank(token)) { listener.failure("Owner-token ontbreekt."); return; }
+        Request request = new Request.Builder().url(parsed).header("Authorization", "Bearer " + token.trim()).get().build();
+        client.newCall(request).enqueue(new Callback()
+        {
+            @Override public void onFailure(@javax.annotation.Nonnull Call call, @javax.annotation.Nonnull IOException e) { listener.failure("Screenshotkanaal kon niet worden geladen."); }
+            @Override public void onResponse(@javax.annotation.Nonnull Call call, @javax.annotation.Nonnull Response response) throws IOException
+            {
+                try (Response ignored = response)
+                {
+                    if (!response.isSuccessful() || response.body() == null) { listener.failure("Screenshotkanaal kon niet worden geladen."); return; }
+                    AnnouncementChannelResponse value = gson.fromJson(response.body().string(), AnnouncementChannelResponse.class);
+                    listener.success(value == null || value.dropChannelUrl == null ? "" : value.dropChannelUrl);
+                }
+            }
+        });
+    }
+    void testDrop(DropTestReport report, String token, DropTestListener listener)
+    {
+        if (!dropTestEnabled() || blank(token)) { listener.failure("De lokale droptest vereist een owner-token."); return; }
+        HttpUrl target = https(DROP_TEST_URL);
+        if (target == null) { listener.failure("Drop-testserver is niet beschikbaar."); return; }
+        Request request = new Request.Builder().url(target).header("Authorization", "Bearer " + token.trim()).post(RequestBody.create(JSON, gson.toJson(report))).build();
+        client.newBuilder().readTimeout(45, java.util.concurrent.TimeUnit.SECONDS).build().newCall(request).enqueue(new Callback()
+        {
+            @Override public void onFailure(@javax.annotation.Nonnull Call call, @javax.annotation.Nonnull IOException e) { listener.failure("Lokale drop-testserver is niet bereikbaar."); }
+            @Override public void onResponse(@javax.annotation.Nonnull Call call, @javax.annotation.Nonnull Response response) throws IOException
+            {
+                try (Response ignored = response)
+                {
+                    String body = response.body() == null ? "" : response.body().string();
+                    if (!response.isSuccessful())
+                    {
+                        ApiError error = gson.fromJson(body, ApiError.class);
+                        listener.failure(error != null && !blank(error.error) ? error.error : "Lokale drop-test gaf HTTP " + response.code());
+                        return;
+                    }
+                    DropTestResponse result = gson.fromJson(body, DropTestResponse.class);
+                    listener.success(result != null && (Boolean.getBoolean("dutch.nations.dropTest") ? result.delivered : result.discordQueued));
+                }
+            }
+        });
+    }
+    void fetchSheetDrops(String eventId, String token, DropListListener listener)
+    {
+        HttpUrl base = https(DROP_LIST_URL);
+        if (!dropTestEnabled() || base == null || blank(token) || blank(eventId))
+        { listener.failure("Google-droplijst vereist de lokale test en een owner-token."); return; }
+        HttpUrl url = base.newBuilder().addQueryParameter("eventId", eventId).build();
+        Request request = new Request.Builder().url(url).header("Authorization", "Bearer " + token.trim()).get().build();
+        client.newCall(request).enqueue(new Callback()
+        {
+            @Override public void onFailure(@javax.annotation.Nonnull Call call, @javax.annotation.Nonnull IOException ex) { listener.failure("Google-droplijst niet bereikbaar."); }
+            @Override public void onResponse(@javax.annotation.Nonnull Call call, @javax.annotation.Nonnull Response response) throws IOException
+            {
+                try (Response ignored = response)
+                {
+                    if (!response.isSuccessful() || response.body() == null)
+                    { listener.failure("Google-droplijst kon niet worden geladen; controleer de server en leesrechten."); return; }
+                    try
+                    {
+                        DropListResponse result = gson.fromJson(response.body().string(), DropListResponse.class);
+                        if (result == null || !(GoogleSheetLink.supported(result.source) || "PVM_WAR_2026".equals(result.source)) || result.items == null
+                            || result.items.size() > 500 || result.items.stream().anyMatch(item -> blank(item) || item.contains(";")))
+                        { listener.failure("Google-droplijst bevat ongeldige gegevens."); return; }
+                        listener.success(result.source, String.join(";", result.items));
+                    }
+                    catch (RuntimeException ex) { listener.failure("Droplijst bevat ongeldige gegevens."); }
+                }
+            }
+        });
+    }
+    private static final class DropListResponse { String source; List<String> items; }
+    private static final class DropTestResponse { boolean delivered; boolean discordQueued; }
     void saveAnnouncementsVisibility(boolean visible, String token, AnnouncementVisibilityListener listener)
     {
         HttpUrl parsed = https(ANNOUNCEMENT_VISIBILITY_URL);
@@ -147,8 +240,8 @@ final class FeedService
             .post(RequestBody.create(JSON, gson.toJson(new AnnouncementVisibility(visible)))).build();
         client.newCall(request).enqueue(new Callback()
         {
-            @Override public void onFailure(Call call, IOException e) { listener.failure("Mededelingenknop is niet opgeslagen: server niet bereikbaar."); }
-            @Override public void onResponse(Call call, Response response) throws IOException
+            @Override public void onFailure(@javax.annotation.Nonnull Call call, @javax.annotation.Nonnull IOException e) { listener.failure("Mededelingenknop is niet opgeslagen: server niet bereikbaar."); }
+            @Override public void onResponse(@javax.annotation.Nonnull Call call, @javax.annotation.Nonnull Response response) throws IOException
             {
                 try (Response ignored = response)
                 {
@@ -166,7 +259,7 @@ final class FeedService
             }
         });
     }
-    private void saveDiscordChannel(String endpoint, String url, String token, boolean eventChannel, AnnouncementChannelListener listener)
+    private void saveDiscordChannel(String endpoint, String url, String token, int channelType, AnnouncementChannelListener listener)
     {
         HttpUrl parsed = https(endpoint);
         if (parsed == null || blank(token)) { listener.failure("Owner-token ontbreekt."); return; }
@@ -174,8 +267,8 @@ final class FeedService
             .post(RequestBody.create(JSON, gson.toJson(new AnnouncementChannel(url)))).build();
         client.newCall(request).enqueue(new Callback()
         {
-            @Override public void onFailure(Call call, IOException e) { listener.failure("Mededelingenkanaal is niet opgeslagen: server niet bereikbaar."); }
-            @Override public void onResponse(Call call, Response response) throws IOException
+            @Override public void onFailure(@javax.annotation.Nonnull Call call, @javax.annotation.Nonnull IOException e) { listener.failure("Mededelingenkanaal is niet opgeslagen: server niet bereikbaar."); }
+            @Override public void onResponse(@javax.annotation.Nonnull Call call, @javax.annotation.Nonnull Response response) throws IOException
             {
                 try (Response ignored = response)
                 {
@@ -187,7 +280,7 @@ final class FeedService
                         return;
                     }
                     AnnouncementChannelResponse saved = gson.fromJson(body, AnnouncementChannelResponse.class);
-                    String savedUrl = saved == null ? "" : (eventChannel ? saved.eventAnnouncementsUrl : saved.announcementsUrl);
+                    String savedUrl = saved == null ? "" : (channelType == 2 ? saved.dropChannelUrl : channelType == 1 ? saved.eventAnnouncementsUrl : saved.announcementsUrl);
                     if (blank(savedUrl)) { listener.failure("Server bevestigde geen kanaalinstelling."); return; }
                     listener.success(savedUrl);
                 }
@@ -201,8 +294,8 @@ final class FeedService
         Request request = new Request.Builder().url(parsed).header("Authorization", "Bearer " + token.trim()).get().build();
         client.newCall(request).enqueue(new Callback()
         {
-            @Override public void onFailure(Call call, IOException e) { listener.failure(); }
-            @Override public void onResponse(Call call, Response response) throws IOException
+            @Override public void onFailure(@javax.annotation.Nonnull Call call, @javax.annotation.Nonnull IOException e) { listener.failure(); }
+            @Override public void onResponse(@javax.annotation.Nonnull Call call, @javax.annotation.Nonnull Response response) throws IOException
             {
                 try (Response ignored = response)
                 {
@@ -221,8 +314,8 @@ final class FeedService
         Request request = new Request.Builder().url(target).header("Authorization", "Bearer " + token.trim()).get().build();
         client.newCall(request).enqueue(new Callback()
         {
-            @Override public void onFailure(Call call, IOException e) { listener.failure("Rollenoverzicht niet bereikbaar."); }
-            @Override public void onResponse(Call call, Response response) throws IOException
+            @Override public void onFailure(@javax.annotation.Nonnull Call call, @javax.annotation.Nonnull IOException e) { listener.failure("Rollenoverzicht niet bereikbaar."); }
+            @Override public void onResponse(@javax.annotation.Nonnull Call call, @javax.annotation.Nonnull Response response) throws IOException
             {
                 try (Response ignored = response)
                 {
@@ -242,8 +335,8 @@ final class FeedService
         Request request = new Request.Builder().url(parsed).header("Authorization", "Bearer " + token.trim()).get().build();
         client.newCall(request).enqueue(new Callback()
         {
-            @Override public void onFailure(Call call, IOException e) { listener.failure("Logs niet bereikbaar."); }
-            @Override public void onResponse(Call call, Response response) throws IOException
+            @Override public void onFailure(@javax.annotation.Nonnull Call call, @javax.annotation.Nonnull IOException e) { listener.failure("Logs niet bereikbaar."); }
+            @Override public void onResponse(@javax.annotation.Nonnull Call call, @javax.annotation.Nonnull Response response) throws IOException
             {
                 try (Response ignored = response)
                 {
@@ -262,8 +355,8 @@ final class FeedService
             .post(RequestBody.create(JSON, gson.toJson(role))).build();
         client.newCall(request).enqueue(new Callback()
         {
-            @Override public void onFailure(Call call, IOException e) { listener.failure("Rol kon niet worden opgeslagen."); }
-            @Override public void onResponse(Call call, Response response) throws IOException
+            @Override public void onFailure(@javax.annotation.Nonnull Call call, @javax.annotation.Nonnull IOException e) { listener.failure("Rol kon niet worden opgeslagen."); }
+            @Override public void onResponse(@javax.annotation.Nonnull Call call, @javax.annotation.Nonnull Response response) throws IOException
             {
                 try (Response ignored = response)
                 {
@@ -303,8 +396,8 @@ final class FeedService
     {
         client.newCall(request).enqueue(new Callback()
         {
-            @Override public void onFailure(Call call, IOException e) { listener.failure(subject + " kon niet worden opgeslagen."); }
-            @Override public void onResponse(Call call, Response response)
+            @Override public void onFailure(@javax.annotation.Nonnull Call call, @javax.annotation.Nonnull IOException e) { listener.failure(subject + " kon niet worden opgeslagen."); }
+            @Override public void onResponse(@javax.annotation.Nonnull Call call, @javax.annotation.Nonnull Response response)
             {
                 try (Response ignored = response)
                 {
@@ -324,7 +417,7 @@ final class FeedService
     }
     private static final class AnnouncementVisibility { final boolean visible; AnnouncementVisibility(boolean visible) { this.visible = visible; } }
     private static final class AnnouncementVisibilityResponse { Boolean announcementsVisible; }
-    private static final class AnnouncementChannelResponse { String announcementsUrl; String eventAnnouncementsUrl; }
+    private static final class AnnouncementChannelResponse { String announcementsUrl; String eventAnnouncementsUrl; String dropChannelUrl; }
     private static final class ApiError { String error; }
     private static final class RolesResponse
     {
@@ -365,8 +458,9 @@ final class FeedService
                 if (blank(event.id) || blank(event.title) || (needsWorld && blank(event.world)) ||
                     !event.end().isAfter(event.start()) || unsafe(event.title) || unsafe(event.world) ||
                     unsafe(event.host) || unsafe(event.description) || unsafe(event.codeword) || unsafe(event.checklist) ||
-                    unsafe(event.requiredPlugins) || unsafe(event.driveUrl) || unsafe(event.registrationUrl) || unsafe(event.registrationEndsAt) || unsafe(event.youtubeUrl) ||
-                    unsafe(event.clansOne) || unsafe(event.clansTwo) || unsafe(event.activity) || unsafe(event.bossList)) return null;
+                    unsafe(event.requiredPlugins) || unsafe(event.driveUrl) || unsafe(event.dropListUrl) || unsafe(event.registrationUrl) || unsafe(event.registrationEndsAt) || unsafe(event.youtubeUrl) ||
+                    unsafe(event.clansOne) || unsafe(event.clansTwo) || unsafe(event.activity) || unsafe(event.bossList) ||
+                    unsafe(event.dropItems) || unsafe(event.dropChannelUrl) || unsafe(event.dropSource)) return null;
                 if (!blank(event.registrationEndsAt)) { try { OffsetDateTime.parse(event.registrationEndsAt); } catch (RuntimeException ignored) { return null; } }
                 if ((boss || clanEvent || clanVsClan || (mass && event.codewordRequired)) && !event.active(OffsetDateTime.now())) event.codeword = "";
             }

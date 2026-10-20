@@ -8,6 +8,7 @@ import java.awt.Toolkit;
 import java.awt.datatransfer.StringSelection;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
+import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.time.Duration;
 import java.time.OffsetDateTime;
@@ -17,6 +18,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.HashSet;
 import java.util.Set;
 import javax.imageio.ImageIO;
@@ -44,6 +46,10 @@ import net.runelite.client.externalplugins.ExternalPluginClient;
 import net.runelite.client.externalplugins.ExternalPluginManager;
 import net.runelite.client.externalplugins.PluginHubManifest;
 import net.runelite.client.game.ChatIconManager;
+import net.runelite.client.game.ItemManager;
+import net.runelite.client.game.ItemStack;
+import net.runelite.client.plugins.loottracker.LootReceived;
+import net.runelite.client.ui.DrawManager;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.ui.ClientToolbar;
@@ -63,13 +69,16 @@ public class DutchNationsPlugin extends Plugin
     @Inject private ClientToolbar toolbar;
     @Inject private OverlayManager overlays;
     @Inject private CodewordOverlay overlay;
-    @Inject private DutchNationsConfig config;
+    @Inject @SuppressWarnings("unused") private DutchNationsConfig config;
     @Inject private ConfigManager configs;
     @Inject private OkHttpClient http;
     @Inject private Gson gson;
     @Inject private ExternalPluginClient pluginHubClient;
     @Inject private ExternalPluginManager externalPluginManager;
     @Inject private ChatIconManager chatIconManager;
+    @Inject private ItemManager itemManager;
+    @Inject private DrawManager drawManager;
+    @Inject private ScheduledExecutorService executor;
     private FeedService service;
     private WomCompetitionService womService;
     private DutchNationsPanel panel;
@@ -86,8 +95,17 @@ public class DutchNationsPlugin extends Plugin
     private int remainingRoleRefreshAttempts;
     private String clanMembersSignature = "";
     private long lastWomRefresh;
+    private final Map<String, SheetDropSnapshot> sheetDrops = new java.util.concurrent.ConcurrentHashMap<>();
+    private final Map<String, Long> nextSheetRefresh = new java.util.concurrent.ConcurrentHashMap<>();
+    private final Set<String> sheetRefreshInFlight = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
-    @Provides DutchNationsConfig config(ConfigManager manager) { return manager.getConfig(DutchNationsConfig.class); }
+    private static final class SheetDropSnapshot
+    {
+        final String items; final long fetchedAt;
+        SheetDropSnapshot(String items, long fetchedAt) { this.items = items; this.fetchedAt = fetchedAt; }
+    }
+
+    @Provides @SuppressWarnings("unused") DutchNationsConfig config(ConfigManager manager) { return manager.getConfig(DutchNationsConfig.class); }
 
     @Override protected void startUp()
     {
@@ -95,7 +113,7 @@ public class DutchNationsPlugin extends Plugin
         womService = new WomCompetitionService(http, gson);
         panel = new DutchNationsPanel(config, this::refresh, this::canManage, this::isOwner,
             this::isAdministrator, this::isLearnerHost, this::canManageRoles, this::fetchRoles, this::fetchOwnerLogs, this::hasClanAccess,
-            this::createEvent, this::updateEvent, this::deleteEvent, this::createLearnerTemplate, this::updateLearnerTemplate, this::deleteLearnerTemplate, this::saveRole, this::saveAnnouncementChannel, this::saveEventAnnouncementChannel, this::saveAnnouncementsVisibility, this::announcementReadSequence, this::markAnnouncementsRead, this::localPlayerName);
+            this::createEvent, this::updateEvent, this::deleteEvent, this::createLearnerTemplate, this::updateLearnerTemplate, this::deleteLearnerTemplate, this::saveRole, this::saveAnnouncementChannel, this::saveEventAnnouncementChannel, this::saveDropChannel, this::saveAnnouncementsVisibility, this::announcementReadSequence, this::markAnnouncementsRead, this::localPlayerName);
         ClanFeed cached = service.parse(configs.getConfiguration(DutchNationsConfig.GROUP, CACHE));
         if (cached != null) { feed = cached; panel.update(cached, "Opgeslagen versie; update wordt gecontroleerd."); }
         button = NavigationButton.builder().tooltip("Dutch Nation").icon(icon()).priority(6).panel(panel).build();
@@ -136,14 +154,15 @@ public class DutchNationsPlugin extends Plugin
     @Override protected void shutDown()
     {
         overlays.remove(overlay); toolbar.removeNavigation(button); feed = null; authenticatedRole = ""; panel = null; service = null; womService = null;
+        sheetDrops.clear(); nextSheetRefresh.clear(); sheetRefreshInFlight.clear();
     }
 
-    @Subscribe public void onExternalPluginsChanged(ExternalPluginsChanged ignored)
+    @Subscribe @SuppressWarnings("unused") public void onExternalPluginsChanged(ExternalPluginsChanged ignored)
     {
         loadPluginCatalog();
     }
 
-    @Subscribe public void onConfigChanged(ConfigChanged e)
+    @Subscribe @SuppressWarnings("unused") public void onConfigChanged(ConfigChanged e)
     {
         if (DutchNationsConfig.GROUP.equals(e.getGroup()) && !CACHE.equals(e.getKey()))
         {
@@ -152,7 +171,7 @@ public class DutchNationsPlugin extends Plugin
         }
     }
 
-    @Subscribe public void onGameStateChanged(GameStateChanged event)
+    @Subscribe @SuppressWarnings("unused") public void onGameStateChanged(GameStateChanged event)
     {
         if (event.getGameState() == GameState.LOGGED_IN) scheduleRoleRefresh();
         else if (event.getGameState() == GameState.LOGIN_SCREEN)
@@ -165,7 +184,7 @@ public class DutchNationsPlugin extends Plugin
     }
 
     @Subscribe
-    public void onGameTick(GameTick ignored)
+    @SuppressWarnings("unused") public void onGameTick(GameTick ignored)
     {
         refreshRoleWhenPlayerIsReady();
         if (--ticksUntilClanRefresh <= 0)
@@ -176,6 +195,7 @@ public class DutchNationsPlugin extends Plugin
         if (!hasClanAccess()) return;
         ClanFeed current = feed;
         if (current == null) return;
+        if (FeedService.dropTestEnabled() && isOwner() && config.shareDropScreenshots()) refreshSheetDrops(current);
         if (--ticksUntilRefresh <= 0)
         {
             ticksUntilRefresh = 25;
@@ -200,6 +220,105 @@ public class DutchNationsPlugin extends Plugin
             }
         }
     }
+
+    @Subscribe @SuppressWarnings("unused") public void onLootReceived(LootReceived loot)
+    {
+        if (!FeedService.dropTestEnabled() || !isOwner() || !config.shareDropScreenshots() || !hasClanAccess()) return;
+        ClanFeed current = feed;
+        Player player = client.getLocalPlayer();
+        if (current == null || player == null || player.getName() == null || loot.getItems() == null) return;
+        String rsn = player.getName();
+        OffsetDateTime now = OffsetDateTime.now();
+        for (ItemStack item : loot.getItems())
+        {
+            if (item.getId() < 0 || item.getQuantity() <= 0) continue;
+            String name = itemManager.getItemComposition(itemManager.canonicalize(item.getId())).getMembersName();
+            for (ClanFeed.ClanEvent event : current.events)
+                if (event.id != null && DropMatcher.matches(event, selectedDropItems(event), name, now))
+                    captureLocalDrop(event.id, rsn, name, item.getQuantity());
+        }
+    }
+
+    private static String dynamicDropSource(ClanFeed.ClanEvent event)
+    {
+        String dropListUrl = event.dropListUrl == null ? event.driveUrl : event.dropListUrl;
+        if (GoogleSheetLink.supported(dropListUrl)) return dropListUrl;
+        return "PVM_WAR_2026".equals(event.dropSource) ? event.dropSource : null;
+    }
+    private static String sheetKey(ClanFeed.ClanEvent event) { return event.id + "\n" + dynamicDropSource(event); }
+
+    private String selectedDropItems(ClanFeed.ClanEvent event)
+    {
+        String source = dynamicDropSource(event);
+        if (source == null) return event.dropItems;
+        SheetDropSnapshot snapshot = sheetDrops.get(sheetKey(event));
+        if (snapshot == null || System.currentTimeMillis() - snapshot.fetchedAt > 120000)
+            return "PVM_WAR_2026".equals(source) ? event.dropItems : null;
+        return snapshot.items;
+    }
+
+    private void refreshSheetDrops(ClanFeed current)
+    {
+        FeedService activeService = service;
+        if (activeService == null) return;
+        long nowMillis = System.currentTimeMillis();
+        for (ClanFeed.ClanEvent event : current.events)
+        {
+            String source = dynamicDropSource(event);
+            if (event.id == null || source == null || !event.active(OffsetDateTime.now())) continue;
+            String key = sheetKey(event);
+            if (nowMillis < nextSheetRefresh.getOrDefault(key, 0L) || !sheetRefreshInFlight.add(key)) continue;
+            nextSheetRefresh.put(key, nowMillis + 30000);
+            activeService.fetchSheetDrops(event.id, config.managementToken(), new FeedService.DropListListener()
+            {
+                @Override public void success(String source, String items)
+                {
+                    sheetRefreshInFlight.remove(key);
+                    if (service == activeService && source.equals(dynamicDropSource(event)))
+                        sheetDrops.put(key, new SheetDropSnapshot(items, System.currentTimeMillis()));
+                }
+                @Override public void failure(String message)
+                {
+                    sheetRefreshInFlight.remove(key); sheetDrops.remove(key);
+                    if (service == activeService && GoogleSheetLink.supported(source)) showDropTestStatus(message);
+                }
+            });
+        }
+    }
+
+    private void captureLocalDrop(String eventId, String rsn, String name, int quantity)
+    {
+        drawManager.requestNextFrameListener(image ->
+        {
+            if (!config.shareDropScreenshots() || image == null || image.getWidth(null) <= 0 || image.getHeight(null) <= 0) return;
+            BufferedImage copy = new BufferedImage(image.getWidth(null), image.getHeight(null), BufferedImage.TYPE_INT_RGB);
+            Graphics2D graphics = copy.createGraphics();
+            try { graphics.drawImage(image, 0, 0, null); } finally { graphics.dispose(); }
+            executor.execute(() ->
+            {
+                if (!config.shareDropScreenshots()) return;
+                try
+                {
+                    ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+                    if (!ImageIO.write(copy, "png", bytes) || bytes.size() > 4 * 1024 * 1024)
+                    { showDropTestStatus("Lokale drop-test: screenshot is te groot."); return; }
+                    FeedService.DropTestReport report = new FeedService.DropTestReport();
+                    report.eventId = eventId; report.rsn = rsn; report.item = name; report.quantity = quantity;
+                    report.screenshot = java.util.Base64.getEncoder().encodeToString(bytes.toByteArray());
+                    FeedService currentService = service;
+                    if (currentService != null) currentService.testDrop(report, config.managementToken(), new FeedService.DropTestListener()
+                    {
+                        @Override public void success(boolean delivered) { showDropTestStatus(Boolean.getBoolean("dutch.nations.dropTest") ? (delivered ? "Dropscreenshot verstuurd naar Discord." : "Discord heeft het versturen niet bevestigd.") : (delivered ? "Drop staat in de wachtrij van de Discord-bot." : "Drop lokaal getest; niets naar Discord verstuurd.")); }
+                        @Override public void failure(String message) { showDropTestStatus(message); }
+                    });
+                }
+                catch (IOException ex) { showDropTestStatus("Lokale drop-test: screenshot kon niet worden gemaakt."); }
+            });
+        });
+    }
+
+    private void showDropTestStatus(String message)
+    { SwingUtilities.invokeLater(() -> { if (panel != null) panel.status(message); }); }
 
     private void scheduleRoleRefresh()
     {
@@ -240,7 +359,7 @@ public class DutchNationsPlugin extends Plugin
                 String name = member.getName();
                 if (name == null || name.trim().isEmpty()) continue;
                 int rank = member.getRank() == null ? -1 : member.getRank().getRank();
-                ClanTitle title = settings == null || member.getRank() == null ? null : settings.titleForRank(member.getRank());
+                ClanTitle title = member.getRank() == null ? null : settings.titleForRank(member.getRank());
                 java.awt.image.BufferedImage rankIcon = null;
                 try { if (title != null) rankIcon = chatIconManager.getRankImage(title); }
                 catch (RuntimeException ignored) { }
@@ -249,7 +368,7 @@ public class DutchNationsPlugin extends Plugin
             members.sort(java.util.Comparator.comparingInt((OnlineClanMember value) -> value.rank).reversed()
                 .thenComparing(value -> value.name.toLowerCase(java.util.Locale.ROOT)));
         }
-        String signature = inDutchNation + ":" + clanAccessGranted + ":" + members.toString();
+        String signature = inDutchNation + ":" + clanAccessGranted + ":" + members;
         if (signature.equals(clanMembersSignature)) return;
         clanMembersSignature = signature;
         SwingUtilities.invokeLater(() -> { if (panel != null) { panel.updateClanAccess(clanAccessGranted); panel.updateOnlineMembers(members, inDutchNation); } });
@@ -333,11 +452,7 @@ public class DutchNationsPlugin extends Plugin
     private boolean isAdministrator() { return "ADMINISTRATOR".equals(authenticatedRole); }
     private boolean isLearnerHost() { return "TEACHER".equals(authenticatedRole) || "LEARNER_HOST".equals(authenticatedRole); }
     private boolean canManageRoles() { return isOwner() || isAdministrator(); }
-    private boolean isOwner()
-    {
-        Player local = client.getLocalPlayer();
-        return local != null && "heavenskill".equals(normalize(local.getName()));
-    }
+    private boolean isOwner() { return "OWNER".equals(authenticatedRole); }
 
     private void createEvent(EventDraft draft)
     {
@@ -507,13 +622,43 @@ public class DutchNationsPlugin extends Plugin
         service.deleteEvent(FeedService.EVENTS_URL, config.managementToken(), eventId, new SaveResult("Event verwijderd."));
     }
 
+    private void fetchDropChannel()
+    {
+        if (!isOwner() || service == null || config.managementToken().trim().isEmpty()) return;
+        service.fetchDropChannel(config.managementToken(), new FeedService.AnnouncementChannelListener()
+        {
+            @Override public void success(String url)
+            { SwingUtilities.invokeLater(() -> { if (panel != null) panel.dropChannelLoaded(url); }); }
+            @Override public void failure(String message)
+            { SwingUtilities.invokeLater(() -> { if (panel != null) panel.dropChannelStatus(message); }); }
+        });
+    }
+
+    private void saveDropChannel(String url)
+    {
+        if (!isOwner()) { panel.dropChannelStatus("Alleen de owner kan het dropkanaal instellen."); return; }
+        panel.dropChannelStatus("Dropkanaal opslaan...");
+        service.saveDropChannel(url, config.managementToken(), new FeedService.AnnouncementChannelListener()
+        {
+            @Override public void success(String savedUrl)
+            { SwingUtilities.invokeLater(() -> { if (panel != null) panel.dropChannelSaved(savedUrl); refresh(); }); }
+            @Override public void failure(String message)
+            { SwingUtilities.invokeLater(() -> { if (panel != null) panel.dropChannelStatus(message); }); }
+        });
+    }
+
     private void saveRole(RoleDraft draft)
     {
         if (!canManageRoles()) { panel.status("Geen rechten om rollen aan te passen."); return; }
         if (isAdministrator() && !("MANAGER".equals(draft.role) || "TEACHER".equals(draft.role)))
         { panel.status("Administrators mogen alleen managers en teachers toekennen."); return; }
-        if ("heavenskill".equals(normalize(draft.rsn)) && "REMOVE".equals(draft.role))
-        { panel.status("De eerste owner heavenskill kan zichzelf niet verwijderen."); return; }
+        if ("OWNER".equals(draft.role))
+        {
+            int answer = JOptionPane.showConfirmDialog(null,
+                "Ownership overdragen aan '" + draft.rsn + "'?\n\nJij verliest daarna direct alle ownerrechten. De nieuwe owner krijgt een nieuwe persoonlijke token.",
+                "Ownership overdragen", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+            if (answer != JOptionPane.YES_OPTION) return;
+        }
         panel.status("Managementrol opslaan...");
         service.saveRole(FeedService.ROLES_URL, config.managementToken(), draft, new FeedService.RoleSaveListener()
         {
@@ -557,7 +702,7 @@ public class DutchNationsPlugin extends Plugin
         womService.fetch(new WomCompetitionService.Listener()
         {
             @Override public void success(java.util.List<WomCompetition> competitions)
-            { SwingUtilities.invokeLater(() -> { if (panel != null) panel.updateCompetition(competitions, true); }); }
+            { SwingUtilities.invokeLater(() -> { if (panel != null) panel.updateCompetition(competitions); }); }
             @Override public void failure()
             { SwingUtilities.invokeLater(() -> { if (panel != null) panel.competitionUnavailable(); }); }
         });
@@ -565,12 +710,6 @@ public class DutchNationsPlugin extends Plugin
 
     private void refreshRole()
     {
-        if (isOwner())
-        {
-            authenticatedRole = "OWNER";
-            if (panel != null) SwingUtilities.invokeLater(panel::permissionsChanged);
-            return;
-        }
         if (service == null || config.managementToken().trim().isEmpty())
         {
             authenticatedRole = "";
@@ -584,6 +723,7 @@ public class DutchNationsPlugin extends Plugin
                 Player local = client.getLocalPlayer();
                 String localRsn = local == null ? "" : normalize(local.getName());
                 authenticatedRole = localRsn.equals(normalize(rsn)) ? role.trim().toUpperCase() : "";
+                if (isOwner() && Boolean.getBoolean("dutch.nations.dropTest")) fetchDropChannel();
                 if (panel != null) SwingUtilities.invokeLater(panel::permissionsChanged);
             }
             @Override public void failure()
@@ -644,7 +784,7 @@ public class DutchNationsPlugin extends Plugin
         for (ClanFeed.ClanEvent event : cached.events) event.codeword = "";
         return gson.toJson(cached);
     }
-    private static String normalize(String rsn) { return rsn == null ? "" : rsn.replace('\u00a0', ' ').trim().toLowerCase(); }
+    private static String normalize(String rsn) { return rsn == null ? "" : rsn.replace(' ', ' ').trim().toLowerCase(); }
     private static String safeText(String value) { return value == null ? "" : value.replace("<", "").replace(">", ""); }
     private static BufferedImage icon()
     {
