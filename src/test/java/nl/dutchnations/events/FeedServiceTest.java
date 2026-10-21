@@ -8,6 +8,32 @@ import static org.junit.Assert.*;
 public class FeedServiceTest
 {
     private final FeedService service = new FeedService(new OkHttpClient(), new Gson());
+
+    @Test public void normalOwnerCanSaveLiveScreenshotChannelWithoutTestFlags() throws Exception
+    {
+        assertFalse(Boolean.getBoolean("dutch.nations.local"));
+        assertFalse(Boolean.getBoolean("dutch.nations.dropTest"));
+        java.util.concurrent.atomic.AtomicReference<okhttp3.Request> request = new java.util.concurrent.atomic.AtomicReference<>();
+        java.util.concurrent.atomic.AtomicReference<String> result = new java.util.concurrent.atomic.AtomicReference<>();
+        java.util.concurrent.CountDownLatch finished = new java.util.concurrent.CountDownLatch(1);
+        String channel = "https://discord.com/channels/123/456";
+        OkHttpClient isolated = new OkHttpClient.Builder().addInterceptor(chain ->
+        {
+            request.set(chain.request());
+            return new okhttp3.Response.Builder().request(chain.request()).protocol(okhttp3.Protocol.HTTP_1_1).code(200).message("OK")
+                .body(okhttp3.ResponseBody.create(okhttp3.MediaType.parse("application/json"), "{\"dropChannelUrl\":\"" + channel + "\"}")).build();
+        }).build();
+        new FeedService(isolated, new Gson()).saveDropChannel(channel, "test-only-owner", new FeedService.AnnouncementChannelListener()
+        {
+            @Override public void success(String url) { result.set(url); finished.countDown(); }
+            @Override public void failure(String message) { result.set(message); finished.countDown(); }
+        });
+        assertTrue(finished.await(5, java.util.concurrent.TimeUnit.SECONDS));
+        assertEquals(channel, result.get());
+        assertEquals("https://dutch-nations-events.onrender.com/api/drop-channel", request.get().url().toString());
+        assertEquals("POST", request.get().method());
+        assertEquals("https://dutch-nations-events.onrender.com/api/drop-test", FeedService.DROP_TEST_URL);
+    }
     @Test public void acceptsTimedEvent()
     {
         ClanFeed f = service.parse("{\"updatedAt\":\"2026-07-20T18:00:00Z\",\"events\":[{\"id\":\"1\",\"type\":\"BOSS\",\"title\":\"CoX\",\"codeword\":\"ORANJE\",\"startsAt\":\"2026-08-02T20:00:00+02:00\",\"endsAt\":\"2026-08-02T22:00:00+02:00\"}]}");

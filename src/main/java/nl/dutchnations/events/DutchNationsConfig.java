@@ -55,7 +55,7 @@ public interface DutchNationsConfig extends Config
         description = "Toon automatisch de actieve of eerstvolgende Dutch Nation-competitie van Wise Old Man")
     default boolean showWomCompetition() { return true; }
 
-    @ConfigItem(keyName = "shareDropScreenshots", name = "Dropscreenshots delen (test)", position = 11,
-        description = "Lokale plugintest met Loot Tracker: verstuurt scherm, naam en drop naar het ingestelde Discord-kanaal; chat kan zichtbaar zijn.")
+    @ConfigItem(keyName = "shareDropScreenshots", name = "Event-dropscreenshots delen", position = 11,
+        description = "Owner-test met Loot Tracker, alleen tijdens actieve events: verstuurt scherm, naam en drop naar het ingestelde Discord-kanaal; chat kan zichtbaar zijn.")
     default boolean shareDropScreenshots() { return false; }
 }

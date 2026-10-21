@@ -31,6 +31,10 @@ voortgang. Bij een herhaling kunnen de vinkjes of de zeven naamvelden worden
 leeggemaakt; stel de juiste Sheet-link en eventperiode in bij het nieuwe event.
 Wijzigingen worden bij de volgende verversing ingelezen.
 
-De screenshotfunctie gebruikt nog de bestaande owner-testinstelling en het
-ingestelde Discord-screenshotkanaal. Het lezen van een Sheet activeert die
-instelling niet automatisch.
+De screenshotfunctie is een owner-test. Stel het kanaal in onder
+**Instellingen → Event-dropscreenshots → Screenshotkanaal instellen** en zet
+**Event-dropscreenshots delen** aan in de RuneLite-pluginconfiguratie. Deze optie
+staat standaard uit. De normale plugin gebruikt de online server; een speciale
+opstartstand is hiervoor niet nodig. Het lezen van een Sheet zet screenshots
+niet automatisch aan. Voor de starttijd en vanaf de eindtijd worden geen
+event-dropscreenshots gemaakt. Ook de server controleert de eventperiode.

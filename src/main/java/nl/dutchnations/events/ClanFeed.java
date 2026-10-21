@@ -10,8 +10,7 @@ final class ClanFeed
     String announcementsUrl;
     Boolean announcementsVisible = true;
     String eventAnnouncementsUrl;
-    // Kept for compatibility with older feed responses.
-    @SuppressWarnings("unused") String dropChannelUrl;
+    String dropChannelUrl;
     long announcementsSequence;
     List<ClanEvent> events = new ArrayList<>();
     List<LearnerTemplate> learnerTemplates = new ArrayList<>();

@@ -195,7 +195,7 @@ public class DutchNationsPlugin extends Plugin
         if (!hasClanAccess()) return;
         ClanFeed current = feed;
         if (current == null) return;
-        if (FeedService.dropTestEnabled() && isOwner() && config.shareDropScreenshots()) refreshSheetDrops(current);
+        if (isOwner() && config.shareDropScreenshots()) refreshSheetDrops(current);
         if (--ticksUntilRefresh <= 0)
         {
             ticksUntilRefresh = 25;
@@ -223,7 +223,7 @@ public class DutchNationsPlugin extends Plugin
 
     @Subscribe @SuppressWarnings("unused") public void onLootReceived(LootReceived loot)
     {
-        if (!FeedService.dropTestEnabled() || !isOwner() || !config.shareDropScreenshots() || !hasClanAccess()) return;
+        if (!isOwner() || !config.shareDropScreenshots() || !hasClanAccess()) return;
         ClanFeed current = feed;
         Player player = client.getLocalPlayer();
         if (current == null || player == null || player.getName() == null || loot.getItems() == null) return;
@@ -290,31 +290,39 @@ public class DutchNationsPlugin extends Plugin
     {
         drawManager.requestNextFrameListener(image ->
         {
-            if (!config.shareDropScreenshots() || image == null || image.getWidth(null) <= 0 || image.getHeight(null) <= 0) return;
+            if (!config.shareDropScreenshots() || !activeDropEvent(eventId) || image == null || image.getWidth(null) <= 0 || image.getHeight(null) <= 0) return;
             BufferedImage copy = new BufferedImage(image.getWidth(null), image.getHeight(null), BufferedImage.TYPE_INT_RGB);
             Graphics2D graphics = copy.createGraphics();
             try { graphics.drawImage(image, 0, 0, null); } finally { graphics.dispose(); }
             executor.execute(() ->
             {
-                if (!config.shareDropScreenshots()) return;
+                if (!config.shareDropScreenshots() || !activeDropEvent(eventId)) return;
                 try
                 {
                     ByteArrayOutputStream bytes = new ByteArrayOutputStream();
                     if (!ImageIO.write(copy, "png", bytes) || bytes.size() > 4 * 1024 * 1024)
-                    { showDropTestStatus("Lokale drop-test: screenshot is te groot."); return; }
+                    { showDropTestStatus("Dropscreenshot is te groot."); return; }
                     FeedService.DropTestReport report = new FeedService.DropTestReport();
                     report.eventId = eventId; report.rsn = rsn; report.item = name; report.quantity = quantity;
                     report.screenshot = java.util.Base64.getEncoder().encodeToString(bytes.toByteArray());
                     FeedService currentService = service;
                     if (currentService != null) currentService.testDrop(report, config.managementToken(), new FeedService.DropTestListener()
                     {
-                        @Override public void success(boolean delivered) { showDropTestStatus(Boolean.getBoolean("dutch.nations.dropTest") ? (delivered ? "Dropscreenshot verstuurd naar Discord." : "Discord heeft het versturen niet bevestigd.") : (delivered ? "Drop staat in de wachtrij van de Discord-bot." : "Drop lokaal getest; niets naar Discord verstuurd.")); }
+                        @Override public void success(boolean delivered) { showDropTestStatus(Boolean.getBoolean("dutch.nations.local") ? (delivered ? "Drop staat in de wachtrij van de Discord-bot." : "Drop lokaal getest; niets naar Discord verstuurd.") : (delivered ? "Dropscreenshot verstuurd naar Discord." : "Discord heeft het versturen niet bevestigd.")); }
                         @Override public void failure(String message) { showDropTestStatus(message); }
                     });
                 }
-                catch (IOException ex) { showDropTestStatus("Lokale drop-test: screenshot kon niet worden gemaakt."); }
+                catch (IOException ex) { showDropTestStatus("Dropscreenshot kon niet worden gemaakt."); }
             });
         });
+    }
+
+    private boolean activeDropEvent(String eventId)
+    {
+        ClanFeed current = feed;
+        if (!isOwner() || current == null || eventId == null) return false;
+        OffsetDateTime now = OffsetDateTime.now();
+        return current.events.stream().anyMatch(event -> eventId.equals(event.id) && event.active(now));
     }
 
     private void showDropTestStatus(String message)
@@ -622,18 +630,6 @@ public class DutchNationsPlugin extends Plugin
         service.deleteEvent(FeedService.EVENTS_URL, config.managementToken(), eventId, new SaveResult("Event verwijderd."));
     }
 
-    private void fetchDropChannel()
-    {
-        if (!isOwner() || service == null || config.managementToken().trim().isEmpty()) return;
-        service.fetchDropChannel(config.managementToken(), new FeedService.AnnouncementChannelListener()
-        {
-            @Override public void success(String url)
-            { SwingUtilities.invokeLater(() -> { if (panel != null) panel.dropChannelLoaded(url); }); }
-            @Override public void failure(String message)
-            { SwingUtilities.invokeLater(() -> { if (panel != null) panel.dropChannelStatus(message); }); }
-        });
-    }
-
     private void saveDropChannel(String url)
     {
         if (!isOwner()) { panel.dropChannelStatus("Alleen de owner kan het dropkanaal instellen."); return; }
@@ -723,7 +719,6 @@ public class DutchNationsPlugin extends Plugin
                 Player local = client.getLocalPlayer();
                 String localRsn = local == null ? "" : normalize(local.getName());
                 authenticatedRole = localRsn.equals(normalize(rsn)) ? role.trim().toUpperCase() : "";
-                if (isOwner() && Boolean.getBoolean("dutch.nations.dropTest")) fetchDropChannel();
                 if (panel != null) SwingUtilities.invokeLater(panel::permissionsChanged);
             }
             @Override public void failure()

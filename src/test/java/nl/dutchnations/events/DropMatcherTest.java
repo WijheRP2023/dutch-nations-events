@@ -63,4 +63,16 @@ public class DropMatcherTest
         assertFalse(DropMatcher.matchesItem("@contains:any nex unique", "Nihil horn"));
         assertFalse(DropMatcher.matchesItem("Dragon claws", "Dragon claw"));
     }
+
+    @Test public void captureEligibilityStopsExactlyAtTheEndOfTheEvent()
+    {
+        OffsetDateTime start = OffsetDateTime.parse("2026-10-21T20:00:00+02:00");
+        OffsetDateTime end = start.plusHours(1);
+        ClanFeed.ClanEvent event = new ClanFeed.ClanEvent();
+        event.startsAt = start.toString(); event.endsAt = end.toString(); event.dropItems = "Blue moon helm";
+        assertFalse(DropMatcher.matches(event, "Blue moon helm", start.minusNanos(1)));
+        assertTrue(DropMatcher.matches(event, "Blue moon helm", start));
+        assertTrue(DropMatcher.matches(event, "Blue moon helm", end.minusNanos(1)));
+        assertFalse(DropMatcher.matches(event, "Blue moon helm", end));
+    }
 }

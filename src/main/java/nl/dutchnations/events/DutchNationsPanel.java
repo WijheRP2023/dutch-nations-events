@@ -117,7 +117,7 @@ final class DutchNationsPanel extends PluginPanel
         setLayout(new BoxLayout(this, BoxLayout.Y_AXIS)); setBackground(BACKGROUND); render();
     }
 
-    void update(ClanFeed value, String message) { feed = value; status = message; render(); }
+    void update(ClanFeed value, String message) { feed = value; dropChannelLoaded(value == null ? "" : value.dropChannelUrl); status = message; render(); }
     void status(String message) { status = message; render(); }
     void permissionsChanged() { if (!canManageRoles.getAsBoolean() || ("INSTELLINGEN".equals(viewMode) && !isOwner.getAsBoolean())) { viewMode = "LIJST"; roles = new ArrayList<>(); } render(); }
     void connectionChanged(boolean online) { serverOnline = online; render(); }
@@ -152,7 +152,7 @@ final class DutchNationsPanel extends PluginPanel
     void eventAnnouncementChannelFailed(String message) { eventAnnouncementSettingsStatus = message; render(); }
     void dropChannelStatus(String message) { dropChannelStatus = message; render(); }
     void dropChannelLoaded(String url) { dropChannelUrl = url == null ? "" : url; }
-    void dropChannelSaved(String url) { dropChannelLoaded(url); dropChannelStatus("Screenshotkanaal opgeslagen."); }
+    void dropChannelSaved(String url) { dropChannelLoaded(url); if (feed != null) feed.dropChannelUrl = url; dropChannelStatus("Screenshotkanaal opgeslagen."); }
     void updateCompetition(List<WomCompetition> values) { competitions = values == null ? new ArrayList<>() : new ArrayList<>(values); competitionLoaded = true; render(); }
     void competitionUnavailable() { competitionLoaded = false; render(); }
     void updateClanAccess(boolean allowed) { render(); }
@@ -379,17 +379,14 @@ final class DutchNationsPanel extends PluginPanel
             eventAnnouncements.add(bodyText(eventAnnouncementSettingsStatus, eventAnnouncementSettingsStatus.endsWith("opgeslagen.") ? new Color(120, 220, 140) : new Color(255, 175, 145), Font.PLAIN, 11f));
         add(eventAnnouncements); add(Box.createRigidArea(new Dimension(0, 7)));
 
-        if (FeedService.dropTestEnabled())
-        {
-            JPanel drops = card(CARD_BROWN);
-            drops.add(bodyLabel("DROP-SCREENSHOTS (LOKALE TEST)", GOLD, Font.BOLD, 12f));
-            drops.add(bodyText("Kies het Discord-kanaal voor de screenshot-test.", Color.LIGHT_GRAY, Font.PLAIN, 12f));
-            JButton dropChannel = button("Screenshotkanaal instellen");
-            dropChannel.addActionListener(event -> configureDropChannel());
-            drops.add(dropChannel);
-            if (!blank(dropChannelStatus)) drops.add(bodyText(dropChannelStatus, Color.LIGHT_GRAY, Font.PLAIN, 11f));
-            add(drops); add(Box.createRigidArea(new Dimension(0, 7)));
-        }
+        JPanel drops = card(CARD_BROWN);
+        drops.add(bodyLabel("EVENT-DROPSCREENSHOTS", GOLD, Font.BOLD, 12f));
+        drops.add(bodyText("Kies per event het Discord-screenshotkanaal. Screenshots worden alleen tijdens een actief event gemaakt.", Color.LIGHT_GRAY, Font.PLAIN, 12f));
+        JButton dropChannel = button("Screenshotkanaal instellen");
+        dropChannel.addActionListener(event -> configureDropChannel());
+        drops.add(Box.createRigidArea(new Dimension(0, 7))); drops.add(dropChannel);
+        if (!blank(dropChannelStatus)) drops.add(bodyText(dropChannelStatus, Color.LIGHT_GRAY, Font.PLAIN, 11f));
+        add(drops); add(Box.createRigidArea(new Dimension(0, 7)));
 
         JPanel management = card(CARD_BROWN);
         management.add(bodyLabel("MANAGEMENTROLLEN", GOLD, Font.BOLD, 12f));
@@ -661,9 +658,7 @@ final class DutchNationsPanel extends PluginPanel
     }
     private void configureDropChannel()
     {
-        String current = blank(dropChannelUrl) && Boolean.getBoolean("dutch.nations.dropTest")
-            ? "https://discord.com/channels/1239712812822167688/1548661330209280060" : dropChannelUrl;
-        String url = JOptionPane.showInputDialog(this, "Plak de link van het Discord-screenshotkanaal:", current);
+        String url = JOptionPane.showInputDialog(this, "Plak de link van het Discord-screenshotkanaal voor dit event:", dropChannelUrl);
         if (url != null) saveDropChannel.accept(url.trim());
     }
 

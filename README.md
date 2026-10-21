@@ -96,7 +96,7 @@ De plugin gebruikt een klein aantal externe diensten. Hieronder staat precies wa
 | Dienst | Waarvoor gebruiken we het? | Welke gegevens gaan erheen? | Veiligheid |
 | --- | --- | --- | --- |
 | **Dutch Nation API** `dutch-nations-events.onrender.com` | Ophalen van de kalender, events, sjablonen en serverstatus. Beheerders gebruiken deze API om events, rollen en instellingen op te slaan. | Elke webverbinding bevat technisch gezien een IP-adres. Alleen bij een beheeractie gaan de handmatig ingevulde event- of rolgegevens plus de persoonlijke managementcode mee. | Alleen HTTPS in productie. Iedere beheeractie wordt op de server geautoriseerd; de managementcode wordt niet in de openbare kalenderfeed geplaatst. |
-| **Discord** | De Dutch Nation-bot plaatst, wijzigt en verwijdert eventberichten in het door de owner gekozen Discord-kanaal. | Alleen de eventinhoud die de organizer heeft opgeslagen: titel, tijd, beschrijving, voorbereiding en links. | De bot gebruikt een servergeheime bot-token. Gebruikerscodes en managementrollen worden nooit naar Discord gestuurd. |
+| **Discord** | De Dutch Nation-bot beheert eventberichten en verstuurt optionele owner-dropscreenshots naar het ingestelde kanaal. | Eventinhoud; bij bewust ingeschakelde screenshots ook het spelbeeld, de RuneScape-naam, het item en het aantal. | De bot-token blijft op de server. Screenshots delen staat standaard uit en werkt alleen voor de owner tijdens actieve events. Zichtbare chat kan op de screenshot staan. |
 | **Wise Old Man API** `api.wiseoldman.net` | Tonen van de actuele Dutch Nation-competitie. | Een openbare aanvraag voor de vaste Dutch Nation-groep; geen persoonlijke RuneScape-naam uit de plugin. | Alleen openbare competitiegegevens worden gelezen. De informatie is uitsluitend zichtbaar in de plugin. |
 | **OSRS Wiki** | Link naar strategie- en voorbereidingspagina's bij learner-events. | De plugin opent alleen een door de organizer opgeslagen link wanneer de gebruiker daarop klikt. | Geen automatische accountgegevens of managementcodes worden verstuurd. Controleer links altijd voordat je ze als organizer opslaat. |
 | **YouTube** | Optionele video-guide bij learner-events. | De video wordt pas geopend of als Discord-preview geladen wanneer iemand de opgeslagen link bekijkt. | Geen managementcodes of spelergegevens worden gedeeld. YouTube hanteert zijn eigen privacyvoorwaarden. |
@@ -105,7 +105,7 @@ De plugin gebruikt een klein aantal externe diensten. Hieronder staat precies wa
 ### Wat blijft lokaal?
 
 - Online clanleden, werelden en clanrangen worden alleen uit jouw ingelogde RuneLite-client gelezen en uitsluitend lokaal in het zijpaneel getoond.
-- De plugin verzendt nooit automatisch de naam van jouw ingelogde speler.
+- Event-dropscreenshots delen staat standaard uit. Als de owner dit zelf aanzet, worden tijdens actieve events het spelbeeld, de RuneScape-naam en lootgegevens naar de server en het ingestelde Discord-kanaal gestuurd. Zichtbare chat kan op de screenshot staan.
 - Persoonlijke managementcodes worden lokaal door RuneLite bewaard en zijn verborgen in de instellingen.
 
 ### Wat kun je zelf doen?

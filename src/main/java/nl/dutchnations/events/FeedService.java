@@ -28,8 +28,8 @@ final class FeedService
     static final String ANNOUNCEMENT_CHANNEL_URL = API_BASE_URL + "/api/announcement-channel";
     static final String ANNOUNCEMENT_VISIBILITY_URL = API_BASE_URL + "/api/announcement-visibility";
     static final String EVENT_ANNOUNCEMENT_CHANNEL_URL = API_BASE_URL + "/api/event-announcement-channel";
-    static final String DROP_CHANNEL_URL = (Boolean.getBoolean("dutch.nations.dropTest") ? PRODUCTION_URL : LOCAL_URL) + "/api/drop-channel";
-    static final String DROP_TEST_URL = Boolean.getBoolean("dutch.nations.dropTest") ? PRODUCTION_URL + "/api/drop-test" : LOCAL_URL + "/api/local-drop-test";
+    static final String DROP_CHANNEL_URL = API_BASE_URL + "/api/drop-channel";
+    static final String DROP_TEST_URL = API_BASE_URL + (Boolean.getBoolean("dutch.nations.local") ? "/api/local-drop-test" : "/api/drop-test");
     static final String DROP_LIST_URL = API_BASE_URL + "/api/drop-list";
     static final String OWNER_LOGS_URL = API_BASE_URL + "/api/owner-logs";
     static final String LEARNER_TEMPLATES_URL = API_BASE_URL + "/api/learner-templates";
@@ -151,39 +151,17 @@ final class FeedService
     }
     void saveDropChannel(String url, String token, AnnouncementChannelListener listener)
     {
-        if (!dropTestEnabled()) { listener.failure("Screenshotkanaal is alleen beschikbaar in de lokale test."); return; }
         saveDiscordChannel(DROP_CHANNEL_URL, url, token, 2, listener);
-    }
-    static boolean dropTestEnabled()
-    { return Boolean.getBoolean("dutch.nations.local") || Boolean.getBoolean("dutch.nations.dropTest"); }
-    void fetchDropChannel(String token, AnnouncementChannelListener listener)
-    {
-        HttpUrl parsed = https(DROP_CHANNEL_URL);
-        if (!dropTestEnabled() || parsed == null || blank(token)) { listener.failure("Owner-token ontbreekt."); return; }
-        Request request = new Request.Builder().url(parsed).header("Authorization", "Bearer " + token.trim()).get().build();
-        client.newCall(request).enqueue(new Callback()
-        {
-            @Override public void onFailure(@javax.annotation.Nonnull Call call, @javax.annotation.Nonnull IOException e) { listener.failure("Screenshotkanaal kon niet worden geladen."); }
-            @Override public void onResponse(@javax.annotation.Nonnull Call call, @javax.annotation.Nonnull Response response) throws IOException
-            {
-                try (Response ignored = response)
-                {
-                    if (!response.isSuccessful() || response.body() == null) { listener.failure("Screenshotkanaal kon niet worden geladen."); return; }
-                    AnnouncementChannelResponse value = gson.fromJson(response.body().string(), AnnouncementChannelResponse.class);
-                    listener.success(value == null || value.dropChannelUrl == null ? "" : value.dropChannelUrl);
-                }
-            }
-        });
     }
     void testDrop(DropTestReport report, String token, DropTestListener listener)
     {
-        if (!dropTestEnabled() || blank(token)) { listener.failure("De lokale droptest vereist een owner-token."); return; }
+        if (blank(token)) { listener.failure("Dropscreenshots vereisen een owner-token."); return; }
         HttpUrl target = https(DROP_TEST_URL);
-        if (target == null) { listener.failure("Drop-testserver is niet beschikbaar."); return; }
+        if (target == null) { listener.failure("Screenshotserver is niet beschikbaar."); return; }
         Request request = new Request.Builder().url(target).header("Authorization", "Bearer " + token.trim()).post(RequestBody.create(JSON, gson.toJson(report))).build();
         client.newBuilder().readTimeout(45, java.util.concurrent.TimeUnit.SECONDS).build().newCall(request).enqueue(new Callback()
         {
-            @Override public void onFailure(@javax.annotation.Nonnull Call call, @javax.annotation.Nonnull IOException e) { listener.failure("Lokale drop-testserver is niet bereikbaar."); }
+            @Override public void onFailure(@javax.annotation.Nonnull Call call, @javax.annotation.Nonnull IOException e) { listener.failure("Screenshotserver is niet bereikbaar."); }
             @Override public void onResponse(@javax.annotation.Nonnull Call call, @javax.annotation.Nonnull Response response) throws IOException
             {
                 try (Response ignored = response)
@@ -192,11 +170,11 @@ final class FeedService
                     if (!response.isSuccessful())
                     {
                         ApiError error = gson.fromJson(body, ApiError.class);
-                        listener.failure(error != null && !blank(error.error) ? error.error : "Lokale drop-test gaf HTTP " + response.code());
+                        listener.failure(error != null && !blank(error.error) ? error.error : "Dropscreenshot gaf HTTP " + response.code());
                         return;
                     }
                     DropTestResponse result = gson.fromJson(body, DropTestResponse.class);
-                    listener.success(result != null && (Boolean.getBoolean("dutch.nations.dropTest") ? result.delivered : result.discordQueued));
+                    listener.success(result != null && (Boolean.getBoolean("dutch.nations.local") ? result.discordQueued : result.delivered));
                 }
             }
         });
@@ -204,8 +182,8 @@ final class FeedService
     void fetchSheetDrops(String eventId, String token, DropListListener listener)
     {
         HttpUrl base = https(DROP_LIST_URL);
-        if (!dropTestEnabled() || base == null || blank(token) || blank(eventId))
-        { listener.failure("Google-droplijst vereist de lokale test en een owner-token."); return; }
+        if (base == null || blank(token) || blank(eventId))
+        { listener.failure("Droplijst vereist een event en een owner-token."); return; }
         HttpUrl url = base.newBuilder().addQueryParameter("eventId", eventId).build();
         Request request = new Request.Builder().url(url).header("Authorization", "Bearer " + token.trim()).get().build();
         client.newCall(request).enqueue(new Callback()
