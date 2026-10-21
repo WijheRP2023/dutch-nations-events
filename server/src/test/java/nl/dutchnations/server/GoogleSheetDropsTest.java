@@ -91,4 +91,34 @@ public class GoogleSheetDropsTest
         assertFalse(GoogleSheetDrops.matchesItem("@contains:any nex unique", "Nihil horn"));
         assertFalse(GoogleSheetDrops.matchesItem("Dragon claws", "Dragon claw"));
     }
+
+    @Test public void expandsGroupsFromBingoAndStopsCompletedTasks() throws Exception
+    {
+        java.util.Set<String> rules = GoogleSheetDrops.parseCsv("Item,\n8x any barrows piece,FALSE\n8x piece moons,FALSE\nany nex unique,TRUE\n");
+        assertEquals(36, rules.size());
+        assertTrue(rules.contains("Guthan's warspear"));
+        assertTrue(rules.contains("Dual macuahuitl"));
+        assertFalse(rules.contains("Nihil horn"));
+        assertTrue(rules.stream().allMatch(rule -> !rule.startsWith("@")));
+        assertTrue(GoogleSheetDrops.parseCsv("Item,\n8x any barrows piece,TRUE\n8x piece moons,TRUE\n").isEmpty());
+    }
+
+    @Test public void expandsGroupsInStandardDropAndGoalLayout() throws Exception
+    {
+        java.util.Set<String> items = GoogleSheetDrops.parseCsv("Drop (bewerkbaar),Doel\nany barrows piece,8\nGuthan's warspear,1\n");
+        assertEquals(24, items.size());
+        assertTrue(items.contains("Guthan's warspear"));
+    }
+
+    @Test public void pvmWarGroupHonoursSevenSlotsAndSkipsSectionHeadings() throws Exception
+    {
+        String header = "Item name,Points,#1 obtained by,#2 obtained by,#3 obtained by,#4 obtained by,#5 obtained by,#6 obtained by,#7 obtained by\n";
+        java.util.Set<String> items = GoogleSheetDrops.parseCsv(header
+            + "Barrows items,\nGuthans's set,28,,,,,,,\nany nex unique,50,A,B,C,D,E,F,G\n"
+            + "\"Tier 6\n(5-20 EHB)\",50,,,,,,,\nGuthan's warspear,3,,,,,,,\nGUTHAN'S WARSPEAR,3,,,,,,,\n");
+        assertTrue(items.contains("Guthan's warspear"));
+        assertTrue(items.contains("Guthan's chainskirt"));
+        assertFalse(items.contains("Ahrim's hood"));
+        assertFalse(items.contains("Nihil horn"));
+    }
 }

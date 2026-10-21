@@ -19,9 +19,11 @@ Een omschrijving zoals `any inquisitor piece` zoekt naar `Inquisitor` in de
 in-game naam. Alle items met die naam tellen mee, ook wapens.
 Je kunt ook expliciet `bevat: Inquisitor` gebruiken.
 
-Er wordt geen vertaling van afkortingen, spelfouten of bossnamen naar hun
-droptabellen uitgevoerd. `any nex unique` herkent dus niet automatisch `Nihil horn`.
-Gebruik concrete in-game namen of een herkenbaar naamfragment.
+Bekende groepen worden op de server vertaald naar concrete itemnamen. Zo wordt
+`any nex unique` onder andere `Nihil horn`, en wordt `any barrows piece` een lijst
+van alle 24 Barrows-items. `8x piece moons` wordt de lijst met alle 12 Moons-items.
+Zie [de groepsindeling](DROP-GROUPS.md) voor de ondersteunde groepen en afspraken.
+Andere afkortingen en spelfouten worden niet automatisch geraden.
 
 Het vinkje bepaalt of een bingo-opdracht klaar is. Getallen zoals `3x` worden
 niet door de plugin bijgehouden. De Sheet blijft de bron voor goedkeuring en

@@ -172,8 +172,8 @@ final class GoogleSheetDrops
             if (item.length() > 100 || item.indexOf(';') >= 0 || item.chars().anyMatch(Character::isISOControl))
                 throw new IOException("Ongeldige dropnaam in sheet");
             String key = item.replace('\u2019', '\'').toLowerCase(Locale.ROOT);
-            if (!normalized.add(key) || names.size() >= MAX_ITEMS) throw new IOException("Dubbele of te veel drops in sheet");
-            names.add(item);
+            if (!normalized.add(key)) throw new IOException("Dubbele drops in sheet");
+            addResolved(names, item, item);
         }
         if (names.isEmpty()) throw new IOException("Geen dropnamen gevonden");
         return Collections.unmodifiableSet(names);
@@ -189,6 +189,7 @@ final class GoogleSheetDrops
         {
             List<String> header = rows.get(rowIndex);
             int itemColumn = column(header, "item name");
+            int pointsColumn = column(header, "points");
             List<Integer> obtainedColumns = new ArrayList<>();
             for (int slot = 1; slot <= 7; slot++)
             {
@@ -202,7 +203,8 @@ final class GoogleSheetDrops
             for (int i = rowIndex + 1; i < rows.size(); i++)
             {
                 List<String> row = rows.get(i);
-                String item = row.size() <= itemColumn ? "" : row.get(itemColumn).trim();
+                if (pointsColumn >= 0 && (row.size() <= pointsColumn || !row.get(pointsColumn).trim().matches("[0-9]+"))) continue;
+                String item = row.size() <= itemColumn ? "" : row.get(itemColumn).replaceAll("\\s+", " ").trim();
                 if (item.isEmpty()) continue;
                 if (item.length() > 100 || item.indexOf(';') >= 0 || item.chars().anyMatch(Character::isISOControl))
                     throw new IOException("Ongeldige dropnaam in sheet");
@@ -210,8 +212,8 @@ final class GoogleSheetDrops
                 for (int index : obtainedColumns) if (present(row, index)) obtained++;
                 if (obtained >= 7) continue;
                 String key = item.replace('\u2019', '\'').toLowerCase(Locale.ROOT);
-                if (!normalized.add(key) || names.size() >= MAX_ITEMS) throw new IOException("Dubbele of te veel drops in sheet");
-                names.add(item);
+                if (!normalized.add(key)) continue;
+                addResolved(names, item, item);
             }
             return Collections.unmodifiableSet(names);
         }
@@ -246,12 +248,19 @@ final class GoogleSheetDrops
                 if ("TRUE".equalsIgnoreCase(checked)) continue;
                 if (item.length() > 100 || item.indexOf(';') >= 0 || item.chars().anyMatch(Character::isISOControl))
                     throw new IOException("Ongeldige dropomschrijving in sheet");
-                tasks.add(taskRule(item));
-                if (tasks.size() > MAX_ITEMS) throw new IOException("Te veel drops in sheet");
+                addResolved(tasks, item, taskRule(item));
             }
             if (foundCheckbox) return Collections.unmodifiableSet(tasks);
         }
         return null;
+    }
+
+    private static void addResolved(Set<String> names, String label, String fallback) throws IOException
+    {
+        Set<String> group = DropGroups.resolve(label);
+        if (group == null) names.add(fallback);
+        else names.addAll(group);
+        if (names.size() > MAX_ITEMS) throw new IOException("Te veel drops in sheet");
     }
 
     private static String taskRule(String task)
