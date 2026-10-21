@@ -29,8 +29,8 @@ final class FeedService
     static final String ANNOUNCEMENT_VISIBILITY_URL = API_BASE_URL + "/api/announcement-visibility";
     static final String EVENT_ANNOUNCEMENT_CHANNEL_URL = API_BASE_URL + "/api/event-announcement-channel";
     static final String DROP_CHANNEL_URL = API_BASE_URL + "/api/drop-channel";
-    static final String DROP_TEST_URL = API_BASE_URL + (Boolean.getBoolean("dutch.nations.local") ? "/api/local-drop-test" : "/api/drop-test");
-    static final String DROP_LIST_URL = API_BASE_URL + "/api/drop-list";
+    static final String DROP_TEST_URL = API_BASE_URL + (Boolean.getBoolean("dutch.nations.local") ? "/api/local-drop-test" : "/api/event-drops");
+    static final String DROP_LIST_URL = API_BASE_URL + "/api/event-drop-list";
     static final String OWNER_LOGS_URL = API_BASE_URL + "/api/owner-logs";
     static final String LEARNER_TEMPLATES_URL = API_BASE_URL + "/api/learner-templates";
     interface Listener { void success(ClanFeed feed, String json); void failure(String message); }
@@ -153,12 +153,11 @@ final class FeedService
     {
         saveDiscordChannel(DROP_CHANNEL_URL, url, token, 2, listener);
     }
-    void testDrop(DropTestReport report, String token, DropTestListener listener)
+    void testDrop(DropTestReport report, DropTestListener listener)
     {
-        if (blank(token)) { listener.failure("Dropscreenshots vereisen een owner-token."); return; }
         HttpUrl target = https(DROP_TEST_URL);
         if (target == null) { listener.failure("Screenshotserver is niet beschikbaar."); return; }
-        Request request = new Request.Builder().url(target).header("Authorization", "Bearer " + token.trim()).post(RequestBody.create(JSON, gson.toJson(report))).build();
+        Request request = new Request.Builder().url(target).post(RequestBody.create(JSON, gson.toJson(report))).build();
         client.newBuilder().readTimeout(45, java.util.concurrent.TimeUnit.SECONDS).build().newCall(request).enqueue(new Callback()
         {
             @Override public void onFailure(@javax.annotation.Nonnull Call call, @javax.annotation.Nonnull IOException e) { listener.failure("Screenshotserver is niet bereikbaar."); }
@@ -179,13 +178,13 @@ final class FeedService
             }
         });
     }
-    void fetchSheetDrops(String eventId, String token, DropListListener listener)
+    void fetchSheetDrops(String eventId, DropListListener listener)
     {
         HttpUrl base = https(DROP_LIST_URL);
-        if (base == null || blank(token) || blank(eventId))
-        { listener.failure("Droplijst vereist een event en een owner-token."); return; }
+        if (base == null || blank(eventId))
+        { listener.failure("Droplijst vereist een actief event."); return; }
         HttpUrl url = base.newBuilder().addQueryParameter("eventId", eventId).build();
-        Request request = new Request.Builder().url(url).header("Authorization", "Bearer " + token.trim()).get().build();
+        Request request = new Request.Builder().url(url).get().build();
         client.newCall(request).enqueue(new Callback()
         {
             @Override public void onFailure(@javax.annotation.Nonnull Call call, @javax.annotation.Nonnull IOException ex) { listener.failure("Google-droplijst niet bereikbaar."); }

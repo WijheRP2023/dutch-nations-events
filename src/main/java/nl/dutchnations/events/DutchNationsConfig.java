@@ -56,6 +56,6 @@ public interface DutchNationsConfig extends Config
     default boolean showWomCompetition() { return true; }
 
     @ConfigItem(keyName = "shareDropScreenshots", name = "Event-dropscreenshots delen", position = 11,
-        description = "Owner-test met Loot Tracker, alleen tijdens actieve events: verstuurt scherm, naam en drop naar het ingestelde Discord-kanaal; chat kan zichtbaar zijn.")
+        description = "Deelnemerstest met Loot Tracker, alleen tijdens actieve events: verstuurt spelbeeld, naam en drop naar het ingestelde Discord-kanaal; chat kan zichtbaar zijn. Geen management-token nodig.")
     default boolean shareDropScreenshots() { return false; }
 }

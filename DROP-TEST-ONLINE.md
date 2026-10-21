@@ -1,5 +1,8 @@
 # Dropscreenshots: lokale plugintest met de online server
 
+> Dit document beschrijft de eerdere owner-test. Voor de nieuwe vrijwillige test voor alle
+> clanleden, zonder management-token of extra instellingen, zie [DROP-PARTICIPANTS.md](DROP-PARTICIPANTS.md).
+
 Deze test draait alleen in een lokaal gestarte plugin. De online server gebruikt de bestaande Discord-bot; de afbeelding wordt niet op de server opgeslagen. Ze wordt wel als bijlage in het ingestelde Discord-kanaal geplaatst.
 
 1. Start in IntelliJ de normale **Dutch Nations RuneLite**-configuratie of de Gradle-taak **run** en log in als owner. De gebruikelijke management-token moet zijn ingesteld; deel die niet.

@@ -153,6 +153,7 @@ public class DutchNationsPlugin extends Plugin
 
     @Override protected void shutDown()
     {
+        clanAccessGranted = false;
         overlays.remove(overlay); toolbar.removeNavigation(button); feed = null; authenticatedRole = ""; panel = null; service = null; womService = null;
         sheetDrops.clear(); nextSheetRefresh.clear(); sheetRefreshInFlight.clear();
     }
@@ -173,7 +174,8 @@ public class DutchNationsPlugin extends Plugin
 
     @Subscribe @SuppressWarnings("unused") public void onGameStateChanged(GameStateChanged event)
     {
-        if (event.getGameState() == GameState.LOGGED_IN) scheduleRoleRefresh();
+        if (event.getGameState() != GameState.LOGGED_IN) clanAccessGranted = false;
+        if (event.getGameState() == GameState.LOGGED_IN) { scheduleRoleRefresh(); updateOnlineClanMembers(); }
         else if (event.getGameState() == GameState.LOGIN_SCREEN)
         {
             ticksUntilRoleRefresh = 0;
@@ -195,7 +197,7 @@ public class DutchNationsPlugin extends Plugin
         if (!hasClanAccess()) return;
         ClanFeed current = feed;
         if (current == null) return;
-        if (isOwner() && config.shareDropScreenshots()) refreshSheetDrops(current);
+        if (config.shareDropScreenshots()) refreshSheetDrops(current);
         if (--ticksUntilRefresh <= 0)
         {
             ticksUntilRefresh = 25;
@@ -223,7 +225,7 @@ public class DutchNationsPlugin extends Plugin
 
     @Subscribe @SuppressWarnings("unused") public void onLootReceived(LootReceived loot)
     {
-        if (!isOwner() || !config.shareDropScreenshots() || !hasClanAccess()) return;
+        if (!config.shareDropScreenshots() || !hasClanAccess()) return;
         ClanFeed current = feed;
         Player player = client.getLocalPlayer();
         if (current == null || player == null || player.getName() == null || loot.getItems() == null) return;
@@ -269,7 +271,7 @@ public class DutchNationsPlugin extends Plugin
             String key = sheetKey(event);
             if (nowMillis < nextSheetRefresh.getOrDefault(key, 0L) || !sheetRefreshInFlight.add(key)) continue;
             nextSheetRefresh.put(key, nowMillis + 30000);
-            activeService.fetchSheetDrops(event.id, config.managementToken(), new FeedService.DropListListener()
+            activeService.fetchSheetDrops(event.id, new FeedService.DropListListener()
             {
                 @Override public void success(String source, String items)
                 {
@@ -306,7 +308,7 @@ public class DutchNationsPlugin extends Plugin
                     report.eventId = eventId; report.rsn = rsn; report.item = name; report.quantity = quantity;
                     report.screenshot = java.util.Base64.getEncoder().encodeToString(bytes.toByteArray());
                     FeedService currentService = service;
-                    if (currentService != null) currentService.testDrop(report, config.managementToken(), new FeedService.DropTestListener()
+                    if (currentService != null) currentService.testDrop(report, new FeedService.DropTestListener()
                     {
                         @Override public void success(boolean delivered) { showDropTestStatus(Boolean.getBoolean("dutch.nations.local") ? (delivered ? "Drop staat in de wachtrij van de Discord-bot." : "Drop lokaal getest; niets naar Discord verstuurd.") : (delivered ? "Dropscreenshot verstuurd naar Discord." : "Discord heeft het versturen niet bevestigd.")); }
                         @Override public void failure(String message) { showDropTestStatus(message); }
@@ -320,9 +322,7 @@ public class DutchNationsPlugin extends Plugin
     private boolean activeDropEvent(String eventId)
     {
         ClanFeed current = feed;
-        if (!isOwner() || current == null || eventId == null) return false;
-        OffsetDateTime now = OffsetDateTime.now();
-        return current.events.stream().anyMatch(event -> eventId.equals(event.id) && event.active(now));
+        return DropScreenshotPolicy.allowed(config.shareDropScreenshots(), hasClanAccess(), current, eventId, OffsetDateTime.now());
     }
 
     private void showDropTestStatus(String message)

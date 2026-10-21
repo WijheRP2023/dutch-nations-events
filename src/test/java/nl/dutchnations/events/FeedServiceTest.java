@@ -32,7 +32,53 @@ public class FeedServiceTest
         assertEquals(channel, result.get());
         assertEquals("https://dutch-nations-events.onrender.com/api/drop-channel", request.get().url().toString());
         assertEquals("POST", request.get().method());
-        assertEquals("https://dutch-nations-events.onrender.com/api/drop-test", FeedService.DROP_TEST_URL);
+        assertEquals("https://dutch-nations-events.onrender.com/api/event-drops", FeedService.DROP_TEST_URL);
+        assertEquals("Bearer test-only-owner", request.get().header("Authorization"));
+    }
+
+    @Test public void memberCanSendDropWithoutManagementToken() throws Exception
+    {
+        java.util.concurrent.atomic.AtomicReference<okhttp3.Request> request = new java.util.concurrent.atomic.AtomicReference<>();
+        java.util.concurrent.atomic.AtomicReference<String> error = new java.util.concurrent.atomic.AtomicReference<>();
+        java.util.concurrent.CountDownLatch finished = new java.util.concurrent.CountDownLatch(1);
+        OkHttpClient isolated = new OkHttpClient.Builder().addInterceptor(chain ->
+        {
+            request.set(chain.request());
+            return new okhttp3.Response.Builder().request(chain.request()).protocol(okhttp3.Protocol.HTTP_1_1).code(200).message("OK")
+                .body(okhttp3.ResponseBody.create(okhttp3.MediaType.parse("application/json"), "{\"delivered\":true}")).build();
+        }).build();
+        new FeedService(isolated, new Gson()).testDrop(new FeedService.DropTestReport(), new FeedService.DropTestListener()
+        {
+            @Override public void success(boolean delivered) { if (!delivered) error.set("not delivered"); finished.countDown(); }
+            @Override public void failure(String message) { error.set(message); finished.countDown(); }
+        });
+        assertTrue(finished.await(5, java.util.concurrent.TimeUnit.SECONDS));
+        assertNull(error.get());
+        assertEquals("/api/event-drops", request.get().url().encodedPath());
+        assertNull(request.get().header("Authorization"));
+    }
+
+    @Test public void memberCanFetchDropListWithoutManagementToken() throws Exception
+    {
+        java.util.concurrent.atomic.AtomicReference<okhttp3.Request> request = new java.util.concurrent.atomic.AtomicReference<>();
+        java.util.concurrent.atomic.AtomicReference<String> items = new java.util.concurrent.atomic.AtomicReference<>();
+        java.util.concurrent.CountDownLatch finished = new java.util.concurrent.CountDownLatch(1);
+        OkHttpClient isolated = new OkHttpClient.Builder().addInterceptor(chain ->
+        {
+            request.set(chain.request());
+            return new okhttp3.Response.Builder().request(chain.request()).protocol(okhttp3.Protocol.HTTP_1_1).code(200).message("OK")
+                .body(okhttp3.ResponseBody.create(okhttp3.MediaType.parse("application/json"), "{\"source\":\"PVM_WAR_2026\",\"items\":[\"Blue moon helm\"]}")).build();
+        }).build();
+        new FeedService(isolated, new Gson()).fetchSheetDrops("event-1", new FeedService.DropListListener()
+        {
+            @Override public void success(String source, String result) { items.set(result); finished.countDown(); }
+            @Override public void failure(String message) { items.set(message); finished.countDown(); }
+        });
+        assertTrue(finished.await(5, java.util.concurrent.TimeUnit.SECONDS));
+        assertEquals("Blue moon helm", items.get());
+        assertEquals("/api/event-drop-list", request.get().url().encodedPath());
+        assertEquals("event-1", request.get().url().queryParameter("eventId"));
+        assertNull(request.get().header("Authorization"));
     }
     @Test public void acceptsTimedEvent()
     {
