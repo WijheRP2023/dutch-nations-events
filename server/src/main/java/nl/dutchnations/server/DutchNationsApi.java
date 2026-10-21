@@ -60,7 +60,10 @@ public final class DutchNationsApi
     private static final String INITIAL_OWNER_RSN = "heavenskill";
     private final Store store;
     private final String bootstrapOwnerHash;
-    private final java.util.concurrent.Semaphore dropTestPermit = new java.util.concurrent.Semaphore(1);
+    private final java.util.concurrent.Semaphore dropTestPermit = new java.util.concurrent.Semaphore(4);
+    private final DropRequestLimits dropRequestLimits = new DropRequestLimits();
+    private final Map<String, CachedDropList> participantDropLists = new HashMap<>();
+    private final java.util.concurrent.Semaphore participantListPermit = new java.util.concurrent.Semaphore(2);
     private JDA discordBot;
 
     private DutchNationsApi(Store store, String ownerToken)
@@ -101,6 +104,8 @@ public final class DutchNationsApi
         server.createContext("/api/drop-channel", this::dropChannel);
         server.createContext("/api/drop-list", this::googleDropList);
         server.createContext("/api/drop-test", this::dropTest);
+        server.createContext("/api/event-drop-list", exchange -> googleDropList(exchange, true));
+        server.createContext("/api/event-drops", exchange -> dropTest(exchange, true));
         server.createContext("/api/local-drop-test", this::localDropTest);
         server.createContext("/api/owner-logs", this::ownerLogs);
         server.setExecutor(Executors.newFixedThreadPool(8));
@@ -497,14 +502,30 @@ public final class DutchNationsApi
     }
 
     private void googleDropList(HttpExchange exchange) throws IOException
+    { googleDropList(exchange, false); }
+
+    private void googleDropList(HttpExchange exchange, boolean participant) throws IOException
     {
         if (!"GET".equals(exchange.getRequestMethod())) { methodNotAllowed(exchange); return; }
-        Actor actor = authenticate(exchange);
-        if (actor == null || !actor.owner()) { sendError(exchange, 403, "Alleen de owner kan de droplijst ophalen"); return; }
+        if (participant)
+        {
+            if (!"/api/event-drop-list".equals(exchange.getRequestURI().getPath())) { sendError(exchange, 404, "Route niet gevonden"); return; }
+            if (!dropRequestLimits.allow("list:" + dropPeer(exchange), 240, System.currentTimeMillis()))
+            { sendError(exchange, 429, "Te veel droplijstverzoeken; probeer later opnieuw"); return; }
+        }
+        else
+        {
+            Actor actor = authenticate(exchange);
+            if (actor == null || !actor.owner()) { sendError(exchange, 403, "Alleen de owner kan de droplijst ophalen"); return; }
+        }
         String query = exchange.getRequestURI().getRawQuery();
-        String id = query != null && query.startsWith("eventId=") && !query.contains("&")
-            ? URLDecoder.decode(query.substring("eventId=".length()), StandardCharsets.UTF_8) : "";
+        String id;
+        try { id = query != null && query.startsWith("eventId=") && !query.contains("&")
+            ? URLDecoder.decode(query.substring("eventId=".length()), StandardCharsets.UTF_8) : ""; }
+        catch (IllegalArgumentException ex) { sendError(exchange, 400, "Ongeldig event-id"); return; }
         Event event = blank(id) || id.length() > 120 ? null : store.event(id);
+        if (participant && !activeDropEvent(event, OffsetDateTime.now(ZoneOffset.UTC)))
+        { sendError(exchange, 409, "Event is niet actief"); return; }
         String dropListUrl = effectiveDropListUrl(event);
         boolean googleSheet = GoogleSheetDrops.sheetId(dropListUrl) != null;
         if (event == null || (!googleSheet && !PvmWarProgress.SOURCE.equals(event.dropSource)))
@@ -512,7 +533,8 @@ public final class DutchNationsApi
         try
         {
             Map<String, Object> result = map("source", googleSheet ? dropListUrl : PvmWarProgress.SOURCE);
-            result.put("items", googleSheet ? GoogleSheetDrops.fetch(dropListUrl) : PvmWarProgress.fetch().availableItems());
+            result.put("items", participant ? participantDropItems(dropListUrl, googleSheet)
+                : googleSheet ? GoogleSheetDrops.fetch(dropListUrl) : PvmWarProgress.fetch().availableItems());
             send(exchange, 200, result);
         }
         catch (IOException | RuntimeException ex)
@@ -520,10 +542,26 @@ public final class DutchNationsApi
     }
 
     private void dropTest(HttpExchange exchange) throws IOException
+    { dropTest(exchange, false); }
+
+    private void dropTest(HttpExchange exchange, boolean participant) throws IOException
     {
         if (!"POST".equals(exchange.getRequestMethod())) { methodNotAllowed(exchange); return; }
-        Actor actor = authenticate(exchange);
-        if (actor == null || !actor.owner()) { sendError(exchange, 403, "Alleen de owner kan de droptest gebruiken"); return; }
+        if (participant)
+        {
+            if (!"/api/event-drops".equals(exchange.getRequestURI().getPath())) { sendError(exchange, 404, "Route niet gevonden"); return; }
+            String contentType = exchange.getRequestHeaders().getFirst("Content-Type");
+            if (contentType == null || !contentType.toLowerCase(Locale.ROOT).startsWith("application/json"))
+            { sendError(exchange, 415, "JSON-dropgegevens zijn verplicht"); return; }
+            if (!dropRequestLimits.allow("upload:" + dropPeer(exchange), 60, System.currentTimeMillis())
+                || !dropRequestLimits.allow("upload:all", 180, System.currentTimeMillis()))
+            { sendError(exchange, 429, "Te veel screenshots; probeer later opnieuw"); return; }
+        }
+        else
+        {
+            Actor actor = authenticate(exchange);
+            if (actor == null || !actor.owner()) { sendError(exchange, 403, "Alleen de owner kan de droptest gebruiken"); return; }
+        }
         if (!dropTestPermit.tryAcquire()) { sendError(exchange, 429, "Een droptest is nog bezig"); return; }
         try
         {
@@ -538,6 +576,10 @@ public final class DutchNationsApi
             Event event = report == null || blank(report.eventId) ? null : store.event(report.eventId);
             String error = validateLocalDrop(report, event, OffsetDateTime.now(ZoneOffset.UTC), report == null ? null : report.item);
             if (error != null) { sendError(exchange, 400, error); return; }
+            if (participant && !dropRequestLimits.allow("player:" + normalize(report.rsn), 20, System.currentTimeMillis()))
+            { sendError(exchange, 429, "Te veel screenshots van deze speler; probeer later opnieuw"); return; }
+            if (participant && !validParticipantPng(Base64.getDecoder().decode(report.screenshot)))
+            { sendError(exchange, 400, "Ongeldig PNG-spelbeeld"); return; }
             String dropListUrl = effectiveDropListUrl(event);
             boolean googleSheet = GoogleSheetDrops.sheetId(dropListUrl) != null;
             if (!googleSheet && !PvmWarProgress.SOURCE.equals(event.dropSource))
@@ -569,6 +611,12 @@ public final class DutchNationsApi
             TextChannel channel = discordBot == null ? null : discordBot.getTextChannelById(channelParts[3]);
             if (channel == null || !channelParts[2].equals(channel.getGuild().getId()))
             { sendError(exchange, 503, "Bot of ingesteld screenshotkanaal niet bereikbaar"); return; }
+            // Recheck after the external Sheet lookup and before handing an image to Discord.
+            if (!activeDropEvent(store.event(report.eventId), OffsetDateTime.now(ZoneOffset.UTC)))
+            { sendError(exchange, 409, "Event is niet actief"); return; }
+            if (participant && !dropRequestLimits.remember("sent:" + sha256(report.eventId + "\n" + normalize(report.rsn)
+                + "\n" + report.item + "\n" + report.quantity + "\n" + report.screenshot), System.currentTimeMillis()))
+            { sendError(exchange, 409, "Deze screenshot is al aangeboden; controleer Discord"); return; }
             try
             {
                 channel.sendMessage("**Eventdrop (test)**\nSpeler: " + report.rsn + "\nItem: " + report.item + "\nAantal: " + report.quantity)
@@ -586,6 +634,66 @@ public final class DutchNationsApi
             send(exchange, 200, result);
         }
         finally { dropTestPermit.release(); }
+    }
+
+    private static String dropPeer(HttpExchange exchange)
+    {
+        // Never trust caller-supplied forwarding headers to bypass request limits.
+        return exchange.getRemoteAddress().getAddress().getHostAddress();
+    }
+
+    static boolean activeDropEvent(Event event, OffsetDateTime now)
+    {
+        try { return event != null && !now.isBefore(OffsetDateTime.parse(event.startsAt)) && now.isBefore(OffsetDateTime.parse(event.endsAt)); }
+        catch (RuntimeException ex) { return false; }
+    }
+
+    static boolean validParticipantPng(byte[] image)
+    {
+        if (image == null || image.length < 33 || image.length > 4 * 1024 * 1024) return false;
+        byte[] signature = {(byte) 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a};
+        for (int i = 0; i < signature.length; i++) if (image[i] != signature[i]) return false;
+        java.nio.ByteBuffer header = java.nio.ByteBuffer.wrap(image);
+        if (header.getInt(8) != 13 || header.getInt(12) != 0x49484452) return false;
+        int width = header.getInt(16), height = header.getInt(20);
+        return width > 0 && height > 0 && width <= 16384 && height <= 16384 && (long) width * height <= 20_000_000;
+    }
+
+    private List<String> participantDropItems(String source, boolean googleSheet) throws IOException
+    {
+        long now = System.currentTimeMillis();
+        String key = googleSheet ? source : PvmWarProgress.SOURCE;
+        synchronized (participantDropLists)
+        {
+            participantDropLists.values().removeIf(value -> value.expiresAt <= now);
+            CachedDropList cached = participantDropLists.get(key);
+            if (cached != null)
+            {
+                if (cached.items == null) throw new IOException("Droplijst wordt geladen of is tijdelijk onbereikbaar");
+                return cached.items;
+            }
+            if (participantDropLists.size() >= 64 || !participantListPermit.tryAcquire()) throw new IOException("Droplijstserver is bezet");
+            participantDropLists.put(key, new CachedDropList(null, now + 60000));
+        }
+        try
+        {
+            List<String> items = new ArrayList<>(googleSheet ? GoogleSheetDrops.fetch(source) : PvmWarProgress.fetch().availableItems());
+            synchronized (participantDropLists) { participantDropLists.put(key, new CachedDropList(items, System.currentTimeMillis() + 30000)); }
+            return items;
+        }
+        catch (IOException | RuntimeException ex)
+        {
+            synchronized (participantDropLists) { participantDropLists.put(key, new CachedDropList(null, System.currentTimeMillis() + 10000)); }
+            throw ex;
+        }
+        finally { participantListPermit.release(); }
+    }
+
+    private static final class CachedDropList
+    {
+        final List<String> items;
+        final long expiresAt;
+        CachedDropList(List<String> items, long expiresAt) { this.items = items; this.expiresAt = expiresAt; }
     }
 
     private void localDropTest(HttpExchange exchange) throws IOException
