@@ -655,7 +655,7 @@ public final class DutchNationsApi
             if (now.isBefore(OffsetDateTime.parse(event.startsAt)) || !now.isBefore(OffsetDateTime.parse(event.endsAt))) return "Event is niet actief";
             boolean selected = false;
             if (selectedItems != null) for (String item : selectedItems.split(";"))
-                if (!item.trim().isEmpty() && item.trim().replace('\u2019', '\'').equalsIgnoreCase(report.item.trim().replace('\u2019', '\''))) selected = true;
+                if (!item.trim().isEmpty() && GoogleSheetDrops.matchesItem(item, report.item)) selected = true;
             if (!selected) return "Item staat niet op de droplijst";
             byte[] image = Base64.getDecoder().decode(report.screenshot);
             byte[] signature = {(byte) 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a};

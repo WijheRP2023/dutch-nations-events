@@ -52,4 +52,15 @@ public class DropMatcherTest
         assertFalse(GoogleSheetLink.supported("https://docs.google.com.evil.test/spreadsheets/d/" + id));
         assertFalse(GoogleSheetLink.supported("http://docs.google.com/spreadsheets/d/" + id));
     }
+
+    @Test public void bingoUsesLiteralFullNamesAndExplicitNameFragments()
+    {
+        assertTrue(DropMatcher.matchesItem("@contains:3x occult necklace", "Occult necklace"));
+        assertFalse(DropMatcher.matchesItem("@contains:3x occult necklaces", "Occult necklace"));
+        assertTrue(DropMatcher.matchesItem("@namecontains:inquisitor", "Inquisitor’s great helm"));
+        assertFalse(DropMatcher.matchesItem("@namecontains:inquisitor", "Torva full helm"));
+        assertFalse(DropMatcher.matchesItem("@namecontains:inquisitor", "Notinquisitor helm"));
+        assertFalse(DropMatcher.matchesItem("@contains:any nex unique", "Nihil horn"));
+        assertFalse(DropMatcher.matchesItem("Dragon claws", "Dragon claw"));
+    }
 }

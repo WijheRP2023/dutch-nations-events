@@ -144,6 +144,10 @@ final class GoogleSheetDrops
 
     private static Set<String> parseTable(List<List<String>> rows) throws IOException
     {
+        Set<String> pvmWarItems = parsePvmWarLayout(rows);
+        if (pvmWarItems != null) return pvmWarItems;
+        Set<String> checkboxItems = parseCheckboxLayout(rows);
+        if (checkboxItems != null) return checkboxItems;
         int headerRow = -1;
         int itemColumn = -1;
         for (int rowIndex = 0; rowIndex < rows.size() && headerRow == -1; rowIndex++)
@@ -174,6 +178,116 @@ final class GoogleSheetDrops
         if (names.isEmpty()) throw new IOException("Geen dropnamen gevonden");
         return Collections.unmodifiableSet(names);
     }
+
+    /**
+     * Supports the public PvM War format: an Item name column plus numbered
+     * obtained-by columns. A row is no longer eligible after seven entries.
+     */
+    private static Set<String> parsePvmWarLayout(List<List<String>> rows) throws IOException
+    {
+        for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++)
+        {
+            List<String> header = rows.get(rowIndex);
+            int itemColumn = column(header, "item name");
+            List<Integer> obtainedColumns = new ArrayList<>();
+            for (int slot = 1; slot <= 7; slot++)
+            {
+                int index = column(header, "#" + slot + " obtained by");
+                if (index >= 0) obtainedColumns.add(index);
+            }
+            if (itemColumn < 0 || obtainedColumns.size() != 7) continue;
+
+            Set<String> names = new LinkedHashSet<>();
+            Set<String> normalized = new LinkedHashSet<>();
+            for (int i = rowIndex + 1; i < rows.size(); i++)
+            {
+                List<String> row = rows.get(i);
+                String item = row.size() <= itemColumn ? "" : row.get(itemColumn).trim();
+                if (item.isEmpty()) continue;
+                if (item.length() > 100 || item.indexOf(';') >= 0 || item.chars().anyMatch(Character::isISOControl))
+                    throw new IOException("Ongeldige dropnaam in sheet");
+                int obtained = 0;
+                for (int index : obtainedColumns) if (present(row, index)) obtained++;
+                if (obtained >= 7) continue;
+                String key = item.replace('\u2019', '\'').toLowerCase(Locale.ROOT);
+                if (!normalized.add(key) || names.size() >= MAX_ITEMS) throw new IOException("Dubbele of te veel drops in sheet");
+                names.add(item);
+            }
+            return Collections.unmodifiableSet(names);
+        }
+        return null;
+    }
+
+    /** Bingo tasks use literal names or a name fragment; no boss drop tables are inferred. */
+    private static Set<String> parseCheckboxLayout(List<List<String>> rows) throws IOException
+    {
+        for (int headerRow = 0; headerRow < rows.size(); headerRow++)
+        {
+            List<String> header = rows.get(headerRow);
+            int itemColumn = column(header, "item");
+            if (itemColumn < 0)
+            {
+                int amountColumn = column(header, "aantal");
+                if (amountColumn < 2 || headerRow + 1 >= rows.size()
+                    || rows.get(headerRow + 1).size() <= amountColumn
+                    || !"1".equals(rows.get(headerRow + 1).get(amountColumn).trim())) continue;
+                itemColumn = amountColumn - 2;
+            }
+            Set<String> tasks = new LinkedHashSet<>();
+            boolean foundCheckbox = false;
+            for (int rowIndex = headerRow + 1; rowIndex < rows.size(); rowIndex++)
+            {
+                List<String> row = rows.get(rowIndex);
+                if (row.size() <= itemColumn + 1) continue;
+                String item = row.get(itemColumn).trim();
+                String checked = row.get(itemColumn + 1).trim();
+                if (item.isEmpty() || !("TRUE".equalsIgnoreCase(checked) || "FALSE".equalsIgnoreCase(checked))) continue;
+                foundCheckbox = true;
+                if ("TRUE".equalsIgnoreCase(checked)) continue;
+                if (item.length() > 100 || item.indexOf(';') >= 0 || item.chars().anyMatch(Character::isISOControl))
+                    throw new IOException("Ongeldige dropomschrijving in sheet");
+                tasks.add(taskRule(item));
+                if (tasks.size() > MAX_ITEMS) throw new IOException("Te veel drops in sheet");
+            }
+            if (foundCheckbox) return Collections.unmodifiableSet(tasks);
+        }
+        return null;
+    }
+
+    private static String taskRule(String task)
+    {
+        Matcher explicit = Pattern.compile("^(?:bevat|contains)\\s*:\\s*(.+)$", Pattern.CASE_INSENSITIVE).matcher(task);
+        if (explicit.matches()) return "@namecontains:" + explicit.group(1).trim();
+        Matcher piece = Pattern.compile("^(?:[0-9]+\\s*x\\s*)?(?:any\\s+)?(.+?)\\s+(?:armou?r\\s+)?pieces?$", Pattern.CASE_INSENSITIVE).matcher(task);
+        if (piece.matches()) return "@namecontains:" + piece.group(1).trim();
+        return "@contains:" + task;
+    }
+
+    static boolean matchesItem(String rule, String item)
+    {
+        if (rule == null || item == null || item.trim().isEmpty()) return false;
+        String name = item.trim().replace('\u2019', '\'').toLowerCase(Locale.ROOT);
+        String selected = rule.trim().replace('\u2019', '\'').toLowerCase(Locale.ROOT);
+        if (selected.startsWith("@namecontains:"))
+        {
+            String fragment = selected.substring("@namecontains:".length()).trim();
+            return !fragment.isEmpty() && Pattern.compile("(?<![\\p{L}\\p{N}])" + Pattern.quote(fragment) + "(?![\\p{L}\\p{N}])")
+                .matcher(name).find();
+        }
+        if (!selected.startsWith("@contains:")) return selected.equals(name);
+        return Pattern.compile("(?<![\\p{L}\\p{N}'])" + Pattern.quote(name) + "(?![\\p{L}\\p{N}'])")
+            .matcher(selected.substring("@contains:".length())).find();
+    }
+
+    private static int column(List<String> header, String name)
+    {
+        for (int i = 0; i < header.size(); i++)
+            if (name.equals(header.get(i).replace("\ufeff", "").trim().toLowerCase(Locale.ROOT))) return i;
+        return -1;
+    }
+
+    private static boolean present(List<String> row, int column)
+    { return column >= 0 && row.size() > column && !row.get(column).trim().isEmpty(); }
 
     private static List<List<String>> csvRows(String csv) throws IOException
     {
