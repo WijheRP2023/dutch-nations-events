@@ -63,6 +63,68 @@ final class GoogleSheetDrops
         }
     }
 
+    static Set<String> fetch(String link, String teamNames) throws IOException
+    {
+        if (EventTeams.names(teamNames).isEmpty()) return fetch(link);
+        String id = sheetId(link);
+        if (id == null) throw new IOException("Geen ondersteunde Google Sheets-link voor teams");
+        // Team events deliberately read exactly the selected public tab, never a
+        // different private fallback range which could omit team columns.
+        return parseTeamCsv(new String(read(publicCsv(link, id), null), StandardCharsets.UTF_8), teamNames);
+    }
+
+    static Set<String> parseTeamCsv(String csv, String teamNames) throws IOException
+    {
+        List<String> teams = EventTeams.names(teamNames);
+        if (teams.isEmpty()) return parseCsv(csv);
+        List<List<String>> rows = csvRows(csv);
+        for (int index = 0; index < rows.size(); index++)
+        {
+            List<String> header = rows.get(index);
+            int itemColumn = column(header, "drop (bewerkbaar)");
+            int teamColumn = column(header, "team");
+            int goalColumn = column(header, "doel");
+            int countColumn = column(header, "behaald");
+            if (itemColumn < 0 || teamColumn < 0 || goalColumn < 0 || countColumn < 0) continue;
+            Set<String> seenTeams = new LinkedHashSet<>();
+            Set<String> seenRows = new LinkedHashSet<>();
+            Set<String> available = new LinkedHashSet<>();
+            for (int rowIndex = index + 1; rowIndex < rows.size(); rowIndex++)
+            {
+                List<String> row = rows.get(rowIndex);
+                String item = cell(row, itemColumn), team = cell(row, teamColumn);
+                if (item.isEmpty() && team.isEmpty() && cell(row, goalColumn).isEmpty() && cell(row, countColumn).isEmpty()) continue;
+                String key = team.toLowerCase(Locale.ROOT);
+                if (teams.stream().noneMatch(name -> name.equalsIgnoreCase(team)))
+                    throw new IOException("Onbekend of leeg team in droplijst: " + team);
+                if (item.isEmpty() || item.length() > 100 || item.indexOf(';') >= 0 || item.chars().anyMatch(Character::isISOControl))
+                    throw new IOException("Ongeldige dropnaam in teamdroplijst");
+                if (!seenRows.add(key + "\n" + item.replace('\u2019', '\'').toLowerCase(Locale.ROOT)))
+                    throw new IOException("Dubbele drop voor hetzelfde team");
+                seenTeams.add(key);
+                int goal = teamNumber(cell(row, goalColumn), false);
+                String count = cell(row, countColumn);
+                int obtained = count.isEmpty() ? 0 : teamNumber(count, true);
+                if (obtained < goal) addResolved(available, item, item);
+            }
+            if (seenRows.size() > MAX_ITEMS * teams.size()) throw new IOException("Te veel teamdrops");
+            if (seenTeams.size() != teams.size()) throw new IOException("Niet alle ingestelde teams staan in de droplijst");
+            return Collections.unmodifiableSet(available);
+        }
+        throw new IOException("Teamdroplijst vereist kolommen Drop (bewerkbaar), Team, Doel en Behaald");
+    }
+
+    private static String cell(List<String> row, int column)
+    { return row.size() <= column ? "" : row.get(column).trim(); }
+
+    private static int teamNumber(String value, boolean allowZero) throws IOException
+    {
+        if (!value.matches("[0-9]{1,7}")) throw new IOException("Doel en Behaald moeten hele aantallen zijn");
+        int number = Integer.parseInt(value);
+        if (number > 1000000 || (!allowZero && number == 0)) throw new IOException("Ongeldig doel of behaald aantal");
+        return number;
+    }
+
     private static URI publicCsv(String link, String id)
     {
         URI original = URI.create(link.trim());
