@@ -12,6 +12,21 @@ final class EventTeams
 {
     private EventTeams() { }
 
+    static String validatePages(String type, String teams, String one, String two)
+    {
+        if ((one == null || one.trim().isEmpty()) && (two == null || two.trim().isEmpty())) return null;
+        if (!"CLAN_EVENT".equalsIgnoreCase(type)) return "Teamdroppagina's zijn alleen beschikbaar bij clan-events";
+        try
+        {
+            if (names(teams).size() != 2) return "Gebruik precies twee teamnamen voor twee teamdroppagina's";
+            String first = GoogleSheetDrops.tabKey(one), second = GoogleSheetDrops.tabKey(two);
+            if (first == null || second == null) return "Vul voor beide teams een Google Sheet-link naar het eigen tabblad in (met gid)";
+            if (first.equals(second)) return "Gebruik twee verschillende teamdroppagina's";
+        }
+        catch (IllegalArgumentException ex) { return ex.getMessage(); }
+        return null;
+    }
+
     static List<String> names(String value)
     {
         if (value == null || value.trim().isEmpty()) return Collections.emptyList();

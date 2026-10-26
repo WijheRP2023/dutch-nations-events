@@ -73,6 +73,68 @@ final class GoogleSheetDrops
         return parseTeamCsv(new String(read(publicCsv(link, id), null), StandardCharsets.UTF_8), teamNames);
     }
 
+    static String tabKey(String link)
+    {
+        String id = sheetId(link);
+        if (id == null) return null;
+        URI uri = URI.create(link.trim());
+        Matcher query = GID.matcher(uri.getRawQuery() == null ? "" : uri.getRawQuery());
+        Matcher fragment = GID.matcher(uri.getRawFragment() == null ? "" : uri.getRawFragment());
+        String q = query.find() ? query.group(1) : null, f = fragment.find() ? fragment.group(1) : null;
+        if (q != null && f != null && !q.equals(f)) return null;
+        return q == null && f == null ? null : id + "/" + (q == null ? f : q);
+    }
+
+    static Set<String> fetch(String link, String teamNames, String one, String two) throws IOException
+    {
+        if ((one == null || one.trim().isEmpty()) && (two == null || two.trim().isEmpty())) return fetch(link, teamNames);
+        String error = EventTeams.validatePages("CLAN_EVENT", teamNames, one, two);
+        if (error != null) throw new IOException(error);
+        List<String> teams = EventTeams.names(teamNames);
+        Set<String> available = new LinkedHashSet<>();
+        String[] pages = {one, two};
+        for (int i = 0; i < pages.length; i++)
+            available.addAll(parseTeamInputCsv(new String(read(publicCsv(pages[i], sheetId(pages[i])), null), StandardCharsets.UTF_8), teams.get(i)));
+        if (available.size() > MAX_ITEMS) throw new IOException("Te veel beschikbare teamdrops");
+        return Collections.unmodifiableSet(available);
+    }
+
+    /** The native event template: active rows only, validated counts, no write-back. */
+    static Set<String> parseTeamInputCsv(String csv, String expectedTeam) throws IOException
+    {
+        List<List<String>> rows = csvRows(csv);
+        boolean named = false;
+        for (List<String> row : rows)
+            if (!row.isEmpty() && row.get(0).trim().equalsIgnoreCase(expectedTeam + " — teamoverzicht & invoer")) named = true;
+        if (!named) throw new IOException("Teamnaam in de droppagina komt niet overeen met het event");
+        for (int index = 0; index < rows.size(); index++)
+        {
+            List<String> header = rows.get(index);
+            int id = column(header, "drop-id"), item = column(header, "drop"), goal = column(header, "doel");
+            int count = column(header, "behaald"), active = column(header, "actief"), status = column(header, "status");
+            if (id < 0 || item < 0 || goal < 0 || count < 0 || active < 0 || status < 0) continue;
+            Set<String> seen = new LinkedHashSet<>(), available = new LinkedHashSet<>();
+            for (int r = index + 1; r < rows.size(); r++)
+            {
+                List<String> row = rows.get(r);
+                String selected = cell(row, active);
+                if (selected.isEmpty() || "false".equalsIgnoreCase(selected) || "onwaar".equalsIgnoreCase(selected)) continue;
+                if (!"true".equalsIgnoreCase(selected) && !"waar".equalsIgnoreCase(selected)) throw new IOException("Ongeldige selectie in teamdroppagina");
+                String key = cell(row, id), name = cell(row, item);
+                if (!key.matches("DROP-[0-9]+") || !seen.add(key)) throw new IOException("Ongeldig of dubbel Drop-ID in teamdroppagina");
+                if (name.isEmpty() || name.length() > 100 || name.indexOf(';') >= 0 || name.chars().anyMatch(Character::isISOControl)) throw new IOException("Ongeldige dropnaam in teamdroppagina");
+                int target = teamNumber(cell(row, goal), false), obtained = teamNumber(cell(row, count), true);
+                if (target > 7 || obtained > target) throw new IOException("Doel moet 1 t/m 7 zijn; Behaald mag niet boven het doel liggen");
+                String state = cell(row, status);
+                if (obtained < target && "nog nodig".equalsIgnoreCase(state)) addResolved(available, name, name);
+                else if (obtained < target && !state.toLowerCase(Locale.ROOT).startsWith("van ")) throw new IOException("Onbekende status in teamdroppagina");
+                if (seen.size() > MAX_ITEMS) throw new IOException("Te veel actieve teamdrops");
+            }
+            return Collections.unmodifiableSet(available);
+        }
+        throw new IOException("Teamdroppagina vereist Drop-ID, Drop, Doel, Behaald, Status en Actief");
+    }
+
     static Set<String> parseTeamCsv(String csv, String teamNames) throws IOException
     {
         List<String> teams = EventTeams.names(teamNames);
@@ -129,8 +191,17 @@ final class GoogleSheetDrops
     {
         URI original = URI.create(link.trim());
         Matcher gid = GID.matcher(original.getRawQuery() == null ? "" : original.getRawQuery());
-        String tab = gid.find() ? "gid=" + gid.group(1) : "sheet=Instellingen";
+        Matcher fragment = GID.matcher(original.getRawFragment() == null ? "" : original.getRawFragment());
+        String tab = gid.find() ? "gid=" + gid.group(1) : fragment.find() ? "gid=" + fragment.group(1) : "sheet=Instellingen";
         return URI.create("https://docs.google.com/spreadsheets/d/" + id + "/gviz/tq?tqx=out:csv&" + tab);
+    }
+
+    static SheetTeamRoster fetchRoster(String id) throws IOException
+    {
+        if (id == null || !id.matches("[A-Za-z0-9_-]{20,128}")) throw new IOException("Ongeldig Sheet-id voor teamindeling");
+        URI uri = URI.create("https://docs.google.com/spreadsheets/d/" + id
+            + "/gviz/tq?tqx=out:csv&sheet=Instellingen&range=A17%3AE1018&tq=select%20A%2CE&headers=0");
+        return SheetTeamRoster.parseCsv(new String(read(uri, null, 2500, 4000), StandardCharsets.UTF_8));
     }
 
     private static Set<String> fetchPrivate(String id, IOException publicFailure) throws IOException
@@ -146,9 +217,12 @@ final class GoogleSheetDrops
     }
 
     private static byte[] read(URI uri, String authorization) throws IOException
+    { return read(uri, authorization, 6000, 10000); }
+
+    private static byte[] read(URI uri, String authorization, int connectTimeout, int readTimeout) throws IOException
     {
         HttpURLConnection connection = (HttpURLConnection) uri.toURL().openConnection();
-        connection.setConnectTimeout(6000); connection.setReadTimeout(10000);
+        connection.setConnectTimeout(connectTimeout); connection.setReadTimeout(readTimeout);
         connection.setInstanceFollowRedirects(false);
         if (authorization != null) connection.setRequestProperty("Authorization", authorization);
         try
@@ -360,7 +434,7 @@ final class GoogleSheetDrops
     private static boolean present(List<String> row, int column)
     { return column >= 0 && row.size() > column && !row.get(column).trim().isEmpty(); }
 
-    private static List<List<String>> csvRows(String csv) throws IOException
+    static List<List<String>> csvRows(String csv) throws IOException
     {
         List<List<String>> rows = new ArrayList<>(); List<String> row = new ArrayList<>(); StringBuilder cell = new StringBuilder(); boolean quoted = false;
         for (int i = 0; i < csv.length(); i++)

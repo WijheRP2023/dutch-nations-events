@@ -59,6 +59,7 @@ public final class DutchNationsApi
     // te migreren. Na de eerste overdracht bepaalt de opgeslagen eigenaar de rechten.
     private static final String INITIAL_OWNER_RSN = "heavenskill";
     private final Store store;
+    private final SheetTeamRoster.Lookup screenshotTeams = new SheetTeamRoster.Lookup(GoogleSheetDrops::fetchRoster);
     private final String bootstrapOwnerHash;
     private final java.util.concurrent.Semaphore dropTestPermit = new java.util.concurrent.Semaphore(4);
     private final DropRequestLimits dropRequestLimits = new DropRequestLimits();
@@ -367,6 +368,8 @@ public final class DutchNationsApi
             if (event.dropListUrl == null) event.dropListUrl = existing.dropListUrl;
             // Older Plugin Hub clients do not send this newly optional field.
             if (event.teamNames == null) event.teamNames = existing.teamNames;
+            if (event.teamOneDropListUrl == null) event.teamOneDropListUrl = existing.teamOneDropListUrl;
+            if (event.teamTwoDropListUrl == null) event.teamTwoDropListUrl = existing.teamTwoDropListUrl;
             event.discordText = "";
             event.type = event.type == null ? "" : event.type.toUpperCase(Locale.ROOT);
             if (!actor.canManageEventType(event.type)) { sendError(exchange, 403, "Deze rol mag alleen learner-events beheren"); return; }
@@ -535,8 +538,8 @@ public final class DutchNationsApi
         try
         {
             Map<String, Object> result = map("source", googleSheet ? dropListUrl : PvmWarProgress.SOURCE);
-            result.put("items", participant ? participantDropItems(dropListUrl, googleSheet, eventTeams(event))
-                : googleSheet ? GoogleSheetDrops.fetch(dropListUrl, eventTeams(event)) : PvmWarProgress.fetch().availableItems());
+            result.put("items", participant ? participantDropItems(event, dropListUrl, googleSheet, eventTeams(event))
+                : googleSheet ? fetchEventDrops(event) : PvmWarProgress.fetch().availableItems());
             result.put("teams", EventTeams.names(eventTeams(event)));
             send(exchange, 200, result);
         }
@@ -591,7 +594,7 @@ public final class DutchNationsApi
             PvmWarProgress.Slots slots = null;
             if (googleSheet)
             {
-                try { items = String.join(";", GoogleSheetDrops.fetch(dropListUrl, eventTeams(event))); }
+                try { items = String.join(";", fetchEventDrops(event)); }
                 catch (IOException | RuntimeException ex) { sendError(exchange, 503, "Google Sheet kan niet worden gelezen; geen bericht geplaatst"); return; }
             }
             if (!googleSheet)
@@ -614,6 +617,7 @@ public final class DutchNationsApi
             TextChannel channel = discordBot == null ? null : discordBot.getTextChannelById(channelParts[3]);
             if (channel == null || !channelParts[2].equals(channel.getGuild().getId()))
             { sendError(exchange, 503, "Bot of ingesteld screenshotkanaal niet bereikbaar"); return; }
+            String teamName = screenshotTeam(event, report.rsn);
             // Recheck after the external Sheet lookup and before handing an image to Discord.
             if (!activeDropEvent(store.event(report.eventId), OffsetDateTime.now(ZoneOffset.UTC)))
             { sendError(exchange, 409, "Event is niet actief"); return; }
@@ -622,7 +626,7 @@ public final class DutchNationsApi
             { sendError(exchange, 409, "Deze screenshot is al aangeboden; controleer Discord"); return; }
             try
             {
-                channel.sendMessage("**Eventdrop (test)**\nSpeler: " + report.rsn + "\nItem: " + report.item + "\nAantal: " + report.quantity)
+                channel.sendMessage(dropMessage(report, teamName, true))
                     .setAllowedMentions(java.util.Collections.emptyList())
                     .addFiles(FileUpload.fromData(Base64.getDecoder().decode(report.screenshot), "drop.png"))
                     .submit().get(15, TimeUnit.SECONDS);
@@ -662,10 +666,10 @@ public final class DutchNationsApi
         return width > 0 && height > 0 && width <= 16384 && height <= 16384 && (long) width * height <= 20_000_000;
     }
 
-    private List<String> participantDropItems(String source, boolean googleSheet, String teams) throws IOException
+    private List<String> participantDropItems(Event event, String source, boolean googleSheet, String teams) throws IOException
     {
         long now = System.currentTimeMillis();
-        String key = googleSheet ? source + "\n" + teams : PvmWarProgress.SOURCE;
+        String key = googleSheet ? source + "\n" + teams + "\n" + event.teamOneDropListUrl + "\n" + event.teamTwoDropListUrl : PvmWarProgress.SOURCE;
         synchronized (participantDropLists)
         {
             participantDropLists.values().removeIf(value -> value.expiresAt <= now);
@@ -680,7 +684,7 @@ public final class DutchNationsApi
         }
         try
         {
-            List<String> items = new ArrayList<>(googleSheet ? GoogleSheetDrops.fetch(source, teams) : PvmWarProgress.fetch().availableItems());
+            List<String> items = new ArrayList<>(googleSheet ? fetchEventDrops(event) : PvmWarProgress.fetch().availableItems());
             synchronized (participantDropLists) { participantDropLists.put(key, new CachedDropList(items, System.currentTimeMillis() + 30000)); }
             return items;
         }
@@ -716,7 +720,7 @@ public final class DutchNationsApi
         String selectedItems = event == null ? "" : event.dropItems;
         if (googleSheet)
         {
-            try { selectedItems = String.join(";", GoogleSheetDrops.fetch(dropListUrl, eventTeams(event))); }
+            try { selectedItems = String.join(";", fetchEventDrops(event)); }
             catch (IOException | RuntimeException ex) { sendError(exchange, 503, "Google Sheet kan niet worden gelezen; geen drop verstuurd"); return; }
         }
         PvmWarProgress.Slots slots = null;
@@ -743,8 +747,11 @@ public final class DutchNationsApi
             { sendError(exchange, 403, "Dit kanaal is niet het toegestane Discord-testkanaal"); return; }
             TextChannel channel = discordBot == null ? null : discordBot.getTextChannelById(discordChannelId(channelUrl));
             if (channel == null) { sendError(exchange, 503, "Bot of dropkanaal niet bereikbaar"); return; }
+            String teamName = screenshotTeam(event, report.rsn);
+            if (!activeDropEvent(store.event(report.eventId), OffsetDateTime.now(ZoneOffset.UTC)))
+            { sendError(exchange, 409, "Event is niet actief"); return; }
             byte[] image = Base64.getDecoder().decode(report.screenshot);
-            channel.sendMessage("**Eventdrop**\nSpeler: " + report.rsn + "\nItem: " + report.item + "\nAantal: " + report.quantity)
+            channel.sendMessage(dropMessage(report, teamName, false))
                 .setAllowedMentions(java.util.Collections.emptyList()).addFiles(FileUpload.fromData(image, "drop.png"))
                 .queue(message -> { }, failure -> store.error("Discord-bot", "Dropscreenshot kon niet worden geplaatst"));
         }
@@ -941,12 +948,14 @@ public final class DutchNationsApi
         if (!validOptional(event.clansOne, 300) || !validOptional(event.clansTwo, 300)) return "Clanlijst is ongeldig";
         if (!validOptional(event.activity, 120)) return "Activiteit is ongeldig";
         if (!validOptional(event.bossList, 300)) return "Boss- of activiteitenlijst is ongeldig";
+        String teamPageError = EventTeams.validatePages(event.type, event.teamNames, event.teamOneDropListUrl, event.teamTwoDropListUrl);
+        if (teamPageError != null) return teamPageError;
         if (!blank(event.teamNames))
         {
             if (!"CLAN_EVENT".equals(type)) return "Teams zijn alleen beschikbaar bij clan-events";
             try { EventTeams.names(event.teamNames); }
             catch (IllegalArgumentException ex) { return ex.getMessage(); }
-            if (GoogleSheetDrops.sheetId(event.dropListUrl) == null) return "Teams vereisen een Google Sheet als screenshot-droplijst";
+            if (blank(event.teamOneDropListUrl) && GoogleSheetDrops.sheetId(event.dropListUrl) == null) return "Teams vereisen een Google Sheet als screenshot-droplijst";
         }
         if (!validOptional(event.dropItems, 12000)) return "Droplijst is ongeldig of langer dan 12.000 tekens";
         if (!blank(event.dropSource) && !PvmWarProgress.SOURCE.equals(event.dropSource)) return "Ongeldige dropbron";
@@ -1037,7 +1046,30 @@ public final class DutchNationsApi
     { String value = System.getenv(key); return blank(value) ? fallback : value; }
     private static boolean blank(String value) { return value == null || value.trim().isEmpty(); }
     private static String effectiveDropListUrl(Event event)
-    { return event == null ? "" : event.dropListUrl == null ? event.driveUrl : event.dropListUrl; }
+    { return event == null ? "" : "CLAN_EVENT".equalsIgnoreCase(event.type) && !blank(event.teamOneDropListUrl) ? event.teamOneDropListUrl : event.dropListUrl == null ? event.driveUrl : event.dropListUrl; }
+
+    private static java.util.Set<String> fetchEventDrops(Event event) throws IOException
+    {
+        return GoogleSheetDrops.fetch(effectiveDropListUrl(event), eventTeams(event), event.teamOneDropListUrl, event.teamTwoDropListUrl);
+    }
+
+    private String screenshotTeam(Event event, String rsn)
+    {
+        if (event == null || !"CLAN_EVENT".equalsIgnoreCase(event.type) || blank(event.teamNames)) return null;
+        String id = SheetTeamRoster.sourceId(event.teamOneDropListUrl, event.teamTwoDropListUrl, effectiveDropListUrl(event));
+        return screenshotTeams.teamFor(id, rsn, event.teamNames, System.currentTimeMillis());
+    }
+
+    static String dropMessage(DropTestReport report, String teamName, boolean test)
+    {
+        String team = teamName == null ? "" : SheetTeamRoster.UNKNOWN.equals(teamName) ? "\nTeam onbekend"
+            : "\nTeam: " + discordLiteral(teamName);
+        return (test ? "**Eventdrop (test)**" : "**Eventdrop**") + "\nSpeler: " + report.rsn + team
+            + "\nItem: " + report.item + "\nAantal: " + report.quantity;
+    }
+
+    private static String discordLiteral(String text)
+    { return text.replace("\\", "\\\\").replace("*", "\\*").replace("_", "\\_").replace("`", "\\`").replace("~", "\\~").replace("|", "\\|"); }
 
     private static String eventTeams(Event event)
     { return event != null && "CLAN_EVENT".equalsIgnoreCase(event.type) && event.teamNames != null ? event.teamNames : ""; }
@@ -1570,6 +1602,7 @@ public final class DutchNationsApi
         String id; String startsAt; String endsAt; String type; String title;
         String world; String host; String description; String codeword; String checklist; String requiredPlugins; String strategyWikiUrl; String driveUrl; String dropListUrl; String registrationUrl; String registrationEndsAt; String youtubeUrl; String discordText; String discordDescription; String discordMessageId; String discordChannelId;
         String clansOne; String clansTwo; String activity; String bossList; String dropItems; String dropChannelUrl; String dropSource; String teamNames;
+        String teamOneDropListUrl; String teamTwoDropListUrl;
         boolean codewordRequired;
         boolean allowConflict;
     }
