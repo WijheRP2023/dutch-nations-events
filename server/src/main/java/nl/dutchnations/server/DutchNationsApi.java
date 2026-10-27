@@ -66,6 +66,7 @@ public final class DutchNationsApi
     private final Map<String, CachedDropList> participantDropLists = new HashMap<>();
     private final java.util.concurrent.Semaphore participantListPermit = new java.util.concurrent.Semaphore(2);
     private JDA discordBot;
+    private BattleshipSync battleshipSync;
 
     private DutchNationsApi(Store store, String ownerToken)
     {
@@ -109,6 +110,11 @@ public final class DutchNationsApi
         server.createContext("/api/event-drops", exchange -> dropTest(exchange, true));
         server.createContext("/api/local-drop-test", this::localDropTest);
         server.createContext("/api/owner-logs", this::ownerLogs);
+        server.createContext("/api/zeeslag/status", exchange -> {
+            if (!"/api/zeeslag/status".equals(exchange.getRequestURI().getPath())) { sendError(exchange, 404, "Route niet gevonden"); return; }
+            if (!"GET".equals(exchange.getRequestMethod())) { methodNotAllowed(exchange); return; }
+            send(exchange, 200, map("configured", BattleshipSync.configured()));
+        });
         server.setExecutor(Executors.newFixedThreadPool(8));
         server.start();
 
@@ -116,7 +122,10 @@ public final class DutchNationsApi
 
         ScheduledExecutorService cleanup = Executors.newSingleThreadScheduledExecutor();
         cleanup.scheduleAtFixedRate(store::removeExpired, 0, 1, TimeUnit.MINUTES);
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> { cleanup.shutdown(); if (discordBot != null) discordBot.shutdown(); server.stop(1); }));
+        battleshipSync = new BattleshipSync(store);
+        ScheduledExecutorService battleshipWorker = Executors.newSingleThreadScheduledExecutor();
+        if (BattleshipSync.configured()) battleshipWorker.scheduleWithFixedDelay(battleshipSync::tick, 5, 15, TimeUnit.SECONDS);
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> { cleanup.shutdown(); battleshipWorker.shutdown(); if (discordBot != null) discordBot.shutdown(); server.stop(1); }));
         System.out.println("Dutch Nations API actief op http://" + bind + ":" + port);
         System.out.println("Feed: http://" + bind + ":" + port + "/feed.json");
     }
@@ -1261,6 +1270,37 @@ public final class DutchNationsApi
         {
             return state.events.stream().filter(value -> id.equals(value.id)).findFirst().orElse(null);
         }
+        synchronized BattleshipGame battleship(String key)
+        {
+            if (state.battleships == null) state.battleships = new HashMap<>();
+            BattleshipGame game = state.battleships.get(key);
+            return game == null ? null : GSON.fromJson(GSON.toJson(game), BattleshipGame.class);
+        }
+        synchronized void saveBattleship(BattleshipGame game)
+        {
+            if (state.battleships == null) state.battleships = new HashMap<>();
+            BattleshipGame previous = state.battleships.put(game.key, GSON.fromJson(GSON.toJson(game), BattleshipGame.class));
+            try { changed(); }
+            catch (RuntimeException failure)
+            {
+                if (previous == null) state.battleships.remove(game.key); else state.battleships.put(game.key, previous);
+                throw failure;
+            }
+        }
+        synchronized BattleshipGame latestBattleship(String prefix)
+        {
+            if (state.battleships == null) return null;
+            BattleshipGame latest = state.battleships.values().stream().filter(g -> g.key.startsWith(prefix))
+                .max(java.util.Comparator.comparing((BattleshipGame g) -> g.started).thenComparingLong(g -> g.endsAt)).orElse(null);
+            return latest == null ? null : GSON.fromJson(GSON.toJson(latest), BattleshipGame.class);
+        }
+        synchronized BattleshipGame activeBattleship(String prefix, long now)
+        {
+            if (state.battleships == null) return null;
+            BattleshipGame active = state.battleships.values().stream().filter(g -> g.key.startsWith(prefix) && g.started && now >= g.startsAt && now < g.endsAt)
+                .findFirst().orElse(null);
+            return active == null ? null : GSON.fromJson(GSON.toJson(active), BattleshipGame.class);
+        }
         synchronized LearnerTemplate learnerTemplate(String id)
         {
             return state.learnerTemplates.stream().filter(value -> id.equals(value.id)).findFirst().orElse(null);
@@ -1591,6 +1631,7 @@ public final class DutchNationsApi
         String lastAnnouncementMessageId = "";
         List<LogEntry> managementLogs = new ArrayList<>();
         List<LogEntry> errorLogs = new ArrayList<>();
+        Map<String, BattleshipGame> battleships = new HashMap<>();
     }
     static final class Feed { String updatedAt; String announcementsUrl; boolean announcementsVisible; String eventAnnouncementsUrl; String dropChannelUrl; long announcementsSequence; List<LearnerTemplate> learnerTemplates; List<Event> events; }
     static final class AnnouncementVisibility { boolean visible; }
