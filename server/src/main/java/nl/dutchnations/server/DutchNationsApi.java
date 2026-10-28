@@ -65,7 +65,7 @@ public final class DutchNationsApi
     private final DropRequestLimits dropRequestLimits = new DropRequestLimits();
     private final Map<String, CachedDropList> participantDropLists = new HashMap<>();
     private final java.util.concurrent.Semaphore participantListPermit = new java.util.concurrent.Semaphore(2);
-    private JDA discordBot;
+    private volatile JDA discordBot;
     private BattleshipSync battleshipSync;
 
     private DutchNationsApi(Store store, String ownerToken)
@@ -118,16 +118,27 @@ public final class DutchNationsApi
         server.setExecutor(Executors.newFixedThreadPool(8));
         server.start();
 
-        startDiscordBot(discordBotToken);
-
         ScheduledExecutorService cleanup = Executors.newSingleThreadScheduledExecutor();
         cleanup.scheduleAtFixedRate(store::removeExpired, 0, 1, TimeUnit.MINUTES);
         battleshipSync = new BattleshipSync(store);
         ScheduledExecutorService battleshipWorker = Executors.newSingleThreadScheduledExecutor();
         if (BattleshipSync.configured()) battleshipWorker.scheduleWithFixedDelay(battleshipSync::tick, 5, 15, TimeUnit.SECONDS);
+        startDiscordInBackground(() -> startDiscordBot(discordBotToken));
         Runtime.getRuntime().addShutdownHook(new Thread(() -> { cleanup.shutdown(); battleshipWorker.shutdown(); if (discordBot != null) discordBot.shutdown(); server.stop(1); }));
         System.out.println("Dutch Nations API actief op http://" + bind + ":" + port);
         System.out.println("Feed: http://" + bind + ":" + port + "/feed.json");
+    }
+
+    /** A Discord/Cloudflare retry must never delay the HTTP API or Sheet worker. */
+    static Thread startDiscordInBackground(Runnable connect)
+    {
+        Thread thread = new Thread(() -> {
+            try { connect.run(); }
+            catch (RuntimeException failure) { System.err.println("Discord-bot kon niet worden verbonden; API en Sheet-controle blijven actief."); }
+        }, "dn-discord-connect");
+        thread.setDaemon(true);
+        thread.start();
+        return thread;
     }
 
     private void startDiscordBot(String token)
