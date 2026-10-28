@@ -14,7 +14,7 @@ final class BattleshipGame
 {
     static final class RuleFailure extends IllegalArgumentException
     { RuleFailure(String message) { super(message); } }
-    static final int SIZE = 10;
+    static final int SIZE = 8;
     static final int[] LENGTHS = {5, 4, 3, 3, 2};
     String key;
     String binding;
@@ -52,7 +52,7 @@ final class BattleshipGame
     static String coordinate(String raw)
     {
         String value = raw == null ? "" : raw.trim().toUpperCase(Locale.ROOT);
-        if (!value.matches("[A-J](?:[1-9]|10)")) throw new RuleFailure("Kies een vak van A1 tot J10");
+        if (!value.matches("[A-H][1-8]")) throw new RuleFailure("Kies een vak van A1 tot H8");
         return value;
     }
 

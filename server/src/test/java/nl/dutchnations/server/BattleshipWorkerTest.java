@@ -81,7 +81,7 @@ public class BattleshipWorkerTest
         sync.tick();google.ready();sync.tick();
         String key=MAIN+"@"+start+":"+BattleshipSync.date(46023.6);
         assertTrue(store.battleship(key).ready);
-        now[0]=start+1; google.submit("J10");google.failPublish=true;sync.tick();
+        now[0]=start+1; google.submit("H8");google.failPublish=true;sync.tick();
         assertEquals(1,store.battleship(key).shots.get(0).size());assertTrue(google.openOne.isEmpty());
         DutchNationsApi.Store reload=new DutchNationsApi.Store(f);
         new BattleshipSync(reload,google,MAIN,ONE,TWO,"test",()->now[0]).tick();

@@ -9,6 +9,16 @@ import static org.junit.Assert.*;
 
 public class BattleshipSyncTest
 {
+    @Test public void eightByEightBoardClearsLegacyTransportEdges()
+    {
+        BattleshipGame game=BattleshipGameTest.game();
+        game.fire(0,"H8",BattleshipGameTest.all(),500);
+        List<List<?>> sheet=BattleshipSync.sheetBoard(game,0);
+        assertEquals(8,game.publicBoard(0).size());
+        assertEquals(8,game.publicBoard(0).get(0).size());
+        assertEquals("MIS",sheet.get(7).get(7));
+        for(int y=0;y<10;y++) for(int x=0;x<10;x++) if(y>=8||x>=8) assertEquals("",sheet.get(y).get(x));
+    }
     static List<List<Object>> rows()
     {
         List<List<Object>> rows = new ArrayList<>();

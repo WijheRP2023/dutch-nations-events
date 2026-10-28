@@ -88,6 +88,13 @@ final class BattleshipSync
         if (end <= start) throw new BattleshipGame.RuleFailure("Vul een geldige start- en einddatum met tijd in");
         String key = main + "@" + start + ":" + end;
         BattleshipGame game = store.battleship(key);
+        if (game != null)
+        {
+            for (Map<String,Integer> fleet : game.fleets) for (String coordinate : fleet.keySet())
+                if (!coordinate.matches("[A-H][1-8]")) throw new BattleshipGame.RuleFailure("De opgeslagen vloot past niet op het 8×8-bord. Bereid een nieuw event voor.");
+            for (List<BattleshipGame.Shot> shots : game.shots) for (BattleshipGame.Shot shot : shots)
+                if (!shot.coordinate.matches("[A-H][1-8]")) throw new BattleshipGame.RuleFailure("Het opgeslagen spel bevat schoten buiten het 8×8-bord. Bereid een nieuw event voor.");
+        }
         BattleshipGame latest = store.activeBattleship(main + "@", now);
         if (latest != null && latest.started && now < latest.endsAt && !key.equals(latest.key))
             throw new BattleshipGame.RuleFailure("De vastgezette eventperiode is gewijzigd; herstel de oorspronkelijke periode");
@@ -180,7 +187,7 @@ final class BattleshipSync
         {
             int earned = game == null ? 0 : game.earned(complete.get(team)), used = game == null ? 0 : game.shots.get(team).size();
             counts.add(List.of(team + 1, earned, used, Math.max(0, earned - used), game == null ? "" : game.messages.get(team)));
-            data.put(team == 0 ? "Zeeslagdata!A12:J21" : "Zeeslagdata!M12:V21", game == null ? blankBoard() : new ArrayList<>(game.publicBoard(team)));
+            data.put(team == 0 ? "Zeeslagdata!A12:J21" : "Zeeslagdata!M12:V21", sheetBoard(game, team));
             if (consumed[team])
             {
                 data.put(team == 0 ? "Zeeslag!E20" : "Zeeslag!Q20", List.of(List.of("")));
@@ -241,6 +248,19 @@ final class BattleshipSync
     private static Object cell(List<List<Object>> rows, int r, int c) { return r < rows.size() && c < rows.get(r).size() ? rows.get(r).get(c) : ""; }
     private static String text(List<List<Object>> rows, int r, int c) { return string(cell(rows, r, c)); }
     private static String string(Object v) { return v instanceof String ? ((String) v).trim() : ""; }
-    private static List<List<?>> blankBoard() { List<List<?>> rows = new ArrayList<>(); for (int i = 0; i < 10; i++) rows.add(Arrays.asList("", "", "", "", "", "", "", "", "", "")); return rows; }
+    // Keep the existing transport ranges, explicitly clearing the removed rows/columns.
+    static List<List<?>> sheetBoard(BattleshipGame game, int team)
+    {
+        List<List<?>> rows = new ArrayList<>();
+        List<List<String>> board = game == null ? List.of() : game.publicBoard(team);
+        for (int y = 0; y < 10; y++)
+        {
+            List<String> row = new ArrayList<>(java.util.Collections.nCopies(10, ""));
+            if (game != null && y < BattleshipGame.SIZE)
+                for (int x = 0; x < BattleshipGame.SIZE; x++) row.set(x, board.get(y).get(x));
+            rows.add(row);
+        }
+        return rows;
+    }
     private static String hash(String text) throws Exception { byte[] digest = MessageDigest.getInstance("SHA-256").digest(text.getBytes(StandardCharsets.UTF_8)); StringBuilder out = new StringBuilder(); for (byte b : digest) out.append(String.format("%02x", b)); return out.toString(); }
 }

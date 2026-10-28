@@ -24,11 +24,11 @@ Gebruik bij Zeeslag geen geïnstalleerde eigenaarstriggers in het gedeelde, aan 
 ## Voor ieder event
 
 1. Kies **Zeeslag** op Instellingen. Vul vóór het event de teamnamen, deelnemers, dropdoelen en een toekomstige start- en einddatum met tijd in.
-2. Wacht op de serverkoppeling in beide privébestanden. Plaats in elk bestand vijf rechte boten met lengtes **5, 4, 3, 3, 2** op een **10 × 10** bord. Kies beginvak en richting; geen overlap of vakken buiten het bord.
+2. Wacht op de serverkoppeling in beide privébestanden. Plaats in elk bestand vijf rechte boten met lengtes **5, 4, 3, 3, 2** op een **8 × 8** bord. Kies beginvak en richting; geen overlap of vakken buiten het bord. Tussenstand toont beide teams naast elkaar.
 3. Vink **Gereed** aan in beide privébestanden, ruim vóór de start. Controleer dat de server de voorbereiding bevestigt. Een spel kan niet voor het eerst na de start worden vrijgegeven.
 4. Vanaf de start zijn de opgeslagen vloten, teamnamen, doelen en periode vast. Betaald-vinkjes blijven alleen bewerkbaar als deze optie aanstaat. Het wijzigen van een privéblad na de start verplaatst geen opgeslagen boot.
 5. Per volledig afgerond, uniek dropdoel verdient een team één schot. Een doel van drie items geeft dus één schot, niet drie. Extra items en opnieuw afvinken leveren geen extra schoten op.
-6. Vul onder het eigen bord een coördinaat `A1` t/m `J10` in en vink **Schieten** aan. De server controleert ongeveer iedere 15 seconden, afhankelijk van Google-responstijd. De velden worden daarna geleegd; uitslag en tellers worden teruggeschreven.
+6. Vul onder het eigen bord een coördinaat `A1` t/m `H8` in en vink **Schieten** aan. De server controleert ongeveer iedere 15 seconden, afhankelijk van Google-responstijd. De velden worden daarna geleegd; uitslag en tellers worden teruggeschreven.
 7. Dubbele, ongeldige en ongeoorloofde schoten kosten niets. Correcties aan behaalde doelen kunnen beschikbaar krediet verminderen; reeds gebruikte schoten worden niet teruggegeven. Een team wint zodra alle 17 bootvakken zijn geraakt. Bij wederzijdse laatste treffers in dezelfde verwerkingsronde is het gelijkspel.
 8. Na de eindtijd worden geen schoten meer geaccepteerd. Gebruik daarna de bestaande archief/resetfunctie. Eerst wordt het event gearchiveerd; vervolgens worden invoer en gekoppelde vlootposities gewist voor hergebruik. Gebruik niet alleen nieuwe datums als vervanging van de reset.
 
