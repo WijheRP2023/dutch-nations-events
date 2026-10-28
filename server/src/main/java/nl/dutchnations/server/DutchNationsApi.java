@@ -123,8 +123,16 @@ public final class DutchNationsApi
         battleshipSync = new BattleshipSync(store);
         ScheduledExecutorService battleshipWorker = Executors.newSingleThreadScheduledExecutor();
         if (BattleshipSync.configured()) battleshipWorker.scheduleWithFixedDelay(battleshipSync::tick, 5, 15, TimeUnit.SECONDS);
+        EventViewSync eventView = new EventViewSync();
+        ScheduledExecutorService eventViewWorker = Executors.newSingleThreadScheduledExecutor();
+        eventViewWorker.scheduleWithFixedDelay(eventView::tick, 10, 45, TimeUnit.SECONDS);
+        server.createContext("/api/event-view/status", exchange -> {
+            if (!"/api/event-view/status".equals(exchange.getRequestURI().getPath())) { sendError(exchange, 404, "Route niet gevonden"); return; }
+            if (!"GET".equals(exchange.getRequestMethod())) { methodNotAllowed(exchange); return; }
+            send(exchange, 200, BattleshipSheets.map("state",eventView.state,"lastSuccess",eventView.lastSuccess));
+        });
         startDiscordInBackground(() -> startDiscordBot(discordBotToken));
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> { cleanup.shutdown(); battleshipWorker.shutdown(); if (discordBot != null) discordBot.shutdown(); server.stop(1); }));
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> { cleanup.shutdown(); battleshipWorker.shutdown(); eventViewWorker.shutdown(); if (discordBot != null) discordBot.shutdown(); server.stop(1); }));
         System.out.println("Dutch Nations API actief op http://" + bind + ":" + port);
         System.out.println("Feed: http://" + bind + ":" + port + "/feed.json");
     }

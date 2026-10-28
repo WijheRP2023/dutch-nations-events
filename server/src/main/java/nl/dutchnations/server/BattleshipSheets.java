@@ -247,7 +247,10 @@ final class BattleshipSheets implements BattleshipGateway
         throw new IOException("Zeeslagtabblad ontbreekt");
     }
 
-    private JsonObject request(String method, String url, Object data) throws IOException
+    JsonObject request(String method, String url, Object data) throws IOException
+    { return request(method, url, data, 2_000_000); }
+
+    JsonObject request(String method, String url, Object data, int limit) throws IOException
     {
         credentials.refreshIfExpired();
         HttpRequest.Builder request = HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofSeconds(12))
@@ -259,8 +262,8 @@ final class BattleshipSheets implements BattleshipGateway
             try (java.io.InputStream body = response.body())
             {
                 if (response.statusCode() != 200) throw new IOException("Google-koppeling: HTTP " + response.statusCode());
-                byte[] bytes = body.readNBytes(2_000_001);
-                if (bytes.length > 2_000_000) throw new IOException("Google-antwoord is te groot");
+                byte[] bytes = body.readNBytes(limit + 1);
+                if (bytes.length > limit) throw new IOException("Google-antwoord is te groot");
                 return JsonParser.parseString(new String(bytes, StandardCharsets.UTF_8)).getAsJsonObject();
             }
         }
