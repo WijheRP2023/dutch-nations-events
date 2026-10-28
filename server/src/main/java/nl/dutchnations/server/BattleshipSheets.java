@@ -251,6 +251,12 @@ final class BattleshipSheets implements BattleshipGateway
     { return request(method, url, data, 2_000_000); }
 
     JsonObject request(String method, String url, Object data, int limit) throws IOException
+    { return request(method,url,data,limit,false); }
+
+    JsonObject requestForView(String method,String url,Object data) throws IOException
+    { return request(method,url,data,2_000_000,true); }
+
+    private JsonObject request(String method,String url,Object data,int limit,boolean publicProjection) throws IOException
     {
         credentials.refreshIfExpired();
         HttpRequest.Builder request = HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofSeconds(12))
@@ -261,7 +267,17 @@ final class BattleshipSheets implements BattleshipGateway
             HttpResponse<java.io.InputStream> response = http.send(request.build(), HttpResponse.BodyHandlers.ofInputStream());
             try (java.io.InputStream body = response.body())
             {
-                if (response.statusCode() != 200) throw new IOException("Google-koppeling: HTTP " + response.statusCode());
+                if (response.statusCode() != 200)
+                {
+                    String hint="";
+                    // Only public projection writes may report a bounded schema error. Fleet operations remain opaque.
+                    if(publicProjection)try {
+                        JsonObject error=JsonParser.parseString(new String(body.readNBytes(4096),StandardCharsets.UTF_8)).getAsJsonObject().getAsJsonObject("error");
+                        String message=string(error,"message").replaceAll("[\\r\\n]"," ");
+                        hint=": "+message.substring(0,Math.min(600,message.length()));
+                    } catch(RuntimeException ignored) { }
+                    throw new IOException("Google-koppeling: HTTP " + response.statusCode()+hint);
+                }
                 byte[] bytes = body.readNBytes(limit + 1);
                 if (bytes.length > limit) throw new IOException("Google-antwoord is te groot");
                 return JsonParser.parseString(new String(bytes, StandardCharsets.UTF_8)).getAsJsonObject();

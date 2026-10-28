@@ -69,13 +69,13 @@ final class EventViewSync
             stage="WEERGAVE_OPBOUWEN";
             List<Object> requests = plan(source, target, destination, snapshot, values, selected, time);
             stage="PUBLICEREN";
-            google.request("POST", api(target)+":batchUpdate", map("requests",requests));
+            google.requestForView("POST", api(target)+":batchUpdate", map("requests",requests));
             lastFingerprint = fingerprint; lastFullSync=System.currentTimeMillis(); lastSuccess = Instant.now().toString(); state = "ACTUEEL";
         }
         catch (Exception failure)
         {
             state = "FOUT_"+stage;
-            String hint=failure.getMessage()!=null&&failure.getMessage().matches("Google-koppeling: HTTP [0-9]{3}")?failure.getMessage():"";
+            String hint=failure.getMessage()!=null&&failure.getMessage().startsWith("Google-koppeling: HTTP ")?failure.getMessage():"";
             System.err.println("Kijkbestand niet ververst ("+stage+"). "+hint+" De laatst geldige weergave blijft behouden.");
         }
     }
