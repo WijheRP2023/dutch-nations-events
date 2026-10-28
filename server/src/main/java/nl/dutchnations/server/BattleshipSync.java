@@ -69,8 +69,21 @@ final class BattleshipSync
         google.protect(main, Set.of(), Set.of());
         BattleshipSheets.Access a = google.privateAccess(first), b = google.privateAccess(second);
         BattleshipSheets.separated(a, b);
-        List<List<List<Object>>> root = google.batchValues(main, "Instellingen!B10:F12", "Instellingen!A17:G17", "Borddata!Z2", "Screenshotlijst!A1:H1001");
+        List<List<List<Object>>> root = google.batchValues(main, "Instellingen!B10:F12", "Instellingen!A17:G17", "Borddata!Z2", "Team 1!A5:R", "Team 2!A5:R", "Zeeslagdata!A5");
         long now = clock.getAsLong();
+        String reset = text(root.get(5), 0, 0);
+        if (!reset.isEmpty())
+        {
+            // Owner/service-only protected cell, written only after successful archive/reset.
+            if (!reset.matches("RESET_V1:[a-fA-F0-9-]{36}") || !"".equals(cell(root.get(0),0,0)) || !"".equals(cell(root.get(0),0,4)))
+                throw new BattleshipGame.RuleFailure("Resetbevestiging ongeldig: beide eventdatums moeten leeg zijn");
+            store.retireBattleships(main + "@");
+            clearPrivate(first); clearPrivate(second);
+            google.sourceLocked(main, false, false);
+            google.write(main, Map.of("Zeeslagdata!A5", List.of(List.of(""))));
+            publish(null,List.of(Set.of(),Set.of()),"VOORBEREIDING","Event gereset; beide privévloten zijn leeg. Kies een spel en een nieuwe periode.",new boolean[]{true,true});
+            return;
+        }
         if (!(cell(root.get(0),0,0) instanceof Number) || !(cell(root.get(0),0,4) instanceof Number))
         {
             BattleshipGame old = store.latestBattleship(main + "@");
@@ -88,6 +101,13 @@ final class BattleshipSync
         if (end <= start) throw new BattleshipGame.RuleFailure("Vul een geldige start- en einddatum met tijd in");
         String key = main + "@" + start + ":" + end;
         BattleshipGame game = store.battleship(key);
+        if (game == null)
+        {
+            BattleshipGame sameStart = store.latestBattleship(main + "@" + start + ":");
+            if (sameStart != null && (sameStart.started || now >= start)) game = sameStart;
+        }
+        if (game != null && game.retired) throw new BattleshipGame.RuleFailure("Dit event is gereset. Kies een nieuwe toekomstige starttijd.");
+        if (game != null) key = game.key; // End-time changes never change the frozen fleet binding.
         if (game != null)
         {
             for (Map<String,Integer> fleet : game.fleets) for (String coordinate : fleet.keySet())
@@ -98,8 +118,16 @@ final class BattleshipSync
         BattleshipGame latest = store.activeBattleship(main + "@", now);
         if (latest != null && latest.started && now < latest.endsAt && !key.equals(latest.key))
             throw new BattleshipGame.RuleFailure("De vastgezette eventperiode is gewijzigd; herstel de oorspronkelijke periode");
-        Progress progress = progress(root.get(3), text(root.get(1), 0, 0), text(root.get(1), 0, 4));
+        Progress progress = teamProgress(root.get(3), root.get(4), text(root.get(1), 0, 0), text(root.get(1), 0, 4));
         String binding = first + "\n" + second;
+        if (game != null && now >= start && end != game.endsAt)
+        {
+            if (end > game.endsAt || now >= game.endsAt)
+                throw new BattleshipGame.RuleFailure("Een gestart event kan alleen eerder worden beëindigd, niet heropend of verlengd");
+            if (!binding.equals(game.binding) || !game.goals.equals(progress.goals) || !game.teamNames.equals(progress.names))
+                throw new BattleshipGame.RuleFailure("Teamnamen, vloten of dropdoelen zijn na vastzetten gewijzigd");
+            game.endsAt = end; store.saveBattleship(game);
+        }
         if (now < start)
         {
             google.sourceLocked(main,false,false);
@@ -124,7 +152,11 @@ final class BattleshipSync
             }
             return;
         }
-        if (game == null || !game.ready) throw new BattleshipGame.RuleFailure("De server moet vóór de start beide complete vloten vastzetten. Plan een nieuwe toekomstige starttijd.");
+        if (game == null || !game.ready)
+        {
+            if (now >= end) { publish(null, progress.completed, "AFGELOPEN", "Het event is beëindigd. Archiveren en resetten is mogelijk; er wordt niet geschoten.", new boolean[]{true,true}); return; }
+            throw new BattleshipGame.RuleFailure("De server moet vóór de start beide complete vloten vastzetten. Plan een nieuwe toekomstige starttijd.");
+        }
         if (!binding.equals(game.binding) || !game.goals.equals(progress.goals) || !game.teamNames.equals(progress.names))
             throw new BattleshipGame.RuleFailure("Vlootkoppeling, teamnamen of dropdoelen zijn na vastzetten gewijzigd");
         google.sourceLocked(main,true,Boolean.TRUE.equals(cell(root.get(0),2,0)));
@@ -173,6 +205,11 @@ final class BattleshipSync
     {
         List<List<List<Object>>> data=google.batchValues(file,"Vloot!Q1");
         if (!hash(oldKey).equals(text(data.get(0),0,0))) return;
+        clearPrivate(file);
+    }
+
+    private void clearPrivate(String file) throws Exception
+    {
         google.privateLocked(file,false);
         google.write(file,Map.of("Vloot!C6:D10",List.of(List.of("",""),List.of("",""),List.of("",""),List.of("",""),List.of("","")),
             "Vloot!Q1",List.of(List.of("")),"Vloot!B17",List.of(List.of(false)),"Vloot!A2",List.of(List.of("Event gereset. Plaats de boten voor het volgende event opnieuw."))));
@@ -225,6 +262,36 @@ final class BattleshipSync
         if (teams.get(0).isEmpty() || teams.get(0).size() > 500 || !teams.get(0).equals(teams.get(1)))
             throw new BattleshipGame.RuleFailure("Beide teams moeten dezelfde geselecteerde dropdoelen hebben");
         p.goals.putAll(teams.get(0)); return p;
+    }
+
+    static Progress teamProgress(List<List<Object>> firstRows, List<List<Object>> secondRows, String first, String second)
+    {
+        if (first.isEmpty() || second.isEmpty() || first.equalsIgnoreCase(second)) throw new BattleshipGame.RuleFailure("Vul twee verschillende teamnamen in");
+        Progress p = new Progress(first, second);
+        List<List<List<Object>>> pages = List.of(firstRows, secondRows);
+        List<Map<String,Integer>> goals = List.of(new LinkedHashMap<>(), new LinkedHashMap<>());
+        for (int team = 0; team < 2; team++)
+        {
+            List<List<Object>> rows = pages.get(team);
+            if (!"Drop-ID".equals(text(rows,0,0)) || !"Drop".equals(text(rows,0,1)) || !"Doel".equals(text(rows,0,2))
+                || !"Behaald".equals(text(rows,0,10)) || !"Actief".equals(text(rows,0,17)))
+                throw new BattleshipGame.RuleFailure("Teamblad mist de vaste kolommen Drop-ID, Drop, Doel, Behaald en Actief");
+            for (int r = 1; r < rows.size(); r++)
+            {
+                Object active = cell(rows,r,17);
+                if (Boolean.FALSE.equals(active) || "".equals(active)) continue;
+                if (!Boolean.TRUE.equals(active)) throw new BattleshipGame.RuleFailure("Ongeldige dropselectie in teamblad");
+                String id = text(rows,r,0), item = text(rows,r,1);
+                int goal = integer(cell(rows,r,2)), obtained = integer(cell(rows,r,10));
+                if (!id.matches("DROP-[0-9]+") || item.isEmpty() || item.length() > 100 || goal < 1 || goal > 7 || obtained < 0 || obtained > goal
+                    || goals.get(team).putIfAbsent(id,goal) != null || goals.get(team).size() > 500)
+                    throw new BattleshipGame.RuleFailure("Ongeldige of dubbele dropdoelregistratie in teamblad");
+                if (obtained == goal) p.completed.get(team).add(id);
+            }
+        }
+        if (goals.get(0).isEmpty() || !goals.get(0).equals(goals.get(1)))
+            throw new BattleshipGame.RuleFailure("Beide teams moeten dezelfde geselecteerde dropdoelen hebben");
+        p.goals.putAll(goals.get(0)); return p;
     }
 
     static long date(Object value)

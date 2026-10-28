@@ -18,7 +18,7 @@ final class BattleshipGame
     static final int[] LENGTHS = {5, 4, 3, 3, 2};
     String key;
     String binding;
-    boolean started, ready;
+    boolean started, ready, retired;
     List<String> teamNames = new ArrayList<>();
     List<String> messages = new ArrayList<>(java.util.Arrays.asList("", ""));
     long startsAt, endsAt;

@@ -1290,16 +1290,33 @@ public final class DutchNationsApi
         synchronized BattleshipGame latestBattleship(String prefix)
         {
             if (state.battleships == null) return null;
-            BattleshipGame latest = state.battleships.values().stream().filter(g -> g.key.startsWith(prefix))
+            BattleshipGame latest = state.battleships.values().stream().filter(g -> !g.retired && g.key.startsWith(prefix))
                 .max(java.util.Comparator.comparing((BattleshipGame g) -> g.started).thenComparingLong(g -> g.endsAt)).orElse(null);
             return latest == null ? null : GSON.fromJson(GSON.toJson(latest), BattleshipGame.class);
         }
         synchronized BattleshipGame activeBattleship(String prefix, long now)
         {
             if (state.battleships == null) return null;
-            BattleshipGame active = state.battleships.values().stream().filter(g -> g.key.startsWith(prefix) && g.started && now >= g.startsAt && now < g.endsAt)
+            BattleshipGame active = state.battleships.values().stream().filter(g -> !g.retired && g.key.startsWith(prefix) && g.started && now >= g.startsAt && now < g.endsAt)
                 .findFirst().orElse(null);
             return active == null ? null : GSON.fromJson(GSON.toJson(active), BattleshipGame.class);
+        }
+        synchronized void retireBattleships(String prefix)
+        {
+            if (state.battleships == null) return;
+            Map<String, BattleshipGame> previous = new HashMap<>(state.battleships);
+            boolean modified = false;
+            for (Map.Entry<String, BattleshipGame> entry : previous.entrySet())
+                if (entry.getKey().startsWith(prefix) && !entry.getValue().retired)
+                {
+                    BattleshipGame copy = GSON.fromJson(GSON.toJson(entry.getValue()), BattleshipGame.class);
+                    copy.retired = true;
+                    state.battleships.put(entry.getKey(), copy);
+                    modified = true;
+                }
+            if (!modified) return;
+            try { changed(); }
+            catch (RuntimeException failure) { state.battleships = previous; throw failure; }
         }
         synchronized LearnerTemplate learnerTemplate(String id)
         {

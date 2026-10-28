@@ -25,7 +25,8 @@ public class BattleshipWorkerTest
             data.put(MAIN+"Instellingen!B10:F12",List.of(List.of(46023.5,"","","",46023.6)));
             data.put(MAIN+"Instellingen!A17:G17",List.of(List.of("Rood","","","","Blauw")));
             data.put(MAIN+"Borddata!Z2",List.of(List.of("Zeeslag")));
-            data.put(MAIN+"Screenshotlijst!A1:H1001",new ArrayList<>(BattleshipSyncTest.rows()));
+            data.put(MAIN+"Team 1!A5:R",new ArrayList<>(BattleshipSyncTest.teamRows(3)));
+            data.put(MAIN+"Team 2!A5:R",new ArrayList<>(BattleshipSyncTest.teamRows(1)));
             for(String f:List.of(ONE,TWO))
             {
                 data.put(f+"Vloot!C6:D10",new ArrayList<>(BattleshipGameTest.fleet()));
@@ -110,5 +111,41 @@ public class BattleshipWorkerTest
         google.data.put(TWO+"Vloot!C6:D10",List.of());google.submit("A1");sync.tick();
         String key=MAIN+"@"+start+":"+BattleshipSync.date(46023.6);
         assertEquals("RAAK",store.battleship(key).outcome(0,"A1"));
+    }
+    @Test public void earlierEndKeepsFleetAndUsedShotsAndSurvivesRestart() throws Exception
+    {
+        Google google=new Google();long start=BattleshipSync.date(46023.5);long[]now={start-1000};
+        java.nio.file.Path file=Files.createTempDirectory("battleship-early-end-").resolve("state.json");
+        DutchNationsApi.Store store=new DutchNationsApi.Store(file);
+        BattleshipSync sync=new BattleshipSync(store,google,MAIN,ONE,TWO,"test",()->now[0]);
+        sync.tick();google.ready();sync.tick();now[0]=start+1;google.submit("A1");sync.tick();
+        String key=MAIN+"@"+start+":"+BattleshipSync.date(46023.6);
+        google.data.put(MAIN+"Instellingen!B10:F12",List.of(List.of(46023.5,"","","",46023.50001)));
+        now[0]=start+1000;sync.tick();
+        assertEquals(BattleshipSync.date(46023.50001),store.battleship(key).endsAt);
+        assertEquals(1,store.battleship(key).shots.get(0).size());assertEquals("RAAK",store.battleship(key).outcome(0,"A1"));
+        assertEquals("AFGELOPEN",google.data.get(MAIN+"Zeeslagdata!A2:A4").get(0).get(0));
+        google.submit("A2");new BattleshipSync(new DutchNationsApi.Store(file),google,MAIN,ONE,TWO,"test",()->now[0]).tick();
+        assertEquals(1,new DutchNationsApi.Store(file).battleship(key).shots.get(0).size());
+        google.data.put(MAIN+"Instellingen!B10:F12",List.of(List.of(46023.5,"","","",46023.6)));sync.tick();
+        assertEquals("CONTROLE",google.data.get(MAIN+"Zeeslagdata!A2:A4").get(0).get(0));assertEquals(1,store.battleship(key).shots.get(0).size());
+    }
+    @Test public void resetCommandNeedsBlankDatesAndClearsBothPrivateFleetsWithoutRearmingOldState() throws Exception
+    {
+        Google google=new Google();long start=BattleshipSync.date(46023.5);long[]now={start-1000};
+        DutchNationsApi.Store store=new DutchNationsApi.Store(Files.createTempDirectory("battleship-reset-").resolve("state.json"));
+        BattleshipSync sync=new BattleshipSync(store,google,MAIN,ONE,TWO,"test",()->now[0]);
+        sync.tick();google.ready();sync.tick();now[0]=start+1;sync.tick();
+        String key=MAIN+"@"+start+":"+BattleshipSync.date(46023.6);
+        google.data.put(MAIN+"Zeeslagdata!A5",List.of(List.of("RESET_V1:12345678-1234-1234-1234-123456789abc")));
+        sync.tick();assertFalse(store.battleship(key).retired);assertFalse(google.data.get(ONE+"Vloot!C6:D10").isEmpty());
+        google.data.put(MAIN+"Instellingen!B10:F12",List.of());sync.tick();
+        assertTrue(store.battleship(key).retired);assertNull(store.activeBattleship(MAIN+"@",now[0]));
+        for(String f:List.of(ONE,TWO))
+        {
+            assertEquals(false,Google.cell(google.data.get(f+"Vloot!B17")));
+            assertEquals("",Google.cell(google.data.get(f+"Vloot!C6:D10")));
+        }
+        assertEquals("",Google.cell(google.data.get(MAIN+"Zeeslagdata!A5")));
     }
 }

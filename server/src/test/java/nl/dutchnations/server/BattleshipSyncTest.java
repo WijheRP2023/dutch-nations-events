@@ -43,6 +43,23 @@ public class BattleshipSyncTest
         rows.add(List.of("Whip","Blauw",3d,1d,2,"Nog nodig","DROP-1",1));
         return rows;
     }
+    static List<List<Object>> teamRows(int obtained)
+    {
+        List<Object> header=new ArrayList<>(java.util.Collections.nCopies(18,""));
+        header.set(0,"Drop-ID");header.set(1,"Drop");header.set(2,"Doel");header.set(10,"Behaald");header.set(17,"Actief");
+        List<Object> row=new ArrayList<>(java.util.Collections.nCopies(18,""));
+        row.set(0,"DROP-1");row.set(1,"Whip");row.set(2,3d);row.set(10,(double)obtained);row.set(17,true);
+        return new ArrayList<>(List.of(header,row));
+    }
+    @Test public void readsEachTeamPageAndNotTheScreenshotHelper()
+    {
+        BattleshipSync.Progress p=BattleshipSync.teamProgress(teamRows(3),teamRows(1),"Rood","Blauw");
+        assertEquals(Set.of("DROP-1"),p.completed.get(0));assertTrue(p.completed.get(1).isEmpty());assertEquals(Integer.valueOf(3),p.goals.get("DROP-1"));
+        List<List<Object>> inactive=teamRows(3);List<Object> hidden=new ArrayList<>(inactive.get(1));hidden.set(17,false);hidden.set(0,"ignored");inactive.add(hidden);
+        assertEquals(1,BattleshipSync.teamProgress(inactive,teamRows(1),"Rood","Blauw").goals.size());
+        inactive.add(inactive.get(1));BattleshipGameTest.rejects(()->BattleshipSync.teamProgress(inactive,teamRows(1),"Rood","Blauw"));
+        BattleshipGameTest.rejects(()->BattleshipSync.teamProgress(teamRows(4),teamRows(1),"Rood","Blauw"));
+    }
     @Test public void quantityThreeStillEarnsJustOneShot()
     { BattleshipSync.Progress p = BattleshipSync.progress(rows(),"Rood","Blauw"); assertEquals(Set.of("DROP-1"),p.completed.get(0)); assertTrue(p.completed.get(1).isEmpty()); }
     @Test public void malformedOrDifferentGoalListsFailClosed()
