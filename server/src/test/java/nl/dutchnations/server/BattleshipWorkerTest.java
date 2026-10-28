@@ -38,13 +38,13 @@ public class BattleshipWorkerTest
             List<List<List<Object>>> out=new ArrayList<>();
             for(String r:ranges)
             {
-                if(r.equals("Zeeslag!E20:J20")||r.equals("Zeeslag!Q20:V20"))
+                if(r.equals("Tussenstand!D65:H65")||r.equals("Tussenstand!M65:Q65"))
                 {
                     assertTrue("must lock before reading",openOne.isEmpty()&&openTwo.isEmpty());
-                    boolean first=r.contains("E20");
-                    Object target=cell(data.get(f+(first?"Zeeslag!E20":"Zeeslag!Q20")));
-                    Object submit=cell(data.get(f+(first?"Zeeslag!J20":"Zeeslag!V20")));
-                    out.add(List.of(List.of(target,"","","","",submit)));
+                    boolean first=r.contains("D65");
+                    Object target=cell(data.get(f+(first?"Tussenstand!D65":"Tussenstand!M65")));
+                    Object submit=cell(data.get(f+(first?"Tussenstand!H65":"Tussenstand!Q65")));
+                    out.add(List.of(List.of(target,"","","",submit)));
                 }
                 else out.add((List<List<Object>>)(Object)data.getOrDefault(f+r,List.of()));
             }
@@ -69,7 +69,7 @@ public class BattleshipWorkerTest
         public void protect(String f,Set<String>a,Set<String>b){openOne=a;openTwo=b;}
         public void privateLocked(String f,boolean locked){}
         public void sourceLocked(String f,boolean locked,boolean payment){}
-        void submit(String target){data.put(MAIN+"Zeeslag!E20",List.of(List.of(target)));data.put(MAIN+"Zeeslag!J20",List.of(List.of(true)));}
+        void submit(String target){data.put(MAIN+"Tussenstand!D65",List.of(List.of(target)));data.put(MAIN+"Tussenstand!H65",List.of(List.of(true)));}
         void ready(){for(String f:List.of(ONE,TWO))data.put(f+"Vloot!B17",List.of(List.of(true)));}
     }
     @Test public void publicationRetryAndRestartCannotDoubleChargeOrLeakFleet() throws Exception
@@ -85,7 +85,7 @@ public class BattleshipWorkerTest
         assertEquals(1,store.battleship(key).shots.get(0).size());assertTrue(google.openOne.isEmpty());
         DutchNationsApi.Store reload=new DutchNationsApi.Store(f);
         new BattleshipSync(reload,google,MAIN,ONE,TWO,"test",()->now[0]).tick();
-        assertEquals(1,reload.battleship(key).shots.get(0).size());assertEquals(false,Google.cell(google.data.get(MAIN+"Zeeslag!J20")));
+        assertEquals(1,reload.battleship(key).shots.get(0).size());assertEquals(false,Google.cell(google.data.get(MAIN+"Tussenstand!H65")));
         assertTrue(google.openOne.isEmpty());assertTrue(google.openTwo.isEmpty());
         String published=new Gson().toJson(google.publicWrites);
         assertFalse(published.contains("SECRET"));assertFalse(published.contains(ONE));assertFalse(published.contains(TWO));assertFalse(published.contains("fleets"));

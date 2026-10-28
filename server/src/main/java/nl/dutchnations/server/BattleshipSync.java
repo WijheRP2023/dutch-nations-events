@@ -133,9 +133,9 @@ final class BattleshipSync
         boolean[] consumed = new boolean[2];
         if (now < end && game.winner() == 0)
         {
-            List<List<List<Object>>> inputs = google.batchValues(main, "Zeeslag!E20:J20", "Zeeslag!Q20:V20");
+            List<List<List<Object>>> inputs = google.batchValues(main, "Tussenstand!D65:H65", "Tussenstand!M65:Q65");
             List<String> targets = new ArrayList<>(Arrays.asList(null, null));
-            for (int team = 0; team < 2; team++) if (Boolean.TRUE.equals(cell(inputs.get(team), 0, 5)))
+            for (int team = 0; team < 2; team++) if (Boolean.TRUE.equals(cell(inputs.get(team), 0, 4)))
             {
                 consumed[team] = true;
                 targets.set(team, text(inputs.get(team), 0, 0));
@@ -190,8 +190,8 @@ final class BattleshipSync
             data.put(team == 0 ? "Zeeslagdata!A12:J21" : "Zeeslagdata!M12:V21", sheetBoard(game, team));
             if (consumed[team])
             {
-                data.put(team == 0 ? "Zeeslag!E20" : "Zeeslag!Q20", List.of(List.of("")));
-                data.put(team == 0 ? "Zeeslag!J20" : "Zeeslag!V20", List.of(List.of(false)));
+                data.put(team == 0 ? "Tussenstand!D65" : "Tussenstand!M65", List.of(List.of("")));
+                data.put(team == 0 ? "Tussenstand!H65" : "Tussenstand!Q65", List.of(List.of(false)));
             }
         }
         data.put("Zeeslagdata!B8:F9", counts);

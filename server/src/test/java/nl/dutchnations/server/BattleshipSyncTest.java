@@ -9,6 +9,22 @@ import static org.junit.Assert.*;
 
 public class BattleshipSyncTest
 {
+    @Test public void protectsOnlyOwnShotFieldsOnTussenstandWithoutExampleTab() throws Exception
+    {
+        com.google.gson.JsonObject meta=com.google.gson.JsonParser.parseString("{\"properties\":{\"timeZone\":\"Europe/Amsterdam\"},\"sheets\":[{\"properties\":{\"sheetId\":1,\"title\":\"Tussenstand\"}},{\"properties\":{\"sheetId\":2,\"title\":\"Zeeslagdata\"}}]}").getAsJsonObject();
+        com.google.gson.JsonArray plan=new com.google.gson.Gson().toJsonTree(BattleshipSheets.publicProtectionPlan(meta,Set.of("red@test"),Set.of("blue@test"),"server@test")).getAsJsonArray();
+        assertEquals(6,plan.size());
+        for(int i=2;i<6;i++)
+        {
+            com.google.gson.JsonObject rule=plan.get(i).getAsJsonObject().getAsJsonObject("addProtectedRange").getAsJsonObject("protectedRange");
+            com.google.gson.JsonObject range=rule.getAsJsonObject("range");
+            assertEquals(1,range.get("sheetId").getAsInt());assertEquals(64,range.get("startRowIndex").getAsInt());assertEquals(65,range.get("endRowIndex").getAsInt());
+            String editors=rule.getAsJsonObject("editors").toString();
+            assertTrue(editors.contains(i<4?"red@test":"blue@test"));assertFalse(editors.contains(i<4?"blue@test":"red@test"));
+            assertEquals(new int[]{3,7,12,16}[i-2],range.get("startColumnIndex").getAsInt());
+        }
+        com.google.gson.JsonArray free=plan.get(0).getAsJsonObject().getAsJsonObject("addProtectedRange").getAsJsonObject("protectedRange").getAsJsonArray("unprotectedRanges");assertEquals(4,free.size());
+    }
     @Test public void eightByEightBoardClearsLegacyTransportEdges()
     {
         BattleshipGame game=BattleshipGameTest.game();

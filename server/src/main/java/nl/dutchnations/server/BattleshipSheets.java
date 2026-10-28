@@ -140,21 +140,27 @@ final class BattleshipSheets implements BattleshipGateway
     {
         JsonObject metadata = request("GET", "https://sheets.googleapis.com/v4/spreadsheets/" + id(file)
             + "?fields=" + encode("properties(timeZone),sheets(properties(sheetId,title),protectedRanges(protectedRangeId,description,range))"), null);
+        List<Object> updates = publicProtectionPlan(metadata, first, second, credentials.getClientEmail());
+        request("POST", "https://sheets.googleapis.com/v4/spreadsheets/" + id(file) + ":batchUpdate", map("requests", updates));
+    }
+
+    static List<Object> publicProtectionPlan(JsonObject metadata, Set<String> first, Set<String> second, String serviceEmail) throws IOException
+    {
         if (!"Europe/Amsterdam".equals(string(metadata.getAsJsonObject("properties"), "timeZone")))
             throw new IOException("De eventsheet moet tijdzone Europe/Amsterdam gebruiken");
         List<Object> updates = new ArrayList<>();
-        int board = sheet(metadata, "Zeeslag"), data = sheet(metadata, "Zeeslagdata");
-        List<Object> free = Arrays.asList(range(board, 19, 20, 4, 6), range(board, 19, 20, 9, 10),
-            range(board, 19, 20, 16, 18), range(board, 19, 20, 21, 22));
-        protection(metadata, updates, board, "board", map("sheetId", board), Set.of(), free);
-        protection(metadata, updates, data, "public-data", map("sheetId", data), Set.of(), List.of());
+        int board = sheet(metadata, "Tussenstand"), data = sheet(metadata, "Zeeslagdata");
+        List<Object> free = Arrays.asList(range(board, 64, 65, 3, 5), range(board, 64, 65, 7, 8),
+            range(board, 64, 65, 12, 14), range(board, 64, 65, 16, 17));
+        protection(metadata, updates, board, "board", map("sheetId", board), Set.of(), free, serviceEmail);
+        protection(metadata, updates, data, "public-data", map("sheetId", data), Set.of(), List.of(), serviceEmail);
         for (int team = 0; team < 2; team++)
         {
-            int offset = team * 12; Set<String> editors = team == 0 ? first : second;
-            protection(metadata, updates, board, "coordinate-" + team, range(board, 19, 20, 4 + offset, 6 + offset), editors, null);
-            protection(metadata, updates, board, "submit-" + team, range(board, 19, 20, 9 + offset, 10 + offset), editors, null);
+            int offset = team * 9; Set<String> editors = team == 0 ? first : second;
+            protection(metadata, updates, board, "coordinate-" + team, range(board, 64, 65, 3 + offset, 5 + offset), editors, null, serviceEmail);
+            protection(metadata, updates, board, "submit-" + team, range(board, 64, 65, 7 + offset, 8 + offset), editors, null, serviceEmail);
         }
-        request("POST", "https://sheets.googleapis.com/v4/spreadsheets/" + id(file) + ":batchUpdate", map("requests", updates));
+        return updates;
     }
 
     public void privateLocked(String file, boolean locked) throws IOException
@@ -204,9 +210,13 @@ final class BattleshipSheets implements BattleshipGateway
 
     private void protection(JsonObject metadata, List<Object> updates, int sheetId, String suffix, Object range,
                             Set<String> allowed, List<Object> free) throws IOException
+    { protection(metadata, updates, sheetId, suffix, range, allowed, free, credentials.getClientEmail()); }
+
+    private static void protection(JsonObject metadata, List<Object> updates, int sheetId, String suffix, Object range,
+                            Set<String> allowed, List<Object> free, String serviceEmail) throws IOException
     {
         String tag = "DN_ZEESLAG_" + suffix;
-        List<String> users = new ArrayList<>(allowed); users.add(credentials.getClientEmail());
+        List<String> users = new ArrayList<>(allowed); users.add(serviceEmail);
         Map<String, Object> value = map("description", tag, "range", range, "warningOnly", false,
             "editors", map("users", users, "domainUsersCanEdit", false));
         if (free != null) value.put("unprotectedRanges", free);
