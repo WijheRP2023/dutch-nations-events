@@ -62,6 +62,13 @@ public class EventViewSyncTest
         try{EventViewSync.project(json("{'effectiveValue':{'errorValue':{'type':'REF'}}}"),true,1,1,"Bingo",List.of(),Map.of());fail();}
         catch(java.io.IOException expected){}
     }
+    @Test public void inactiveConditionalHyperlinkDoesNotReplaceTheActiveGameResult() throws Exception
+    {
+        JsonObject c=json("{'effectiveValue':{'stringValue':'0 bingo-lijnen'}}"),f=new JsonObject();
+        f.addProperty("formulaValue","=IF(FALSE;HYPERLINK(\"#gid=1058026847\";\"Borden en schoten hieronder\");\"0 bingo-lijnen\")");c.add("userEnteredValue",f);
+        String out=new Gson().toJson(EventViewSync.project(c,true,13,0,"Bingo",List.of(),Map.of()));
+        assertTrue(out.contains("0 bingo-lijnen"));assertFalse(out.contains("Borden en schoten hieronder"));
+    }
     @Test public void allFourGamesBuildExactlyThreeOneWayPublicPages() throws Exception
     {
         for(String mode:List.of("Bingo","Punten","Vier-op-een-rij","Zeeslag"))

@@ -236,7 +236,7 @@ final class EventViewSync
                     out.put("userEnteredValue",map("formulaValue","=IMAGE(\""+url+"\";1)"));
             }
         }
-        if(formula.contains("HYPERLINK("))
+        if(formula.startsWith("=HYPERLINK("))
         {
             Matcher link=Pattern.compile("HYPERLINK\\(\"([^\"]+)\";\"([^\"]+)\"\\)").matcher(formula);
             if(link.find()&&(link.group(1).matches("#gid=(1058026847|1726059411|1726059412)(?:&range=[A-Z0-9:]+)?")
