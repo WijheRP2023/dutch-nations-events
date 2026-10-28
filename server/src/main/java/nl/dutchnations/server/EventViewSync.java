@@ -245,6 +245,9 @@ final class EventViewSync
         }
         if(board&&row==64&&(col==3||col==4||col==7||col==12||col==13||col==16))out.remove("userEnteredValue");
         if(board&&row==70&&col==0)out.put("userEnteredValue",map("stringValue","Teamleiders schieten in het basisbestand. Dit kijkbestand is alleen-lezen."));
+        if(!board&&col==0&&row==0)out.put("userEnteredValue",map("stringValue","Alleen-lezen ledenweergave. Registraties worden in het basisbestand bijgehouden."));
+        if(!board&&col==0&&row==1&&value.has("stringValue"))out.put("userEnteredValue",map("stringValue",value.get("stringValue").getAsString().replace("teamoverzicht & invoer","dropvoortgang")));
+        if(!board&&col==0&&row==3)out.put("userEnteredValue",map("stringValue","Hier zie je de automatisch bijgewerkte teamvoortgang. Spelleiders registreren drops in het basisbestand."));
         return out;
     }
     private static JsonArray array(JsonObject o,String key){return o!=null&&o.has(key)?o.getAsJsonArray(key):new JsonArray();}

@@ -69,6 +69,11 @@ public class EventViewSyncTest
         String out=new Gson().toJson(EventViewSync.project(c,true,13,0,"Bingo",List.of(),Map.of()));
         assertTrue(out.contains("0 bingo-lijnen"));assertFalse(out.contains("Borden en schoten hieronder"));
     }
+    @Test public void publicTeamPagesDoNotTellReadersToEnterPlayers() throws Exception
+    {
+        String out=new Gson().toJson(EventViewSync.project(json("{'effectiveValue':{'stringValue':'Kies per drop een speler'}}"),false,3,0,"Bingo",List.of(),Map.of()));
+        assertTrue(out.contains("Spelleiders registreren"));assertFalse(out.contains("Kies per drop"));
+    }
     @Test public void allFourGamesBuildExactlyThreeOneWayPublicPages() throws Exception
     {
         for(String mode:List.of("Bingo","Punten","Vier-op-een-rij","Zeeslag"))
