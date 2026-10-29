@@ -281,7 +281,8 @@ final class EventViewSync
                 @SuppressWarnings("unchecked") List<Object> first=(List<Object>)((Map<?,?>)output.get(0)).get("values");
                 first.set(0,map("userEnteredValue",map("stringValue","Leden kijken mee. Bewerkers kunnen spelers per drop invullen.")));
                 @SuppressWarnings("unchecked") List<Object> guide=(List<Object>)((Map<?,?>)output.get(3)).get("values");
-                guide.set(0,map("userEnteredValue",map("stringValue","Kies één speler per dropvak. De beveiligde koppeling werkt dit bij in de basis. Instellingen blijven daar.")));
+                String help=epoch.isEmpty()?"Vul eerst start- en einddatum met tijd in bij Instellingen in de basis.":players.isEmpty()?"Vul eerst unieke spelers voor dit team in bij Instellingen in de basis.":"Kies één speler per dropvak. De beveiligde koppeling werkt dit bij in de basis. Instellingen blijven daar.";
+                guide.set(0,map("userEnteredValue",map("stringValue",help)));
                 first.set(17,map("userEnteredValue",map("stringValue",epoch)));
                 // Stable source row addresses prevent a queued edit from being assigned to another drop after selections change.
                 for(int firstRow=0;firstRow<rowMap.size();)
