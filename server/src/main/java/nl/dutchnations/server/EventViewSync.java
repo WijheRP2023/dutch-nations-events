@@ -53,9 +53,10 @@ final class EventViewSync
                 metadataAt=started;
             }
             JsonObject sourceMeta=sourceMetadata;
-            List<List<List<Object>>> values = google.batchValues(source, "Zeeslagdata!A6", "Tussenstand!A1:Q75",
+            List<List<List<Object>>> values = google.batchValues(source, "Zeeslagdata!A6:B6", "Tussenstand!A1:Q75",
                 "'Team 1'!A6:V"+rowCount(sourceMeta,"Team 1"), "'Team 2'!A6:V"+rowCount(sourceMeta,"Team 2"),
-                "Borddata!C2:C50", "Drops!B2:B3000", "Drops!N2:N3000");
+                "Borddata!C2:C50", "Drops!B2:B3000", "Drops!N2:N3000", "Instellingen!B10:F10",
+                "Instellingen!A19:A"+rowCount(sourceMeta,"Instellingen"), "Instellingen!E19:E"+rowCount(sourceMeta,"Instellingen"));
             String target = string(values.get(0), 0, 0);
             if (target.isEmpty()) { state = "NIET_INGESTELD"; return; }
             BattleshipSheets.id(target);
@@ -119,18 +120,18 @@ final class EventViewSync
     static List<Object> incremental(List<Object> previous,List<Object> next)
     {
         if(previous==null||!layout(previous).equals(layout(next)))return next;
-        Gson gson=new Gson(); Map<Integer,JsonObject> old=new HashMap<>();
+        Gson gson=new Gson(); Map<String,JsonObject> old=new HashMap<>();
         for(Object request:previous)
         {
             JsonObject r=gson.toJsonTree(request).getAsJsonObject();
-            if(r.has("updateCells")){JsonObject u=r.getAsJsonObject("updateCells");old.put(u.getAsJsonObject("start").get("sheetId").getAsInt(),u);}
+            if(r.has("updateCells")){JsonObject u=r.getAsJsonObject("updateCells");old.put(u.get("start").toString(),u);}
         }
         List<Object> changes=new ArrayList<>();
         for(Object request:next)
         {
             JsonObject r=gson.toJsonTree(request).getAsJsonObject();if(!r.has("updateCells"))continue;
             JsonObject u=r.getAsJsonObject("updateCells"),start=u.getAsJsonObject("start");int id=start.get("sheetId").getAsInt();
-            JsonObject before=old.get(id);if(before==null)return next;
+            JsonObject before=old.get(start.toString());if(before==null)return next;
             JsonArray rows=u.getAsJsonArray("rows"),oldRows=before.getAsJsonArray("rows");
             if(rows.size()!=oldRows.size())return next;
             for(int row=0;row<rows.size();row++)
@@ -156,7 +157,7 @@ final class EventViewSync
         for(Object request:plan)
         {
             JsonObject r=gson.toJsonTree(request).getAsJsonObject();
-            if(r.has("updateDimensionProperties")||r.has("mergeCells")||r.has("updateSheetProperties"))out.add(r);
+            if(r.has("updateDimensionProperties")||r.has("mergeCells")||r.has("updateSheetProperties")||r.has("addProtectedRange"))out.add(r);
         }
         return out;
     }
@@ -228,6 +229,8 @@ final class EventViewSync
         }
         List<Object> requests=new ArrayList<>();
         String mode=string(values.get(1),7,1);
+        boolean inputEnabled=values.size()>=10&&"REGISTRATIES_V1".equals(string(values.get(0),0,1));
+        String epoch=inputEnabled?inputEpoch(source,values.get(7)):"";
         for(JsonElement e:destination.getAsJsonArray("sheets"))
         {
             JsonObject dest=e.getAsJsonObject(), prop=dest.getAsJsonObject("properties");String name=prop.get("title").getAsString();int id=prop.get("sheetId").getAsInt();
@@ -238,13 +241,34 @@ final class EventViewSync
             requests.add(map("unmergeCells",map("range",map("sheetId",id))));
             requests.add(map("repeatCell",map("range",map("sheetId",id),"cell",map(),"fields","userEnteredValue,userEnteredFormat,dataValidation,note,textFormatRuns")));
             boolean board=name.equals("Tussenstand"); int team=name.equals("Team 2")?1:0;
+            if(inputEnabled&&!board&&!selected.get(team).isEmpty())
+            {
+                int needed=selected.get(team).get(selected.get(team).size()-1),existing=prop.getAsJsonObject("gridProperties").get("rowCount").getAsInt();
+                if(needed>existing)
+                {
+                    requests.add(map("updateSheetProperties",map("properties",map("sheetId",id,"gridProperties",map("rowCount",needed)),"fields","gridProperties.rowCount")));
+                    prop.getAsJsonObject("gridProperties").addProperty("rowCount",needed);
+                }
+            }
             List<Integer> rowMap=new ArrayList<>(); for(int r=0;r<(board?75:5);r++) rowMap.add(r);
             if(!board) for(int r:selected.get(team))rowMap.add(r-1);
             List<Object> output=new ArrayList<>();
+            List<Object> editable=new ArrayList<>();
+            List<String> players=inputEnabled?teamPlayers(values.get(8+team),values.get(9-team)):List.of();
             for(int outRow=0;outRow<rowMap.size();outRow++)
             {
                 int oldRow=rowMap.get(outRow); List<JsonObject> input=cells.get(name).getOrDefault(oldRow,List.of());List<Object> row=new ArrayList<>();
                 for(int c=0;c<(board?17:22);c++) row.add(project(input.size()>c?input.get(c):new JsonObject(),board,oldRow,c,mode,values.get(4),icons));
+                if(inputEnabled&&!board&&oldRow>=5)
+                {
+                    int goal=goal(input.size()>2?input.get(2):new JsonObject());
+                    for(int c=3;c<10;c++)
+                    {
+                        @SuppressWarnings("unchecked") Map<String,Object> cell=(Map<String,Object>)row.get(c);
+                        if(c-3<goal&&!players.isEmpty()&&!epoch.isEmpty()) cell.put("dataValidation",map("condition",map("type","ONE_OF_LIST","values",players.stream().map(p->map("userEnteredValue",p)).collect(java.util.stream.Collectors.toList())),"strict",true,"showCustomUi",true));
+                    }
+                    if(goal>0&&!players.isEmpty()&&!epoch.isEmpty())editable.add(map("sheetId",id,"startRowIndex",oldRow,"endRowIndex",oldRow+1,"startColumnIndex",3,"endColumnIndex",3+goal));
+                }
                 output.add(map("values",row));
             }
             if(board)
@@ -252,7 +276,22 @@ final class EventViewSync
                 @SuppressWarnings("unchecked") List<Object> first=(List<Object>)((Map<?,?>)output.get(0)).get("values");
                 first.set(0,map("userEnteredValue",map("stringValue","Stand bijgewerkt: "+time+" · alleen lezen"),"userEnteredFormat",map("textFormat",map("fontSize",9,"fontFamily","Arial"))));
             }
-            requests.add(map("updateCells",map("start",map("sheetId",id,"rowIndex",0,"columnIndex",0),"rows",output,"fields","userEnteredValue,userEnteredFormat,dataValidation")));
+            if(inputEnabled&&!board)
+            {
+                @SuppressWarnings("unchecked") List<Object> first=(List<Object>)((Map<?,?>)output.get(0)).get("values");
+                first.set(0,map("userEnteredValue",map("stringValue","Leden kijken mee. Bewerkers kunnen spelers per drop invullen.")));
+                @SuppressWarnings("unchecked") List<Object> guide=(List<Object>)((Map<?,?>)output.get(3)).get("values");
+                guide.set(0,map("userEnteredValue",map("stringValue","Kies één speler per dropvak. De beveiligde koppeling werkt dit bij in de basis. Instellingen blijven daar.")));
+                first.set(17,map("userEnteredValue",map("stringValue",epoch)));
+                // Stable source row addresses prevent a queued edit from being assigned to another drop after selections change.
+                for(int firstRow=0;firstRow<rowMap.size();)
+                {
+                    int end=firstRow+1;while(end<rowMap.size()&&rowMap.get(end)==rowMap.get(end-1)+1)end++;
+                    requests.add(map("updateCells",map("start",map("sheetId",id,"rowIndex",rowMap.get(firstRow),"columnIndex",0),"rows",output.subList(firstRow,end),"fields","userEnteredValue,userEnteredFormat,dataValidation")));
+                    firstRow=end;
+                }
+            }
+            else requests.add(map("updateCells",map("start",map("sheetId",id,"rowIndex",0,"columnIndex",0),"rows",output,"fields","userEnteredValue,userEnteredFormat,dataValidation")));
             for(JsonElement m:array(structure.get(name),"merges"))
             {
                 JsonObject merge=m.getAsJsonObject().deepCopy();int end=merge.get("endRowIndex").getAsInt();
@@ -269,7 +308,7 @@ final class EventViewSync
                 int height=dim!=null&&dim.has("pixelSize")?dim.get("pixelSize").getAsInt():21;
                 if(r==rowMap.size()||height!=lastHeight)
                 {
-                    if(r>runStart)requests.add(map("updateDimensionProperties",map("range",map("sheetId",id,"dimension","ROWS","startIndex",runStart,"endIndex",r),"properties",map("pixelSize",lastHeight),"fields","pixelSize")));
+                    if(r>runStart&&!(inputEnabled&&!board))requests.add(map("updateDimensionProperties",map("range",map("sheetId",id,"dimension","ROWS","startIndex",runStart,"endIndex",r),"properties",map("pixelSize",lastHeight),"fields","pixelSize")));
                     runStart=r;lastHeight=height;
                 }
             }
@@ -277,7 +316,12 @@ final class EventViewSync
             if(!board)
             {
                 int max=prop.getAsJsonObject("gridProperties").get("rowCount").getAsInt();
-                if(rowMap.size()<max) requests.add(map("updateDimensionProperties",map("range",map("sheetId",id,"dimension","ROWS","startIndex",rowMap.size(),"endIndex",max),"properties",map("hiddenByUser",true),"fields","hiddenByUser")));
+                if(inputEnabled)
+                {
+                    hide(requests,id,5,max);
+                    for(int row:selected.get(team)) requests.add(map("updateDimensionProperties",map("range",map("sheetId",id,"dimension","ROWS","startIndex",row-1,"endIndex",row),"properties",map("hiddenByUser",false,"pixelSize",28),"fields","hiddenByUser,pixelSize")));
+                }
+                else if(rowMap.size()<max) requests.add(map("updateDimensionProperties",map("range",map("sheetId",id,"dimension","ROWS","startIndex",rowMap.size(),"endIndex",max),"properties",map("hiddenByUser",true),"fields","hiddenByUser")));
                 requests.add(map("updateDimensionProperties",map("range",map("sheetId",id,"dimension","COLUMNS","startIndex",17,"endIndex",22),"properties",map("hiddenByUser",true),"fields","hiddenByUser")));
             }
             else
@@ -288,10 +332,27 @@ final class EventViewSync
                 if(!mode.equals("Zeeslag")) hide(requests,id,51,75);
                 if(mode.equals("Zeeslag")||mode.equals("Punten"))hide(requests,id,15,33);
             }
-            requests.add(map("addProtectedRange",map("protectedRange",map("description","DN_EVENT_VIEW_READ_ONLY","range",map("sheetId",id),"warningOnly",true))));
+            Map<String,Object> protection=map("description","DN_EVENT_VIEW_READ_ONLY","range",map("sheetId",id),"warningOnly",!inputEnabled);
+            if(inputEnabled){protection.put("editors",map("users",List.of("zeeslag-server@dutch-nations-zeeslag.iam.gserviceaccount.com")));if(!board)protection.put("unprotectedRanges",editable);}
+            requests.add(map("addProtectedRange",map("protectedRange",protection)));
         }
         return requests;
     }
+
+    static List<String> teamPlayers(List<List<Object>> own,List<List<Object>> other)
+    {
+        List<String> out=new ArrayList<>();Map<String,Integer> counts=new HashMap<>();
+        for(List<List<Object>> team:List.of(own,other))for(List<Object> row:team)if(!row.isEmpty())counts.merge(String.valueOf(row.get(0)).trim().toLowerCase(Locale.ROOT),1,Integer::sum);
+        for(List<Object> row:own)if(!row.isEmpty()){String player=String.valueOf(row.get(0)).trim();if(player.matches("[A-Za-z0-9 _-]{1,12}")&&counts.getOrDefault(player.toLowerCase(Locale.ROOT),0)==1)out.add(player);}
+        return out;
+    }
+    static String inputEpoch(String source,List<List<Object>> period)
+    {
+        try{double start=Double.parseDouble(string(period,0,0)),end=Double.parseDouble(string(period,0,4));return start>0&&end>start?source+"|"+Math.round(start*86400)+"|"+Math.round(end*86400):"";}
+        catch(NumberFormatException ignored){return "";}
+    }
+    private static int goal(JsonObject cell)
+    {try{double n=cell.getAsJsonObject("effectiveValue").get("numberValue").getAsDouble();return n>=1&&n<=7&&n==Math.floor(n)?(int)n:0;}catch(RuntimeException ignored){return 0;}}
 
     private static void hide(List<Object> r,int id,int start,int end)
     { r.add(map("updateDimensionProperties",map("range",map("sheetId",id,"dimension","ROWS","startIndex",start,"endIndex",end),"properties",map("hiddenByUser",true),"fields","hiddenByUser"))); }

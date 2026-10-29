@@ -56,6 +56,54 @@ public class EventViewSyncTest
         assertEquals(List.of("'Team 1'!A6:R12","'Team 1'!A90:R91"),EventViewSync.rowRanges("Team 1",List.of(6,7,11,12,90,91)));
         assertTrue(EventViewSync.rowRanges("Team 2",List.of()).isEmpty());
     }
+    @Test public void inputRosterRejectsDuplicatesCrossTeamAndInvalidNames()
+    {
+        assertEquals(List.of("heavenskill"),EventViewSync.teamPlayers(List.of(List.of("heavenskill"),List.of("Duplicate"),List.of("DUPLICATE"),List.of("Other team"),List.of("=FORMULA")),List.of(List.of("Other team"))));
+    }
+    @Test public void inputGenerationChangesOnResetAndPeriodChanges()
+    {
+        assertEquals("",EventViewSync.inputEpoch(SOURCE,List.of()));
+        assertEquals("",EventViewSync.inputEpoch(SOURCE,List.of(List.of(46000d,"","","",45000d))));
+        assertNotEquals(EventViewSync.inputEpoch(SOURCE,List.of(List.of(46000d,"","","",47000d))),EventViewSync.inputEpoch(SOURCE,List.of(List.of(46001d,"","","",47000d))));
+    }
+    @Test public void sparseIncrementalUpdatesKeepStableSourceRowAddresses()
+    {
+        Map<String,Object> a=update(2,"old"),b=update(2,"new");
+        @SuppressWarnings("unchecked") Map<String,Object> oldUpdate=(Map<String,Object>)a.get("updateCells");
+        @SuppressWarnings("unchecked") Map<String,Object> newUpdate=(Map<String,Object>)b.get("updateCells");
+        oldUpdate.put("start",BattleshipSheets.map("sheetId",2,"rowIndex",600,"columnIndex",0));newUpdate.put("start",oldUpdate.get("start"));
+        List<Object> delta=EventViewSync.incremental(List.of(update(2,"header"),a),List.of(update(2,"header"),b));
+        assertEquals(1,delta.size());assertTrue(new Gson().toJson(delta).contains("600"));
+    }
+    @Test public void editableModeUsesStableRowsLimitedSlotsAndProtectedOutputs() throws Exception
+    {
+        JsonObject snapshot=destination().deepCopy();snapshot.remove("developerMetadata");
+        for(JsonElement e:snapshot.getAsJsonArray("sheets"))
+        {
+            JsonObject s=e.getAsJsonObject();JsonArray rows=new JsonArray();
+            for(int r=0;r<8;r++)rows.add(json("{'values':[{'effectiveValue':{'stringValue':'DROP-1'}},{},{'effectiveValue':{'numberValue':2}}]}"));
+            JsonObject grid=new JsonObject();grid.add("rowData",rows);JsonArray grids=new JsonArray();grids.add(grid);s.add("data",grids);
+        }
+        List<List<Object>> board=new ArrayList<>();for(int r=0;r<8;r++)board.add(List.of("",r==7?"Bingo":""));
+        List<List<List<Object>>> values=List.of(List.of(List.of(TARGET,"REGISTRATIES_V1")),board,List.of(),List.of(),List.of(),List.of(),List.of(),
+            List.of(List.of(46000d,"","","",47000d)),List.of(List.of("Alice")),List.of(List.of("Bob")));
+        JsonArray requests=new Gson().toJsonTree(EventViewSync.plan(SOURCE,TARGET,destination(),snapshot,values,List.of(List.of(8),List.of(8)),"now")).getAsJsonArray();
+        int protectedInputs=0;boolean stableRow=false,epoch=false;
+        for(JsonElement el:requests)
+        {
+            JsonObject r=el.getAsJsonObject();
+            if(r.has("addProtectedRange")){
+                JsonObject p=r.getAsJsonObject("addProtectedRange").getAsJsonObject("protectedRange");assertFalse(p.get("warningOnly").getAsBoolean());
+                if(p.has("unprotectedRanges")){JsonObject free=p.getAsJsonArray("unprotectedRanges").get(0).getAsJsonObject();assertEquals(7,free.get("startRowIndex").getAsInt());assertEquals(3,free.get("startColumnIndex").getAsInt());assertEquals(5,free.get("endColumnIndex").getAsInt());protectedInputs++;}
+            }
+            if(r.has("updateCells")){
+                JsonObject u=r.getAsJsonObject("updateCells"),start=u.getAsJsonObject("start");
+                if(start.get("sheetId").getAsInt()!=1&&start.get("rowIndex").getAsInt()==7){stableRow=true;assertTrue(u.toString().contains("ONE_OF_LIST"));}
+                if(start.get("sheetId").getAsInt()!=1&&start.get("rowIndex").getAsInt()==0)epoch|=u.toString().contains(SOURCE+"|");
+            }
+        }
+        assertEquals(2,protectedInputs);assertTrue(stableRow);assertTrue(epoch);
+    }
     @Test public void rejectsSourceOrUnboundDestination() throws Exception
     {
         try{EventViewSync.checkDestination(SOURCE,SOURCE,destination());fail();}catch(java.io.IOException expected){}
