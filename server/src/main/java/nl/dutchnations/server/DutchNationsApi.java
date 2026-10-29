@@ -130,7 +130,7 @@ public final class DutchNationsApi
             if (!"/api/event-view/status".equals(exchange.getRequestURI().getPath())) { sendError(exchange, 404, "Route niet gevonden"); return; }
             if (!"GET".equals(exchange.getRequestMethod())) { methodNotAllowed(exchange); return; }
             send(exchange, 200, BattleshipSheets.map("state",eventView.state,"lastSuccess",eventView.lastSuccess,
-                "lastChecked",eventView.lastChecked,"durationMillis",eventView.durationMillis,"pollSeconds",EventViewSync.POLL_SECONDS));
+                "lastChecked",eventView.lastChecked,"durationMillis",eventView.durationMillis,"lastUpdateMillis",eventView.lastUpdateMillis,"pollSeconds",EventViewSync.POLL_SECONDS));
         });
         startDiscordInBackground(() -> startDiscordBot(discordBotToken));
         Runtime.getRuntime().addShutdownHook(new Thread(() -> { cleanup.shutdown(); battleshipWorker.shutdown(); eventViewWorker.shutdown(); if (discordBot != null) discordBot.shutdown(); server.stop(1); }));

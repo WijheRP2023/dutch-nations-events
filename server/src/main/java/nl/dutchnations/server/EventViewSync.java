@@ -24,9 +24,10 @@ final class EventViewSync
     private JsonObject sourceMetadata;
     private List<Object> publishedPlan;
     private String publishedTarget = "";
-    static final int POLL_SECONDS = 10;
+    static final int POLL_SECONDS = 5;
     volatile String lastChecked = "";
     volatile long durationMillis;
+    volatile long lastUpdateMillis;
     volatile String lastSuccess = "", state = "WACHTEN";
 
     EventViewSync()
@@ -90,7 +91,7 @@ final class EventViewSync
             if (!changes.isEmpty()) google.requestForView("POST", api(target)+":batchUpdate", map("requests",changes));
             if (changes == requests) lastLayoutSync=System.currentTimeMillis();
             publishedPlan=requests; publishedTarget=target;
-            lastFingerprint = fingerprint; lastFullSync=System.currentTimeMillis(); lastSuccess = Instant.now().toString(); state = "ACTUEEL";
+            lastFingerprint = fingerprint; lastFullSync=System.currentTimeMillis(); lastSuccess = Instant.now().toString(); lastUpdateMillis=System.currentTimeMillis()-started; state = "ACTUEEL";
         }
         catch (Exception failure)
         {
@@ -119,48 +120,72 @@ final class EventViewSync
     /** Keep unchanged cells (especially IMAGE formulas) and the entire layout intact. */
     static List<Object> incremental(List<Object> previous,List<Object> next)
     {
-        if(previous==null||!layout(previous).equals(layout(next)))return next;
-        Gson gson=new Gson(); Map<String,JsonObject> old=new HashMap<>();
-        for(Object request:previous)
-        {
-            JsonObject r=gson.toJsonTree(request).getAsJsonObject();
-            if(r.has("updateCells")){JsonObject u=r.getAsJsonObject("updateCells");old.put(u.get("start").toString(),u);}
-        }
+        // Merges can change cell geometry. Only those changes and periodic repair require a rebuild.
+        if(previous==null)return next;
+        List<Object> oldPlan=jsonPlan(previous),newPlan=jsonPlan(next);
+        if(!operations(oldPlan,"mergeCells").equals(operations(newPlan,"mergeCells")))return next;
+        SortedMap<Long,JsonObject> before=cells(oldPlan),after=cells(newPlan);
+        SortedSet<Long> keys=new TreeSet<>(before.keySet());keys.addAll(after.keySet());
         List<Object> changes=new ArrayList<>();
-        for(Object request:next)
+        long first=-1,last=-1;JsonArray changed=new JsonArray();
+        for(long key:keys)
         {
-            JsonObject r=gson.toJsonTree(request).getAsJsonObject();if(!r.has("updateCells"))continue;
-            JsonObject u=r.getAsJsonObject("updateCells"),start=u.getAsJsonObject("start");int id=start.get("sheetId").getAsInt();
-            JsonObject before=old.get(start.toString());if(before==null)return next;
-            JsonArray rows=u.getAsJsonArray("rows"),oldRows=before.getAsJsonArray("rows");
-            if(rows.size()!=oldRows.size())return next;
-            for(int row=0;row<rows.size();row++)
+            JsonObject cell=after.getOrDefault(key,new JsonObject());
+            if(cell.equals(before.getOrDefault(key,new JsonObject())))continue;
+            if(first>=0&&(key!=last+1||(key>>>16)!=(last>>>16)))
             {
-                JsonArray cells=rows.get(row).getAsJsonObject().getAsJsonArray("values"),oldCells=oldRows.get(row).getAsJsonObject().getAsJsonArray("values");
-                if(cells.size()!=oldCells.size())return next;
-                for(int col=0;col<cells.size();)
-                {
-                    if(cells.get(col).equals(oldCells.get(col))){col++;continue;}
-                    int first=col;JsonArray changed=new JsonArray();
-                    do{changed.add(cells.get(col++));}while(col<cells.size()&&!cells.get(col).equals(oldCells.get(col)));
-                    changes.add(map("updateCells",map("start",map("sheetId",id,"rowIndex",start.get("rowIndex").getAsInt()+row,"columnIndex",start.get("columnIndex").getAsInt()+first),
-                        "rows",List.of(map("values",changed)),"fields",u.get("fields"))));
-                }
+                addCells(changes,first,changed);changed=new JsonArray();first=-1;
             }
+            if(first<0)first=key;last=key;changed.add(cell);
+        }
+        if(first>=0)addCells(changes,first,changed);
+        // Selection/goal changes must update visibility and input protection, not erase the workbook.
+        for(String operation:List.of("updateDimensionProperties","updateSheetProperties"))
+            if(!operations(oldPlan,operation).equals(operations(newPlan,operation)))changes.addAll(operations(newPlan,operation));
+        if(!operations(oldPlan,"addProtectedRange").equals(operations(newPlan,"addProtectedRange")))
+        {
+            changes.addAll(operations(newPlan,"deleteProtectedRange"));
+            changes.addAll(operations(newPlan,"addProtectedRange"));
         }
         return changes;
     }
 
-    private static JsonArray layout(List<Object> plan)
+    private static void addCells(List<Object> changes,long first,JsonArray changed)
     {
-        JsonArray out=new JsonArray();Gson gson=new Gson();
-        for(Object request:plan)
+        changes.add(map("updateCells",map("start",map("sheetId",(int)(first>>>32),"rowIndex",(int)((first>>>16)&65535),"columnIndex",(int)(first&65535)),
+            "rows",List.of(map("values",changed)),"fields","userEnteredValue,userEnteredFormat,dataValidation")));
+    }
+
+    private static SortedMap<Long,JsonObject> cells(List<Object> plan)
+    {
+        SortedMap<Long,JsonObject> out=new TreeMap<>();
+        for(JsonObject request:operations(plan,"updateCells"))
         {
-            JsonObject r=gson.toJsonTree(request).getAsJsonObject();
-            if(r.has("updateDimensionProperties")||r.has("mergeCells")||r.has("updateSheetProperties")||r.has("addProtectedRange"))out.add(r);
+            JsonObject u=request.getAsJsonObject("updateCells"),s=u.getAsJsonObject("start");
+            int sheet=s.get("sheetId").getAsInt(),row=s.get("rowIndex").getAsInt(),col=s.get("columnIndex").getAsInt();
+            JsonArray rows=u.getAsJsonArray("rows");
+            for(int r=0;r<rows.size();r++)
+            {
+                JsonArray values=rows.get(r).getAsJsonObject().getAsJsonArray("values");
+                for(int c=0;c<values.size();c++)out.put(((long)sheet<<32)|((long)(row+r)<<16)|(col+c),values.get(c).getAsJsonObject());
+            }
         }
         return out;
     }
+
+    private static List<JsonObject> operations(List<Object> plan,String type)
+    {
+        List<JsonObject> out=new ArrayList<>();Gson gson=new Gson();
+        for(Object request:plan)
+        {
+            JsonObject r=request instanceof JsonObject?(JsonObject)request:gson.toJsonTree(request).getAsJsonObject();
+            if(r.has(type))out.add(r);
+        }
+        return out;
+    }
+
+    private static List<Object> jsonPlan(List<Object> plan)
+    { List<Object> out=new ArrayList<>();for(JsonElement r:new Gson().toJsonTree(plan).getAsJsonArray())out.add(r.getAsJsonObject());return out; }
 
     private JsonObject get(String file, String query, String fields) throws IOException
     { return google.request("GET",api(file)+"?fields="+enc(fields)+query,null,16_000_000); }

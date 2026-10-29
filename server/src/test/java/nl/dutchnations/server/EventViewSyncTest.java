@@ -51,6 +51,48 @@ public class EventViewSyncTest
         assertEquals(2,changes.size());
         assertTrue(new Gson().toJson(changes).contains("claimed"));
     }
+    @Test public void addingSelectedRowsDoesNotEraseOrReloadTheExistingBoard()
+    {
+        List<Object> before=List.of(update(1,"IMAGE","same"),update(2,"player"));
+        Map<String,Object> added=update(2,"NEW_DROP");
+        @SuppressWarnings("unchecked") Map<String,Object> u=(Map<String,Object>)added.get("updateCells");
+        u.put("start",BattleshipSheets.map("sheetId",2,"rowIndex",700,"columnIndex",0));
+        List<Object> next=List.of(update(1,"IMAGE","same"),update(2,"player"),added,
+            BattleshipSheets.map("updateDimensionProperties",BattleshipSheets.map("range",BattleshipSheets.map("sheetId",2,"startIndex",700,"endIndex",701),"properties",BattleshipSheets.map("hiddenByUser",false),"fields","hiddenByUser")));
+        List<Object> delta=EventViewSync.incremental(before,next);
+        String result=new Gson().toJson(delta);
+        assertNotSame(next,delta);assertFalse(result.contains("IMAGE"));assertFalse(result.contains("player"));
+        assertFalse(result.contains("repeatCell"));assertFalse(result.contains("unmergeCells"));
+        assertTrue(result.contains("NEW_DROP"));assertTrue(result.contains("hiddenByUser"));
+    }
+    @Test public void removingSelectedRowsExplicitlyClearsTheirOldValues()
+    {
+        List<Object> next=List.of(update(1,"unchanged"));
+        JsonArray changes=new Gson().toJsonTree(EventViewSync.incremental(List.of(update(1,"unchanged"),update(2,"old player")),next)).getAsJsonArray();
+        assertEquals(1,changes.size());
+        JsonObject update=changes.get(0).getAsJsonObject().getAsJsonObject("updateCells");
+        assertEquals(2,update.getAsJsonObject("start").get("sheetId").getAsInt());
+        assertEquals(0,update.getAsJsonArray("rows").get(0).getAsJsonObject().getAsJsonArray("values").get(0).getAsJsonObject().size());
+    }
+    @Test public void changingGoalUpdatesProtectionWithoutReloadingImages()
+    {
+        Object oldProtection=BattleshipSheets.map("addProtectedRange",BattleshipSheets.map("protectedRange",BattleshipSheets.map("unprotectedRanges",List.of("D:E"))));
+        Object newProtection=BattleshipSheets.map("addProtectedRange",BattleshipSheets.map("protectedRange",BattleshipSheets.map("unprotectedRanges",List.of("D:F"))));
+        Object deletion=BattleshipSheets.map("deleteProtectedRange",BattleshipSheets.map("protectedRangeId",123));
+        String delta=new Gson().toJson(EventViewSync.incremental(List.of(update(1,"IMAGE"),oldProtection),List.of(update(1,"IMAGE"),deletion,newProtection)));
+        assertTrue(delta.contains("deleteProtectedRange"));assertTrue(delta.contains("D:F"));assertFalse(delta.contains("IMAGE"));
+    }
+    @Test public void regroupingAdjacentSourceRangesDoesNotRewriteEqualCells()
+    {
+        Map<String,Object> joined=update(2,"one");
+        @SuppressWarnings("unchecked") Map<String,Object> u=(Map<String,Object>)joined.get("updateCells");
+        u.put("rows",List.of(BattleshipSheets.map("values",List.of(BattleshipSheets.map("userEnteredValue",BattleshipSheets.map("stringValue","one")))),
+            BattleshipSheets.map("values",List.of(BattleshipSheets.map("userEnteredValue",BattleshipSheets.map("stringValue","two"))))));
+        Map<String,Object> second=update(2,"two");
+        @SuppressWarnings("unchecked") Map<String,Object> s=(Map<String,Object>)second.get("updateCells");
+        s.put("start",BattleshipSheets.map("sheetId",2,"rowIndex",6,"columnIndex",0));
+        assertTrue(EventViewSync.incremental(List.of(joined),List.of(update(2,"one"),second)).isEmpty());
+    }
     @Test public void neighbouringDropRowsUseBoundedCombinedRanges()
     {
         assertEquals(List.of("'Team 1'!A6:R12","'Team 1'!A90:R91"),EventViewSync.rowRanges("Team 1",List.of(6,7,11,12,90,91)));
