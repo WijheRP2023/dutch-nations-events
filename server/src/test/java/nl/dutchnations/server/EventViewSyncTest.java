@@ -11,6 +11,51 @@ public class EventViewSyncTest
     private static JsonObject json(String s){return JsonParser.parseString(s.replace('\'', '"')).getAsJsonObject();}
     private static JsonObject destination()
     {return json("{'sheets':[{'properties':{'sheetId':1,'title':'Tussenstand','gridProperties':{'rowCount':100}}},{'properties':{'sheetId':2,'title':'Team 1','gridProperties':{'rowCount':100}}},{'properties':{'sheetId':3,'title':'Team 2','gridProperties':{'rowCount':100}}}], 'developerMetadata':[{'metadataKey':'DN_EVENT_VIEW_SOURCE','metadataValue':'"+SOURCE+"'}]}");}
+    private static Map<String,Object> update(int sheet,String... values)
+    {
+        List<Object> cells=new ArrayList<>();for(String v:values)cells.add(BattleshipSheets.map("userEnteredValue",BattleshipSheets.map("stringValue",v)));
+        return BattleshipSheets.map("updateCells",BattleshipSheets.map("start",BattleshipSheets.map("sheetId",sheet,"rowIndex",5,"columnIndex",0),
+            "rows",List.of(BattleshipSheets.map("values",cells)),"fields","userEnteredValue,userEnteredFormat,dataValidation"));
+    }
+    @Test public void unchangedUpdatesDoNotWriteOrReloadImages()
+    {
+        List<Object> plan=List.of(update(1,"IMAGE","same"),update(2,"player"));
+        assertTrue(EventViewSync.incremental(plan,plan).isEmpty());
+    }
+    @Test public void onlyChangedCellsAreWrittenAndClearedWithTheirFormats()
+    {
+        List<Object> before=List.of(update(1,"IMAGE","old","old2","stable","old3"),update(2,"stable"));
+        List<Object> after=List.of(update(1,"IMAGE","new","","stable","new3"),update(2,"stable"));
+        JsonArray changes=new Gson().toJsonTree(EventViewSync.incremental(before,after)).getAsJsonArray();
+        assertEquals(2,changes.size());
+        JsonObject first=changes.get(0).getAsJsonObject().getAsJsonObject("updateCells");
+        assertEquals(1,first.getAsJsonObject("start").get("columnIndex").getAsInt());
+        assertEquals(5,first.getAsJsonObject("start").get("rowIndex").getAsInt());
+        assertEquals(2,first.getAsJsonArray("rows").get(0).getAsJsonObject().getAsJsonArray("values").size());
+        assertTrue(first.get("fields").getAsString().contains("userEnteredFormat"));
+        assertFalse(changes.toString().contains("IMAGE"));
+        assertFalse(changes.toString().contains("repeatCell"));
+    }
+    @Test public void layoutChangesOrFirstSyncUseFullAtomicPlan()
+    {
+        List<Object> before=List.of(update(1,"same"));
+        List<Object> after=List.of(update(1,"same"),BattleshipSheets.map("mergeCells",BattleshipSheets.map("range",BattleshipSheets.map("sheetId",1))));
+        assertSame(after,EventViewSync.incremental(before,after));
+        assertSame(before,EventViewSync.incremental(null,before));
+        assertSame(after,EventViewSync.incremental(List.of(update(2,"same")),after));
+    }
+    @Test public void changedTeamAndBoardCellsAreInTheSameBatch()
+    {
+        List<Object> changes=EventViewSync.incremental(List.of(update(1,"open"),update(2,"0"),update(3,"0")),
+            List.of(update(1,"claimed"),update(2,"1"),update(3,"0")));
+        assertEquals(2,changes.size());
+        assertTrue(new Gson().toJson(changes).contains("claimed"));
+    }
+    @Test public void neighbouringDropRowsUseBoundedCombinedRanges()
+    {
+        assertEquals(List.of("'Team 1'!A6:R12","'Team 1'!A90:R91"),EventViewSync.rowRanges("Team 1",List.of(6,7,11,12,90,91)));
+        assertTrue(EventViewSync.rowRanges("Team 2",List.of()).isEmpty());
+    }
     @Test public void rejectsSourceOrUnboundDestination() throws Exception
     {
         try{EventViewSync.checkDestination(SOURCE,SOURCE,destination());fail();}catch(java.io.IOException expected){}

@@ -125,11 +125,12 @@ public final class DutchNationsApi
         if (BattleshipSync.configured()) battleshipWorker.scheduleWithFixedDelay(battleshipSync::tick, 5, 15, TimeUnit.SECONDS);
         EventViewSync eventView = new EventViewSync();
         ScheduledExecutorService eventViewWorker = Executors.newSingleThreadScheduledExecutor();
-        eventViewWorker.scheduleWithFixedDelay(eventView::tick, 10, 45, TimeUnit.SECONDS);
+        eventViewWorker.scheduleWithFixedDelay(eventView::tick, 2, EventViewSync.POLL_SECONDS, TimeUnit.SECONDS);
         server.createContext("/api/event-view/status", exchange -> {
             if (!"/api/event-view/status".equals(exchange.getRequestURI().getPath())) { sendError(exchange, 404, "Route niet gevonden"); return; }
             if (!"GET".equals(exchange.getRequestMethod())) { methodNotAllowed(exchange); return; }
-            send(exchange, 200, BattleshipSheets.map("state",eventView.state,"lastSuccess",eventView.lastSuccess));
+            send(exchange, 200, BattleshipSheets.map("state",eventView.state,"lastSuccess",eventView.lastSuccess,
+                "lastChecked",eventView.lastChecked,"durationMillis",eventView.durationMillis,"pollSeconds",EventViewSync.POLL_SECONDS));
         });
         startDiscordInBackground(() -> startDiscordBot(discordBotToken));
         Runtime.getRuntime().addShutdownHook(new Thread(() -> { cleanup.shutdown(); battleshipWorker.shutdown(); eventViewWorker.shutdown(); if (discordBot != null) discordBot.shutdown(); server.stop(1); }));

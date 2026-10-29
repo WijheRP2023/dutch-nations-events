@@ -20,6 +20,13 @@ final class EventViewSync
     private final BattleshipSheets google;
     private String lastFingerprint = "";
     private long lastFullSync;
+    private long lastLayoutSync, metadataAt, retryAfter;
+    private JsonObject sourceMetadata;
+    private List<Object> publishedPlan;
+    private String publishedTarget = "";
+    static final int POLL_SECONDS = 10;
+    volatile String lastChecked = "";
+    volatile long durationMillis;
     volatile String lastSuccess = "", state = "WACHTEN";
 
     EventViewSync()
@@ -35,10 +42,17 @@ final class EventViewSync
     void tick()
     {
         if (google == null || source == null) return;
+        if (System.currentTimeMillis() < retryAfter) return;
+        long started = System.currentTimeMillis();
         String stage="BRON_LEZEN";
         try
         {
-            JsonObject sourceMeta=get(source,"","sheets(properties(title,gridProperties(rowCount)))");
+            if (sourceMetadata == null || started - metadataAt >= 60_000)
+            {
+                sourceMetadata=get(source,"","sheets(properties(title,gridProperties(rowCount)))");
+                metadataAt=started;
+            }
+            JsonObject sourceMeta=sourceMetadata;
             List<List<List<Object>>> values = google.batchValues(source, "Zeeslagdata!A6", "Tussenstand!A1:Q75",
                 "'Team 1'!A6:V"+rowCount(sourceMeta,"Team 1"), "'Team 2'!A6:V"+rowCount(sourceMeta,"Team 2"),
                 "Borddata!C2:C50", "Drops!B2:B3000", "Drops!N2:N3000");
@@ -48,13 +62,14 @@ final class EventViewSync
             if (target.equals(source) || target.equals(System.getenv("DN_BATTLESHIP_TEAM_ONE_SHEET"))
                 || target.equals(System.getenv("DN_BATTLESHIP_TEAM_TWO_SHEET"))) throw new IOException("Ongeldig kijkbestand");
             String fingerprint = new Gson().toJson(values);
+            lastChecked = Instant.now().toString();
             if (fingerprint.equals(lastFingerprint)&&System.currentTimeMillis()-lastFullSync<300_000) { state = "ACTUEEL"; return; }
             stage="KOPPELING_CONTROLEREN";
             JsonObject destination = get(target, "", "sheets(properties,merges,conditionalFormats,protectedRanges),developerMetadata");
             checkDestination(source, target, destination);
             List<String> ranges = new ArrayList<>(List.of("Tussenstand!A1:Q75", "'Team 1'!A1:V5", "'Team 2'!A1:V5"));
             List<List<Integer>> selected = List.of(selected(values.get(2)), selected(values.get(3)));
-            for (int t=0;t<2;t++) for (int row:selected.get(t)) ranges.add("'Team " + (t+1) + "'!A"+row+":R"+row);
+            for (int t=0;t<2;t++) ranges.addAll(rowRanges("Team " + (t+1), selected.get(t)));
             stage="WEERGAVE_LEZEN";
             JsonObject snapshot = new JsonObject(); JsonArray sheets = new JsonArray(); snapshot.add("sheets", sheets);
             for (int i=0;i<ranges.size();i+=60)
@@ -68,16 +83,82 @@ final class EventViewSync
             String time=DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm:ss").withZone(ZoneId.of("Europe/Amsterdam")).format(Instant.now());
             stage="WEERGAVE_OPBOUWEN";
             List<Object> requests = plan(source, target, destination, snapshot, values, selected, time);
+            boolean layoutRefresh = !target.equals(publishedTarget) || started-lastLayoutSync >= 300_000;
+            List<Object> changes = layoutRefresh ? requests : incremental(publishedPlan, requests);
             stage="PUBLICEREN";
-            google.requestForView("POST", api(target)+":batchUpdate", map("requests",requests));
+            if (!changes.isEmpty()) google.requestForView("POST", api(target)+":batchUpdate", map("requests",changes));
+            if (changes == requests) lastLayoutSync=System.currentTimeMillis();
+            publishedPlan=requests; publishedTarget=target;
             lastFingerprint = fingerprint; lastFullSync=System.currentTimeMillis(); lastSuccess = Instant.now().toString(); state = "ACTUEEL";
         }
         catch (Exception failure)
         {
             state = "FOUT_"+stage;
+            sourceMetadata=null;
             String hint=failure.getMessage()!=null&&failure.getMessage().startsWith("Google-koppeling: HTTP ")?failure.getMessage():"";
+            retryAfter=System.currentTimeMillis()+(hint.contains("429")?60_000:10_000);
             System.err.println("Kijkbestand niet ververst ("+stage+"). "+hint+" De laatst geldige weergave blijft behouden.");
         }
+        finally { durationMillis=System.currentTimeMillis()-started; }
+    }
+
+    /** Merge neighbouring active rows: one grid read instead of one range per drop. */
+    static List<String> rowRanges(String tab, List<Integer> rows)
+    {
+        List<String> ranges=new ArrayList<>();
+        for(int i=0;i<rows.size();)
+        {
+            int start=rows.get(i),end=start;i++;
+            while(i<rows.size()&&rows.get(i)<=end+4)end=rows.get(i++);
+            ranges.add("'"+tab+"'!A"+start+":R"+end);
+        }
+        return ranges;
+    }
+
+    /** Keep unchanged cells (especially IMAGE formulas) and the entire layout intact. */
+    static List<Object> incremental(List<Object> previous,List<Object> next)
+    {
+        if(previous==null||!layout(previous).equals(layout(next)))return next;
+        Gson gson=new Gson(); Map<Integer,JsonObject> old=new HashMap<>();
+        for(Object request:previous)
+        {
+            JsonObject r=gson.toJsonTree(request).getAsJsonObject();
+            if(r.has("updateCells")){JsonObject u=r.getAsJsonObject("updateCells");old.put(u.getAsJsonObject("start").get("sheetId").getAsInt(),u);}
+        }
+        List<Object> changes=new ArrayList<>();
+        for(Object request:next)
+        {
+            JsonObject r=gson.toJsonTree(request).getAsJsonObject();if(!r.has("updateCells"))continue;
+            JsonObject u=r.getAsJsonObject("updateCells"),start=u.getAsJsonObject("start");int id=start.get("sheetId").getAsInt();
+            JsonObject before=old.get(id);if(before==null)return next;
+            JsonArray rows=u.getAsJsonArray("rows"),oldRows=before.getAsJsonArray("rows");
+            if(rows.size()!=oldRows.size())return next;
+            for(int row=0;row<rows.size();row++)
+            {
+                JsonArray cells=rows.get(row).getAsJsonObject().getAsJsonArray("values"),oldCells=oldRows.get(row).getAsJsonObject().getAsJsonArray("values");
+                if(cells.size()!=oldCells.size())return next;
+                for(int col=0;col<cells.size();)
+                {
+                    if(cells.get(col).equals(oldCells.get(col))){col++;continue;}
+                    int first=col;JsonArray changed=new JsonArray();
+                    do{changed.add(cells.get(col++));}while(col<cells.size()&&!cells.get(col).equals(oldCells.get(col)));
+                    changes.add(map("updateCells",map("start",map("sheetId",id,"rowIndex",start.get("rowIndex").getAsInt()+row,"columnIndex",start.get("columnIndex").getAsInt()+first),
+                        "rows",List.of(map("values",changed)),"fields",u.get("fields"))));
+                }
+            }
+        }
+        return changes;
+    }
+
+    private static JsonArray layout(List<Object> plan)
+    {
+        JsonArray out=new JsonArray();Gson gson=new Gson();
+        for(Object request:plan)
+        {
+            JsonObject r=gson.toJsonTree(request).getAsJsonObject();
+            if(r.has("updateDimensionProperties")||r.has("mergeCells")||r.has("updateSheetProperties"))out.add(r);
+        }
+        return out;
     }
 
     private JsonObject get(String file, String query, String fields) throws IOException
