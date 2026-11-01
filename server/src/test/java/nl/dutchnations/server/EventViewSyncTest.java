@@ -2,12 +2,48 @@ package nl.dutchnations.server;
 
 import com.google.gson.*;
 import java.util.*;
+import java.util.concurrent.*;
 import org.junit.Test;
 import static org.junit.Assert.*;
 
 public class EventViewSyncTest
 {
     private static final String SOURCE="source________________________",TARGET="viewer________________________";
+    @Test public void independentGoogleReadsRunConcurrentlyWithoutReorderingResults() throws Exception
+    {
+        ExecutorService executor=Executors.newFixedThreadPool(2);CountDownLatch bothStarted=new CountDownLatch(2);
+        try
+        {
+            EventViewSync.GoogleRead first=() -> {bothStarted.countDown();try{if(!bothStarted.await(2,TimeUnit.SECONDS))throw new java.io.IOException("Reads ran sequentially");}catch(InterruptedException e){Thread.currentThread().interrupt();throw new java.io.IOException(e);}return json("{'first':true}");};
+            EventViewSync.GoogleRead second=() -> {bothStarted.countDown();try{if(!bothStarted.await(2,TimeUnit.SECONDS))throw new java.io.IOException("Reads ran sequentially");}catch(InterruptedException e){Thread.currentThread().interrupt();throw new java.io.IOException(e);}return json("{'second':true}");};
+            List<JsonObject> result=EventViewSync.parallelReads(executor,first,second);
+            assertTrue(result.get(0).get("first").getAsBoolean());assertTrue(result.get(1).get("second").getAsBoolean());
+        }
+        finally{executor.shutdownNow();}
+    }
+    @Test public void failedReadNeverReturnsPartialPublicationData() throws Exception
+    {
+        ExecutorService executor=Executors.newFixedThreadPool(2);
+        try
+        {
+            try{EventViewSync.parallelReads(executor,() -> {throw new java.io.IOException("binding denied");},() -> json("{'public':true}"));fail();}
+            catch(java.io.IOException expected){assertEquals("binding denied",expected.getMessage());}
+            try{EventViewSync.parallelReads(executor,() -> json("{'public':true}"),() -> {throw new java.io.IOException("source failed");});fail();}
+            catch(java.io.IOException expected){assertEquals("source failed",expected.getMessage());}
+        }
+        finally{executor.shutdownNow();}
+    }
+    @Test public void interruptedReadPreservesInterruptAndDoesNotPublish() throws Exception
+    {
+        ExecutorService executor=Executors.newFixedThreadPool(2);CountDownLatch block=new CountDownLatch(1);
+        try
+        {
+            Thread.currentThread().interrupt();
+            try{EventViewSync.parallelReads(executor,() -> {try{block.await();}catch(InterruptedException e){Thread.currentThread().interrupt();throw new java.io.IOException(e);}return json("{}");},() -> json("{}"));fail();}
+            catch(java.io.IOException expected){assertTrue(Thread.currentThread().isInterrupted());}
+        }
+        finally{Thread.interrupted();block.countDown();executor.shutdownNow();}
+    }
     private static JsonObject json(String s){return JsonParser.parseString(s.replace('\'', '"')).getAsJsonObject();}
     private static JsonObject destination()
     {return json("{'sheets':[{'properties':{'sheetId':1,'title':'Tussenstand','gridProperties':{'rowCount':100}}},{'properties':{'sheetId':2,'title':'Team 1','gridProperties':{'rowCount':100}}},{'properties':{'sheetId':3,'title':'Team 2','gridProperties':{'rowCount':100}}}], 'developerMetadata':[{'metadataKey':'DN_EVENT_VIEW_SOURCE','metadataValue':'"+SOURCE+"'}]}");}

@@ -8,6 +8,7 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.concurrent.*;
 import java.util.regex.*;
 import static nl.dutchnations.server.BattleshipSheets.map;
 
@@ -18,6 +19,9 @@ final class EventViewSync
     static final List<String> TABS = List.of("Tussenstand", "Team 1", "Team 2");
     private final String source;
     private final BattleshipSheets google;
+    private final ExecutorService readWorkers = Executors.newFixedThreadPool(2, work -> {
+        Thread thread = new Thread(work,"event-view-read");thread.setDaemon(true);return thread;
+    });
     private String lastFingerprint = "";
     private long lastFullSync;
     private long lastLayoutSync, metadataAt, retryAfter;
@@ -26,7 +30,7 @@ final class EventViewSync
     private String publishedTarget = "";
     private String sourceCardMode = "", sourceCardFingerprint = "";
     private long sourceCardAt, sourceCardRetryAfter;
-    static final int POLL_SECONDS = 5;
+    static final int POLL_SECONDS = 3;
     volatile String lastChecked = "";
     volatile long durationMillis;
     volatile long lastUpdateMillis;
@@ -69,22 +73,17 @@ final class EventViewSync
             lastChecked = Instant.now().toString();
             syncSourceCardVisibility(values,fingerprint,started);
             if (fingerprint.equals(lastFingerprint)&&System.currentTimeMillis()-lastFullSync<300_000) { state = "ACTUEEL"; return; }
-            stage="KOPPELING_CONTROLEREN";
-            JsonObject destination = get(target, "", "sheets(properties,merges,conditionalFormats,protectedRanges),developerMetadata");
-            checkDestination(source, target, destination);
             List<String> ranges = new ArrayList<>(List.of("Tussenstand!A1:Q75", "'Team 1'!A1:V5", "'Team 2'!A1:V5"));
             List<List<Integer>> selected = List.of(selected(values.get(2)), selected(values.get(3)));
             for (int t=0;t<2;t++) ranges.addAll(rowRanges("Team " + (t+1), selected.get(t)));
-            stage="WEERGAVE_LEZEN";
-            JsonObject snapshot = new JsonObject(); JsonArray sheets = new JsonArray(); snapshot.add("sheets", sheets);
-            for (int i=0;i<ranges.size();i+=60)
-            {
-                StringBuilder query = new StringBuilder();
-                for (String range:ranges.subList(i,Math.min(i+60,ranges.size()))) query.append("&ranges=").append(enc(range));
-                JsonObject part = get(source, query.toString(),
-                    "sheets(properties,merges,data(startRow,startColumn,rowData(values(userEnteredValue,effectiveValue,formattedValue,effectiveFormat,dataValidation)),rowMetadata(pixelSize,hiddenByUser),columnMetadata(pixelSize,hiddenByUser)))");
-                for (JsonElement sheet:part.getAsJsonArray("sheets")) sheets.add(sheet);
-            }
+            stage="KOPPELING_EN_WEERGAVE_LEZEN";
+            // Independent reads overlap, but every publish still verifies a fresh
+            // destination binding/protection snapshot and fresh calculated styles.
+            List<JsonObject> read = parallelReads(readWorkers,
+                () -> get(target, "", "sheets(properties(sheetId,title,gridProperties(rowCount,columnCount)),merges,conditionalFormats(ranges),protectedRanges(protectedRangeId)),developerMetadata(metadataKey,metadataValue)"),
+                () -> readSnapshot(ranges));
+            JsonObject destination=read.get(0),snapshot=read.get(1);
+            checkDestination(source, target, destination);
             String time=DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm:ss").withZone(ZoneId.of("Europe/Amsterdam")).format(Instant.now());
             stage="WEERGAVE_OPBOUWEN";
             List<Object> requests = plan(source, target, destination, snapshot, values, selected, time);
@@ -105,6 +104,38 @@ final class EventViewSync
             System.err.println("Kijkbestand niet ververst ("+stage+"). "+hint+" De laatst geldige weergave blijft behouden.");
         }
         finally { durationMillis=System.currentTimeMillis()-started; }
+    }
+
+    @FunctionalInterface interface GoogleRead { JsonObject read() throws IOException; }
+
+    /** Two bounded workers; failure or interruption never publishes a partial result. */
+    static List<JsonObject> parallelReads(ExecutorService executor,GoogleRead first,GoogleRead second) throws IOException
+    {
+        Future<JsonObject> a=executor.submit(first::read),b=executor.submit(second::read);
+        try { return List.of(a.get(),b.get()); }
+        catch(InterruptedException interrupted) { Thread.currentThread().interrupt();throw new IOException("Google-controle onderbroken",interrupted); }
+        catch(ExecutionException failure)
+        {
+            if(failure.getCause() instanceof IOException)throw (IOException)failure.getCause();
+            throw new IOException("Google-controle mislukt",failure.getCause());
+        }
+        finally { a.cancel(true);b.cancel(true); }
+    }
+
+    private JsonObject readSnapshot(List<String> ranges) throws IOException
+    {
+        JsonObject snapshot=new JsonObject();JsonArray sheets=new JsonArray();snapshot.add("sheets",sheets);
+        for(int i=0;i<ranges.size();i+=60)
+        {
+            StringBuilder query=new StringBuilder();
+            for(String range:ranges.subList(i,Math.min(i+60,ranges.size())))query.append("&ranges=").append(enc(range));
+            // formattedValue and source dropdown rules are unused: values/styles
+            // are projected below; editor-only dropdowns are rebuilt from the roster.
+            JsonObject part=get(source,query.toString(),
+                "sheets(properties,merges,data(startRow,startColumn,rowData(values(userEnteredValue,effectiveValue,effectiveFormat)),rowMetadata(pixelSize,hiddenByUser),columnMetadata(pixelSize,hiddenByUser)))");
+            for(JsonElement sheet:part.getAsJsonArray("sheets"))sheets.add(sheet);
+        }
+        return snapshot;
     }
 
     private void syncSourceCardVisibility(List<List<List<Object>>> values,String fingerprint,long started)
