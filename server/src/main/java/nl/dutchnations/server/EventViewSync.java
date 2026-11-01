@@ -17,6 +17,7 @@ final class EventViewSync
 {
     static final String BINDING = "DN_EVENT_VIEW_SOURCE";
     static final List<String> TABS = List.of("Tussenstand", "Team 1", "Team 2");
+    static final int MAX_ACTIVE_DROPS = 2000;
     private final String source;
     private final BattleshipSheets google;
     private final ExecutorService readWorkers = Executors.newFixedThreadPool(2, work -> {
@@ -74,6 +75,7 @@ final class EventViewSync
             syncSourceCardVisibility(values,fingerprint,started);
             if (fingerprint.equals(lastFingerprint)&&System.currentTimeMillis()-lastFullSync<300_000) { state = "ACTUEEL"; return; }
             List<String> ranges = new ArrayList<>(List.of("Tussenstand!A1:Q75", "'Team 1'!A1:V5", "'Team 2'!A1:V5"));
+            stage="SELECTIE_CONTROLEREN";
             List<List<Integer>> selected = List.of(selected(values.get(2)), selected(values.get(3)));
             for (int t=0;t<2;t++) ranges.addAll(rowRanges("Team " + (t+1), selected.get(t)));
             stage="KOPPELING_EN_WEERGAVE_LEZEN";
@@ -273,7 +275,7 @@ final class EventViewSync
     {
         List<Integer> out=new ArrayList<>();
         for(int i=0;i<rows.size();i++) if(rows.get(i).size()>17&&Boolean.TRUE.equals(rows.get(i).get(17))) out.add(i+6);
-        if(out.size()>500) throw new IOException("Te veel actieve drops");
+        if(out.size()>MAX_ACTIVE_DROPS) throw new IOException("Te veel actieve drops");
         return out;
     }
 

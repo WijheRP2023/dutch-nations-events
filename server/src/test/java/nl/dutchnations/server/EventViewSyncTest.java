@@ -336,9 +336,17 @@ public class EventViewSyncTest
         rows.set(1999,new ArrayList<>(Collections.nCopies(18,"")));rows.get(1999).set(17,true);
         assertEquals(List.of(2005),EventViewSync.selected(rows));
     }
-    @Test public void enforcesMaximum500Goals() throws Exception
+    @Test public void fullPvmSelectionAbove500IsSupported() throws Exception
     {
-        List<List<Object>> rows=new ArrayList<>();for(int i=0;i<501;i++){List<Object> row=new ArrayList<>(Collections.nCopies(18,""));row.set(17,true);rows.add(row);}
+        List<List<Object>> rows=new ArrayList<>();
+        for(int i=0;i<695;i++){List<Object> row=new ArrayList<>(Collections.nCopies(18,""));row.set(17,true);rows.add(row);}
+        assertEquals(695,EventViewSync.selected(rows).size());
+    }
+    @Test public void enforcesBoundedMaximumActiveGoals() throws Exception
+    {
+        List<List<Object>> rows=new ArrayList<>();for(int i=0;i<EventViewSync.MAX_ACTIVE_DROPS;i++){List<Object> row=new ArrayList<>(Collections.nCopies(18,""));row.set(17,true);rows.add(row);}
+        assertEquals(EventViewSync.MAX_ACTIVE_DROPS,EventViewSync.selected(rows).size());
+        rows.add(new ArrayList<>(rows.get(0)));
         try{EventViewSync.selected(rows);fail();}catch(java.io.IOException expected){}
     }
     @Test public void computedValuesAndFormatsButNotSourceFormulasAreCopied() throws Exception
