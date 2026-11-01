@@ -256,10 +256,17 @@ final class BattleshipSheets implements BattleshipGateway
     JsonObject requestForView(String method,String url,Object data) throws IOException
     { return request(method,url,data,2_000_000,true); }
 
+    static Duration requestTimeout(String method, boolean publicProjection)
+    {
+        // An initial public view can atomically publish thousands of styled cells.
+        // Keep ordinary reads and private fleet operations on their short deadline.
+        return Duration.ofSeconds(publicProjection && "POST".equals(method) ? 60 : 12);
+    }
+
     private JsonObject request(String method,String url,Object data,int limit,boolean publicProjection) throws IOException
     {
         credentials.refreshIfExpired();
-        HttpRequest.Builder request = HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofSeconds(12))
+        HttpRequest.Builder request = HttpRequest.newBuilder(URI.create(url)).timeout(requestTimeout(method,publicProjection))
             .header("Authorization", "Bearer " + credentials.getAccessToken().getTokenValue());
         if (data == null) request.GET(); else request.header("Content-Type", "application/json").method(method, HttpRequest.BodyPublishers.ofString(JSON.toJson(data)));
         try
