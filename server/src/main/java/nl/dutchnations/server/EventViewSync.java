@@ -81,11 +81,20 @@ final class EventViewSync
             stage="KOPPELING_EN_WEERGAVE_LEZEN";
             // Independent reads overlap, but every publish still verifies a fresh
             // destination binding/protection snapshot and fresh calculated styles.
-            List<JsonObject> read = parallelReads(readWorkers,
-                () -> get(target, "", "sheets(properties(sheetId,title,gridProperties(rowCount,columnCount)),merges,conditionalFormats(ranges),protectedRanges(protectedRangeId)),developerMetadata(metadataKey,metadataValue)"),
-                () -> readSnapshot(ranges));
-            JsonObject destination=read.get(0),snapshot=read.get(1);
+            List<GoogleRead> operations=new ArrayList<>();
+            operations.add(() -> get(target, "", "sheets(properties(sheetId,title,gridProperties(rowCount,columnCount)),merges,conditionalFormats(ranges),protectedRanges(protectedRangeId)),developerMetadata(metadataKey,metadataValue)"));
+            for(List<String> group:snapshotGroups(ranges,8000))operations.add(() -> readSnapshotPart(group));
+            List<JsonObject> read = parallelReads(readWorkers,operations);
+            JsonObject destination=read.get(0),snapshot=new JsonObject();JsonArray snapshotSheets=new JsonArray();snapshot.add("sheets",snapshotSheets);
+            for(int i=1;i<read.size();i++)for(JsonElement sheet:read.get(i).getAsJsonArray("sheets"))snapshotSheets.add(sheet);
             checkDestination(source, target, destination);
+            // A game switch must never combine one game's values with another's
+            // cached/recalculating card styles. Never write this partial view.
+            boolean presets=false;
+            for(JsonElement sheet:sourceMeta.getAsJsonArray("sheets"))if("Spelpresets".equals(sheet.getAsJsonObject().getAsJsonObject("properties").get("title").getAsString()))presets=true;
+            List<List<List<Object>>> choice=google.batchValues(source,presets?new String[]{"Tussenstand!B8","Spelpresets!I2"}:new String[]{"Tussenstand!B8"});
+            String expected=string(values.get(1),7,1),latest=string(choice.get(0),0,0);
+            if(!expected.equals(latest)||(presets&&!latest.equals(string(choice.get(1),0,0))))throw new SourceChangedException();
             String time=DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm:ss").withZone(ZoneId.of("Europe/Amsterdam")).format(Instant.now());
             stage="WEERGAVE_OPBOUWEN";
             List<Object> requests = plan(source, target, destination, snapshot, values, selected, time);
@@ -97,9 +106,13 @@ final class EventViewSync
             publishedPlan=requests; publishedTarget=target;
             lastFingerprint = fingerprint; lastFullSync=System.currentTimeMillis(); lastSuccess = Instant.now().toString(); lastUpdateMillis=System.currentTimeMillis()-started; state = "ACTUEEL";
         }
+        catch (SourceChangedException changed)
+        {
+            state="WACHT_OP_SPELKEUZE";retryAfter=0;
+        }
         catch (Exception failure)
         {
-            state = "FOUT_"+stage;
+            state = failureState(stage,failure);
             sourceMetadata=null;
             String hint=failure.getMessage()!=null&&failure.getMessage().startsWith("Google-koppeling: HTTP ")?failure.getMessage():"";
             retryAfter=System.currentTimeMillis()+(hint.contains("429")?60_000:10_000);
@@ -109,35 +122,64 @@ final class EventViewSync
     }
 
     @FunctionalInterface interface GoogleRead { JsonObject read() throws IOException; }
+    static String failureState(String stage,Exception failure)
+    {
+        if("Google-antwoord is te groot".equals(failure.getMessage()))return "FOUT_ANTWOORD_TE_GROOT";
+        if("Te veel actieve drops".equals(failure.getMessage()))return "FOUT_SELECTIE_TE_GROOT";
+        if(failure instanceof java.net.http.HttpTimeoutException)return "FOUT_GOOGLE_TIMEOUT";
+        return "FOUT_"+stage;
+    }
+    static final class SourceChangedException extends IOException
+    { SourceChangedException(){super("Spelkeuze of bronweergave is tijdens de controle gewijzigd");} }
 
     /** Two bounded workers; failure or interruption never publishes a partial result. */
     static List<JsonObject> parallelReads(ExecutorService executor,GoogleRead first,GoogleRead second) throws IOException
+    { return parallelReads(executor,List.of(first,second)); }
+
+    static List<JsonObject> parallelReads(ExecutorService executor,List<GoogleRead> operations) throws IOException
     {
-        Future<JsonObject> a=executor.submit(first::read),b=executor.submit(second::read);
-        try { return List.of(a.get(),b.get()); }
+        List<Future<JsonObject>> pending=new ArrayList<>();
+        try {
+            for(GoogleRead operation:operations)pending.add(executor.submit(operation::read));
+            List<JsonObject> result=new ArrayList<>();for(Future<JsonObject> work:pending)result.add(work.get());return result;
+        }
         catch(InterruptedException interrupted) { Thread.currentThread().interrupt();throw new IOException("Google-controle onderbroken",interrupted); }
         catch(ExecutionException failure)
         {
             if(failure.getCause() instanceof IOException)throw (IOException)failure.getCause();
             throw new IOException("Google-controle mislukt",failure.getCause());
         }
-        finally { a.cancel(true);b.cancel(true); }
+        finally { for(Future<JsonObject> work:pending)work.cancel(true); }
     }
 
-    private JsonObject readSnapshot(List<String> ranges) throws IOException
+    /** Bound response size by cells, not just by the number of potentially huge ranges. */
+    static List<List<String>> snapshotGroups(List<String> ranges,int cellBudget) throws IOException
     {
-        JsonObject snapshot=new JsonObject();JsonArray sheets=new JsonArray();snapshot.add("sheets",sheets);
-        for(int i=0;i<ranges.size();i+=60)
+        if(cellBudget<22)throw new IllegalArgumentException("Te klein leesbudget");
+        List<List<String>> groups=new ArrayList<>();List<String> group=new ArrayList<>();int cells=0;
+        Pattern pattern=Pattern.compile("(.+)!([A-Z]+)([0-9]+):([A-Z]+)([0-9]+)");
+        for(String range:ranges)
         {
-            StringBuilder query=new StringBuilder();
-            for(String range:ranges.subList(i,Math.min(i+60,ranges.size())))query.append("&ranges=").append(enc(range));
-            // formattedValue and source dropdown rules are unused: values/styles
-            // are projected below; editor-only dropdowns are rebuilt from the roster.
-            JsonObject part=get(source,query.toString(),
-                "sheets(properties,merges,data(startRow,startColumn,rowData(values(userEnteredValue,effectiveValue,effectiveFormat)),rowMetadata(pixelSize,hiddenByUser),columnMetadata(pixelSize,hiddenByUser)))");
-            for(JsonElement sheet:part.getAsJsonArray("sheets"))sheets.add(sheet);
+            Matcher match=pattern.matcher(range);if(!match.matches())throw new IOException("Ongeldig intern leesbereik");
+            int width=columnIndex(match.group(4))-columnIndex(match.group(2))+1,row=Integer.parseInt(match.group(3)),last=Integer.parseInt(match.group(5));
+            if(width<1||width>cellBudget||last<row)throw new IOException("Ongeldig intern leesbereik");
+            while(row<=last)
+            {
+                if(cellBudget-cells<width||group.size()>=60){groups.add(group);group=new ArrayList<>();cells=0;}
+                int count=Math.min(last-row+1,(cellBudget-cells)/width);
+                group.add(match.group(1)+"!"+match.group(2)+row+":"+match.group(4)+(row+count-1));
+                cells+=count*width;row+=count;
+            }
         }
-        return snapshot;
+        if(!group.isEmpty())groups.add(group);return groups;
+    }
+    private static int columnIndex(String letters){int n=0;for(char c:letters.toCharArray())n=n*26+c-'A'+1;return n;}
+
+    private JsonObject readSnapshotPart(List<String> ranges) throws IOException
+    {
+        StringBuilder query=new StringBuilder();for(String range:ranges)query.append("&ranges=").append(enc(range));
+        return get(source,query.toString(),
+            "sheets(properties,merges,data(startRow,startColumn,rowData(values(userEnteredValue,effectiveValue,effectiveFormat)),rowMetadata(pixelSize,hiddenByUser),columnMetadata(pixelSize,hiddenByUser)))");
     }
 
     private void syncSourceCardVisibility(List<List<List<Object>>> values,String fingerprint,long started)
@@ -325,6 +367,31 @@ final class EventViewSync
         List<Object> requests=new ArrayList<>();
         String mode=string(values.get(1),7,1);
         boolean inputEnabled=values.size()>=10&&"REGISTRATIES_V1".equals(string(values.get(0),0,1));
+        List<JsonObject> control=cells.getOrDefault("Tussenstand",Map.of()).getOrDefault(7,List.of());
+        if(control.size()>1&&control.get(1).has("effectiveValue"))
+        {
+            JsonObject value=control.get(1).getAsJsonObject("effectiveValue");
+            if(value.has("stringValue")&&!mode.equals(value.get("stringValue").getAsString()))throw new SourceChangedException();
+            // Conditional IMAGE formulas can be reconstructed before the label
+            // formulas finish recalculating. Do not publish image-only tiles.
+            if(mode.equals("Bingo")||mode.equals("Vier-op-een-rij"))
+            {
+                int size=mode.equals("Bingo")?5:7;
+                Map<Integer,List<JsonObject>> boardCells=cells.get("Tussenstand");
+                for(int tile=0;tile<size*size;tile++)if(!string(values.get(4),tile,0).isEmpty())
+                {
+                    int row=15+(tile/size)*2,col=tile%size;
+                    for(int side:List.of(0,8))
+                    {
+                        List<JsonObject> image=boardCells.getOrDefault(row,List.of()),label=boardCells.getOrDefault(row+1,List.of());
+                        if(image.size()<=col+side)continue;
+                        JsonObject cell=image.get(col+side);
+                        if(!cell.has("userEnteredValue")||!cell.getAsJsonObject("userEnteredValue").has("formulaValue")||!cell.getAsJsonObject("userEnteredValue").get("formulaValue").getAsString().contains("IMAGE("))continue;
+                        if(label.size()<=col+side||!label.get(col+side).has("effectiveValue")||label.get(col+side).getAsJsonObject("effectiveValue").size()==0)throw new SourceChangedException();
+                    }
+                }
+            }
+        }
         String epoch=inputEnabled?inputEpoch(source,values.get(7)):"";
         for(JsonElement e:destination.getAsJsonArray("sheets"))
         {

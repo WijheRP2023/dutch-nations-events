@@ -9,6 +9,13 @@ import static org.junit.Assert.*;
 public class EventViewSyncTest
 {
     private static final String SOURCE="source________________________",TARGET="viewer________________________";
+    @Test public void publicFailureStateDistinguishesSafeCausesWithoutLeakingMessages()
+    {
+        assertEquals("FOUT_ANTWOORD_TE_GROOT",EventViewSync.failureState("LEZEN",new java.io.IOException("Google-antwoord is te groot")));
+        assertEquals("FOUT_SELECTIE_TE_GROOT",EventViewSync.failureState("LEZEN",new java.io.IOException("Te veel actieve drops")));
+        assertEquals("FOUT_GOOGLE_TIMEOUT",EventViewSync.failureState("LEZEN",new java.net.http.HttpTimeoutException("secret")));
+        assertEquals("FOUT_LEZEN",EventViewSync.failureState("LEZEN",new java.io.IOException("PRIVATE_VALUE_NEVER_PUBLISH")));
+    }
     @Test public void independentGoogleReadsRunConcurrentlyWithoutReorderingResults() throws Exception
     {
         ExecutorService executor=Executors.newFixedThreadPool(2);CountDownLatch bothStarted=new CountDownLatch(2);
@@ -270,6 +277,60 @@ public class EventViewSyncTest
     {
         assertEquals(List.of("'Team 1'!A6:R12","'Team 1'!A90:R91"),EventViewSync.rowRanges("Team 1",List.of(6,7,11,12,90,91)));
         assertTrue(EventViewSync.rowRanges("Team 2",List.of()).isEmpty());
+    }
+    @Test public void largeReadRangesAreSplitByCellBudgetWithoutLosingRows() throws Exception
+    {
+        List<List<String>> groups=EventViewSync.snapshotGroups(List.of("Tussenstand!A1:Q75","'Team 1'!A1:V5","'Team 2'!A1:V5","'Team 1'!A6:R1517","'Team 2'!A6:R1517"),8000);
+        Set<Integer> first=new HashSet<>(),second=new HashSet<>();int total=0;
+        java.util.regex.Pattern pattern=java.util.regex.Pattern.compile("(.+)!A([0-9]+):([A-Z]+)([0-9]+)");
+        for(List<String> group:groups)
+        {
+            int cells=0;assertTrue(group.size()<=60);
+            for(String range:group)
+            {
+                java.util.regex.Matcher m=pattern.matcher(range);assertTrue(m.matches());
+                int begin=Integer.parseInt(m.group(2)),end=Integer.parseInt(m.group(4)),width=m.group(3).charAt(0)-'A'+1;
+                cells+=(end-begin+1)*width;
+                Set<Integer> selected=m.group(1).equals("'Team 1'")?first:m.group(1).equals("'Team 2'")?second:null;
+                if(selected!=null)for(int row=begin;row<=end;row++)assertTrue("Duplicate source row",selected.add(row));
+            }
+            assertTrue(cells<=8000);total+=cells;
+        }
+        assertEquals(75*17+2*5*22+2*1512*18,total);
+        assertEquals(1517,first.size());assertEquals(first,second);assertTrue(groups.size()>4);
+    }
+    private static JsonObject modeSnapshot(String mode)
+    {
+        JsonObject snapshot=destination().deepCopy();snapshot.remove("developerMetadata");
+        for(JsonElement element:snapshot.getAsJsonArray("sheets"))
+        {
+            JsonObject sheet=element.getAsJsonObject(),grid=new JsonObject();JsonArray data=new JsonArray(),rows=new JsonArray();
+            for(int row=0;row<17;row++)rows.add(json("{'values':[]}"));
+            grid.add("rowData",rows);data.add(grid);sheet.add("data",data);
+            if(sheet.getAsJsonObject("properties").get("title").getAsString().equals("Tussenstand"))rows.set(7,json("{'values':[{}, {'effectiveValue':{'stringValue':'"+mode+"'}}]}"));
+        }
+        return snapshot;
+    }
+    private static List<List<List<Object>>> modeValues(String mode)
+    {
+        List<List<Object>> board=new ArrayList<>();for(int row=0;row<8;row++)board.add(List.of("",row==7?mode:""));
+        return List.of(List.of(),board,List.of(),List.of(),List.of(List.of("Dragon boots")),List.of(),List.of());
+    }
+    @Test public void refusesMixedGameValuesAndStyles() throws Exception
+    {
+        try{EventViewSync.plan(SOURCE,TARGET,destination(),modeSnapshot("Punten"),modeValues("Bingo"),List.of(List.of(),List.of()),"now");fail();}
+        catch(EventViewSync.SourceChangedException expected){}
+        assertFalse(EventViewSync.plan(SOURCE,TARGET,destination(),modeSnapshot("Bingo"),modeValues("Bingo"),List.of(List.of(),List.of()),"now").isEmpty());
+    }
+    @Test public void refusesImageOnlyBingoWhileTextIsStillRecalculating() throws Exception
+    {
+        JsonObject snapshot=modeSnapshot("Bingo");
+        JsonArray rows=snapshot.getAsJsonArray("sheets").get(0).getAsJsonObject().getAsJsonArray("data").get(0).getAsJsonObject().getAsJsonArray("rowData");
+        rows.set(15,json("{'values':[{'userEnteredValue':{'formulaValue':'=IMAGE(1)'}}]}"));
+        try{EventViewSync.plan(SOURCE,TARGET,destination(),snapshot,modeValues("Bingo"),List.of(List.of(),List.of()),"now");fail();}
+        catch(EventViewSync.SourceChangedException expected){}
+        rows.set(16,json("{'values':[{'effectiveValue':{'stringValue':'Dragon boots 0/1'}}]}"));
+        assertFalse(EventViewSync.plan(SOURCE,TARGET,destination(),snapshot,modeValues("Bingo"),List.of(List.of(),List.of()),"now").isEmpty());
     }
     @Test public void inputRosterRejectsDuplicatesCrossTeamAndInvalidNames()
     {
