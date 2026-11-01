@@ -24,6 +24,8 @@ final class EventViewSync
     private JsonObject sourceMetadata;
     private List<Object> publishedPlan;
     private String publishedTarget = "";
+    private String sourceCardMode = "", sourceCardFingerprint = "";
+    private long sourceCardAt, sourceCardRetryAfter;
     static final int POLL_SECONDS = 5;
     volatile String lastChecked = "";
     volatile long durationMillis;
@@ -50,14 +52,14 @@ final class EventViewSync
         {
             if (sourceMetadata == null || started - metadataAt >= 60_000)
             {
-                sourceMetadata=get(source,"","sheets(properties(title,gridProperties(rowCount)))");
+                sourceMetadata=get(source,"","sheets(properties(title,sheetId,gridProperties(rowCount)))");
                 metadataAt=started;
             }
             JsonObject sourceMeta=sourceMetadata;
             List<List<List<Object>>> values = google.batchValues(source, "Zeeslagdata!A6:B6", "Tussenstand!A1:Q75",
                 "'Team 1'!A6:V"+rowCount(sourceMeta,"Team 1"), "'Team 2'!A6:V"+rowCount(sourceMeta,"Team 2"),
                 "Borddata!C2:C50", "Drops!B2:B3000", "Drops!N2:N3000", "Instellingen!B10:F10",
-                "Instellingen!A19:A"+rowCount(sourceMeta,"Instellingen"), "Instellingen!E19:E"+rowCount(sourceMeta,"Instellingen"));
+                "Instellingen!A19:A"+rowCount(sourceMeta,"Instellingen"), "Instellingen!E19:E"+rowCount(sourceMeta,"Instellingen"),"Tussenstand!A82");
             String target = string(values.get(0), 0, 0);
             if (target.isEmpty()) { state = "NIET_INGESTELD"; return; }
             BattleshipSheets.id(target);
@@ -65,6 +67,7 @@ final class EventViewSync
                 || target.equals(System.getenv("DN_BATTLESHIP_TEAM_TWO_SHEET"))) throw new IOException("Ongeldig kijkbestand");
             String fingerprint = new Gson().toJson(values);
             lastChecked = Instant.now().toString();
+            syncSourceCardVisibility(values,fingerprint,started);
             if (fingerprint.equals(lastFingerprint)&&System.currentTimeMillis()-lastFullSync<300_000) { state = "ACTUEEL"; return; }
             stage="KOPPELING_CONTROLEREN";
             JsonObject destination = get(target, "", "sheets(properties,merges,conditionalFormats,protectedRanges),developerMetadata");
@@ -102,6 +105,40 @@ final class EventViewSync
             System.err.println("Kijkbestand niet ververst ("+stage+"). "+hint+" De laatst geldige weergave blijft behouden.");
         }
         finally { durationMillis=System.currentTimeMillis()-started; }
+    }
+
+    private void syncSourceCardVisibility(List<List<List<Object>>> values,String fingerprint,long started)
+    {
+        String mode=string(values.get(1),7,1);
+        if(values.size()<11||!"DN_POINTS_CARDS_V1".equals(string(values.get(10),0,0))||!List.of("Bingo","Punten","Vier-op-een-rij","Zeeslag").contains(mode)||started<sourceCardRetryAfter)return;
+        if(mode.equals(sourceCardMode)&&started-sourceCardAt<60_000&&(!mode.equals("Punten")||fingerprint.equals(sourceCardFingerprint)))return;
+        try
+        {
+            for(JsonElement element:sourceMetadata.getAsJsonArray("sheets"))
+            {
+                JsonObject properties=element.getAsJsonObject().getAsJsonObject("properties");
+                if(properties.get("title").getAsString().equals("Tussenstand"))
+                {
+                    google.request("POST",api(source)+":batchUpdate",map("requests",sourceCardVisibility(properties.get("sheetId").getAsInt(),mode)));
+                    sourceCardMode=mode;sourceCardFingerprint=fingerprint;sourceCardAt=started;return;
+                }
+            }
+        }
+        catch(Exception ignored)
+        {
+            sourceCardRetryAfter=started+60_000;
+            System.err.println("Bronbordopmaak niet vernieuwd; de ledenweergave blijft onafhankelijk synchroniseren.");
+        }
+    }
+
+    /** Formatting only, gated by the installed panel marker; never changes source values or formulas. */
+    static List<Object> sourceCardVisibility(int id,String mode)
+    {
+        List<Object> requests=new ArrayList<>();hide(requests,id,12,94);
+        int[][] visible=mode.equals("Punten")?new int[][]{{82,94}}:mode.equals("Zeeslag")?new int[][]{{51,70}}:new int[][]{{12,14},{15,mode.equals("Bingo")?25:29}};
+        for(int[] range:visible)requests.add(map("updateDimensionProperties",map("range",map("sheetId",id,"dimension","ROWS","startIndex",range[0],"endIndex",range[1]),"properties",map("hiddenByUser",false),"fields","hiddenByUser")));
+        if(mode.equals("Punten"))hide(requests,id,84,85);
+        return requests;
     }
 
     /** Merge neighbouring active rows: one grid read instead of one range per drop. */
@@ -300,6 +337,9 @@ final class EventViewSync
             {
                 @SuppressWarnings("unchecked") List<Object> first=(List<Object>)((Map<?,?>)output.get(0)).get("values");
                 first.set(0,map("userEnteredValue",map("stringValue","Stand bijgewerkt: "+time+" · alleen lezen"),"userEnteredFormat",map("textFormat",map("fontSize",9,"fontFamily","Arial"))));
+                @SuppressWarnings("unchecked") List<Object> title=(List<Object>)((Map<?,?>)output.get(1)).get("values");
+                title.set(0,map("userEnteredValue",map("stringValue",gameTitle(mode))));
+                if(mode.equals("Punten"))pointCards(output,values.get(1),values.get(2),values.get(3),selected);
             }
             if(inputEnabled&&!board)
             {
@@ -321,7 +361,9 @@ final class EventViewSync
             for(JsonElement m:array(structure.get(name),"merges"))
             {
                 JsonObject merge=m.getAsJsonObject().deepCopy();int end=merge.get("endRowIndex").getAsInt();
-                if(board&&mode.equals("Punten")&&(merge.has("startRowIndex")?merge.get("startRowIndex").getAsInt():0)<=16&&end>16)continue;
+                int start=merge.has("startRowIndex")?merge.get("startRowIndex").getAsInt():0;
+                if(board&&start<=1&&end>1)continue;
+                if(board&&mode.equals("Punten")&&start<24&&end>12)continue;
                 if(end>(board?75:5))continue;merge.addProperty("sheetId",id);requests.add(map("mergeCells",map("range",merge,"mergeType","MERGE_ALL")));
             }
             requests.add(map("updateSheetProperties",map("properties",map("sheetId",id,"hidden",false),"fields","hidden")));
@@ -366,10 +408,15 @@ final class EventViewSync
     /** Keep calculation rows intact, but show only the active game's cards and essential controls. */
     static void boardLayout(List<Object> requests,int id,String mode,int max)
     {
-        hide(requests,id,0,12);        // Summary, links, configuration and selection diagnostics.
+        hide(requests,id,0,1);
+        hide(requests,id,2,12);        // Keep one game title above the cards; hide summaries and diagnostics.
         hide(requests,id,14,15);       // Explanatory legend.
         hide(requests,id,29,51);       // Instructions and inactive space below the drop boards.
         if(max>70)hide(requests,id,70,max);
+        Map<String,Object> title=map("sheetId",id,"startRowIndex",1,"endRowIndex",2,"startColumnIndex",0,"endColumnIndex",mode.equals("Zeeslag")?17:15);
+        requests.add(map("mergeCells",map("range",title,"mergeType","MERGE_ALL")));
+        requests.add(map("repeatCell",map("range",title,"cell",map("userEnteredFormat",cardStyle(20,"#E7C55A",true,"#202329")),"fields","userEnteredFormat")));
+        rowHeight(requests,id,1,48);
         if(mode.equals("Zeeslag"))
         {
             hide(requests,id,12,51);   // Its own team headers, boards and shot controls start at row 52.
@@ -380,16 +427,77 @@ final class EventViewSync
             if(mode.equals("Bingo"))hide(requests,id,25,29);
             if(mode.equals("Punten"))
             {
-                hide(requests,id,13,16);
-                hide(requests,id,17,29);
+                hide(requests,id,24,29);
                 for(int start:List.of(0,8))
                 {
-                    Map<String,Object> range=map("sheetId",id,"startRowIndex",16,"endRowIndex",17,"startColumnIndex",start,"endColumnIndex",start+7);
-                    requests.add(map("mergeCells",map("range",range,"mergeType","MERGE_ALL")));
-                    requests.add(map("repeatCell",map("range",range,"cell",map("userEnteredFormat",map("textFormat",map("fontSize",24,"bold",true),"horizontalAlignment","CENTER","verticalAlignment","MIDDLE")),"fields","userEnteredFormat.textFormat.fontSize,userEnteredFormat.textFormat.bold,userEnteredFormat.horizontalAlignment,userEnteredFormat.verticalAlignment")));
+                    for(int row:List.of(12,13,15,16,17,18,19,22,23))mergeCard(requests,id,row,start,start+7);
+                    for(int row:List.of(20,21)){mergeCard(requests,id,row,start,start+3);mergeCard(requests,id,row,start+3,start+7);}
                 }
-                requests.add(map("updateDimensionProperties",map("range",map("sheetId",id,"dimension","ROWS","startIndex",16,"endIndex",17),"properties",map("pixelSize",84),"fields","pixelSize")));
+                int[][] heights={{12,42},{13,28},{15,26},{16,82},{17,34},{18,24},{19,12},{20,24},{21,40},{22,12},{23,32}};
+                for(int[] height:heights)rowHeight(requests,id,height[0],height[1]);
             }
+        }
+    }
+
+    static String gameTitle(String mode)
+    {
+        if(mode.equals("Punten"))return "PUNTENCOMPETITIE";
+        if(mode.equals("Vier-op-een-rij"))return "VIER OP EEN RIJ";
+        return mode.toUpperCase(Locale.ROOT);
+    }
+    private static void mergeCard(List<Object> requests,int id,int row,int start,int end)
+    {requests.add(map("mergeCells",map("range",map("sheetId",id,"startRowIndex",row,"endRowIndex",row+1,"startColumnIndex",start,"endColumnIndex",end),"mergeType","MERGE_ALL")));}
+    private static void rowHeight(List<Object> requests,int id,int row,int pixels)
+    {requests.add(map("updateDimensionProperties",map("range",map("sheetId",id,"dimension","ROWS","startIndex",row,"endIndex",row+1),"properties",map("pixelSize",pixels),"fields","pixelSize")));}
+    private static Map<String,Object> rgb(String hex)
+    {return map("red",Integer.parseInt(hex.substring(1,3),16)/255d,"green",Integer.parseInt(hex.substring(3,5),16)/255d,"blue",Integer.parseInt(hex.substring(5,7),16)/255d);}
+    private static Map<String,Object> cardStyle(int size,String color,boolean bold,String background)
+    {return map("backgroundColor",rgb(background),"horizontalAlignment","CENTER","verticalAlignment","MIDDLE","wrapStrategy","WRAP","textFormat",map("fontFamily","Arial","fontSize",size,"bold",bold,"foregroundColor",rgb(color)));}
+    private static double metric(List<List<Object>> rows,int row,int column) throws IOException
+    {
+        if(row>=rows.size()||column>=rows.get(row).size())return 0;
+        Object value=rows.get(row).get(column);if(value==null||value.equals(""))return 0;
+        if(!(value instanceof Number)||!Double.isFinite(((Number)value).doubleValue())||((Number)value).doubleValue()<0)throw new IOException("Ongeldige puntenstatistiek");
+        return ((Number)value).doubleValue();
+    }
+    private static String scoreText(double number)
+    {java.text.NumberFormat f=java.text.NumberFormat.getNumberInstance(Locale.forLanguageTag("nl-NL"));f.setMaximumFractionDigits(2);return f.format(number);}
+    @SuppressWarnings("unchecked")
+    private static void cardRow(List<Object> output,int row,int start,int width,Object value,Map<String,Object> style)
+    {
+        List<Object> cells=(List<Object>)((Map<?,?>)output.get(row)).get("values");
+        for(int col=start;col<start+width;col++)cells.set(col,map("userEnteredFormat",style));
+        Map<String,Object> cell=(Map<String,Object>)cells.get(start);
+        if(value instanceof Number)cell.put("userEnteredValue",map("numberValue",value));
+        else if(value!=null&&!value.equals(""))cell.put("userEnteredValue",map("stringValue",value.toString()));
+    }
+    /** Generated from public calculated totals only: no roster, payment details or source formulas. */
+    static void pointCards(List<Object> output,List<List<Object>> board,List<List<Object>> one,List<List<Object>> two,List<List<Integer>> selected) throws IOException
+    {
+        double[] points={metric(board,4,6),metric(board,5,6)};double total=points[0]+points[1];
+        if(!Double.isFinite(total))throw new IOException("Ongeldige puntensom");
+        for(int team=0;team<2;team++)
+        {
+            int start=team*8;String color=team==0?"#A52D42":"#245C88",background="#252A32";
+            for(int row=12;row<24;row++)cardRow(output,row,start,7,null,cardStyle(11,"#E9EDF2",false,background));
+            String name=string(board,4+team,1);if(name.isEmpty())name="Team "+(team+1);
+            double own=points[team],other=points[1-team],share=total==0?0:own/total,drops=0;
+            for(int sourceRow:selected.get(team))drops+=metric(team==0?one:two,sourceRow-6,10);
+            cardRow(output,12,start,7,name,cardStyle(17,"#FFFFFF",true,color));
+            cardRow(output,13,start,7,own==other?"GELIJKE STAND":own>other?"1E PLAATS":"2E PLAATS",cardStyle(11,"#E7C55A",true,background));
+            cardRow(output,15,start,7,"TOTAALPUNTEN",cardStyle(11,"#B6C0CD",true,background));
+            Map<String,Object> number=cardStyle(36,"#FFFFFF",true,background);number.put("numberFormat",map("type","NUMBER","pattern",own==Math.rint(own)?"#,##0":"#,##0.00"));
+            cardRow(output,16,start,7,own,number);
+            int filled=(int)Math.round(share*30);
+            Map<String,Object> bar=cardStyle(19,team==0?"#EF7188":"#6FBCF2",false,background);
+            bar.put("textFormat",map("fontFamily","Consolas","fontSize",19,"foregroundColor",rgb(team==0?"#EF7188":"#6FBCF2")));
+            cardRow(output,17,start,7,"█".repeat(filled)+"░".repeat(30-filled),bar);
+            cardRow(output,18,start,7,total==0?"Nog geen punten behaald":String.format(Locale.forLanguageTag("nl-NL"),"%.1f%% van alle behaalde punten",share*100),cardStyle(10,"#B6C0CD",false,background));
+            cardRow(output,20,start,3,"DOELEN BEHAALD",cardStyle(10,"#B6C0CD",true,background));
+            cardRow(output,20,start+3,4,"DROPS GEREGISTREERD",cardStyle(10,"#B6C0CD",true,background));
+            cardRow(output,21,start,3,scoreText(metric(board,4+team,3))+" / "+scoreText(metric(board,4+team,4)),cardStyle(20,"#FFFFFF",true,background));
+            cardRow(output,21,start+3,4,drops,cardStyle(20,"#FFFFFF",true,background));
+            cardRow(output,23,start,7,own==other?"Teams staan gelijk":scoreText(Math.abs(own-other))+(own>other?" punten voorsprong":" punten achter"),cardStyle(11,"#E7C55A",true,background));
         }
     }
 

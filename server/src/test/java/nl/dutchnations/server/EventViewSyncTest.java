@@ -36,6 +36,7 @@ public class EventViewSyncTest
             List<Object> plan=new ArrayList<>();EventViewSync.boardLayout(plan,1,mode,1007);
             JsonArray requests=new Gson().toJsonTree(plan).getAsJsonArray();
             for(int row:List.of(1,3,4,5,6,8,9,10,11,12,15,30,31,32,34,50,51,71,75,1007))assertTrue(mode+" row "+row,hidden(requests,row));
+            assertFalse(mode+" title",hidden(requests,2));
             if(mode.equals("Zeeslag"))
             {
                 assertTrue(hidden(requests,13));assertTrue(hidden(requests,17));
@@ -46,7 +47,7 @@ public class EventViewSyncTest
                 assertFalse(hidden(requests,13));assertFalse(hidden(requests,17));assertTrue(hidden(requests,52));
                 if(mode.equals("Bingo")){assertFalse(hidden(requests,14));assertFalse(hidden(requests,25));assertTrue(hidden(requests,26));}
                 if(mode.equals("Vier-op-een-rij")){assertFalse(hidden(requests,14));assertFalse(hidden(requests,29));}
-                if(mode.equals("Punten")){assertTrue(hidden(requests,14));assertTrue(hidden(requests,16));assertTrue(hidden(requests,18));}
+                if(mode.equals("Punten")){for(int row:List.of(14,16,18,19,21,22,24))assertFalse(hidden(requests,row));assertTrue(hidden(requests,25));}
             }
             assertFalse(new Gson().toJson(plan).contains("deleteDimension"));
         }
@@ -59,11 +60,66 @@ public class EventViewSyncTest
         {
             JsonObject request=el.getAsJsonObject();if(!request.has("mergeCells"))continue;
             JsonObject range=request.getAsJsonObject("mergeCells").getAsJsonObject("range");
+            if(range.get("startRowIndex").getAsInt()!=16)continue;
             assertEquals(16,range.get("startRowIndex").getAsInt());assertEquals(17,range.get("endRowIndex").getAsInt());
             assertEquals(7,range.get("endColumnIndex").getAsInt()-range.get("startColumnIndex").getAsInt());cards++;
         }
-        assertEquals(2,cards);assertTrue(new Gson().toJson(plan).contains("84"));
+        assertEquals(2,cards);assertTrue(new Gson().toJson(plan).contains("82"));
         assertFalse(hidden(requests,13));assertFalse(hidden(requests,17));
+    }
+    @Test public void everyGameHasAnAutomaticVisibleTitle()
+    {
+        assertEquals("BINGO",EventViewSync.gameTitle("Bingo"));assertEquals("ZEESLAG",EventViewSync.gameTitle("Zeeslag"));
+        assertEquals("VIER OP EEN RIJ",EventViewSync.gameTitle("Vier-op-een-rij"));assertEquals("PUNTENCOMPETITIE",EventViewSync.gameTitle("Punten"));
+    }
+    @Test public void sourceCardsOnlyChangeVisibilityOfTheInstalledBoardArea()
+    {
+        for(String mode:List.of("Bingo","Punten","Vier-op-een-rij","Zeeslag"))
+        {
+            JsonArray requests=new Gson().toJsonTree(EventViewSync.sourceCardVisibility(1058026847,mode)).getAsJsonArray();
+            for(JsonElement element:requests)
+            {
+                JsonObject request=element.getAsJsonObject();assertEquals(1,request.size());assertTrue(request.has("updateDimensionProperties"));
+                JsonObject update=request.getAsJsonObject("updateDimensionProperties"),range=update.getAsJsonObject("range");
+                assertEquals("hiddenByUser",update.get("fields").getAsString());assertEquals("ROWS",range.get("dimension").getAsString());
+                assertTrue(range.get("startIndex").getAsInt()>=12);assertTrue(range.get("endIndex").getAsInt()<=94);
+            }
+            assertEquals(mode.equals("Punten"),!hidden(requests,83));
+            assertEquals(mode.equals("Zeeslag"),!hidden(requests,52));
+            assertEquals(mode.equals("Bingo")||mode.equals("Vier-op-een-rij"),!hidden(requests,17));
+        }
+    }
+    private static List<Object> emptyBoard()
+    {
+        List<Object> output=new ArrayList<>();
+        for(int row=0;row<75;row++){List<Object> cells=new ArrayList<>();for(int col=0;col<17;col++)cells.add(new LinkedHashMap<>());output.add(BattleshipSheets.map("values",cells));}
+        return output;
+    }
+    private static JsonObject cardCell(List<Object> output,int row,int col)
+    {return new Gson().toJsonTree(output).getAsJsonArray().get(row).getAsJsonObject().getAsJsonArray("values").get(col).getAsJsonObject();}
+    @Test public void pointsCardsUseCalculatedTotalsShareRankAndPublicDropCounts() throws Exception
+    {
+        List<List<Object>> board=new ArrayList<>();for(int row=0;row<6;row++)board.add(new ArrayList<>(Collections.nCopies(7,"")));
+        board.get(4).set(1,"Team Rood");board.get(5).set(1,"Team Blauw");board.get(4).set(6,120.5d);board.get(5).set(6,79.5d);
+        board.get(4).set(3,4);board.get(4).set(4,52);board.get(5).set(3,3);board.get(5).set(4,52);
+        List<Object> one=new ArrayList<>(Collections.nCopies(11,"")),two=new ArrayList<>(Collections.nCopies(11,""));one.set(10,9);two.set(10,7);one.set(3,"PRIVATE_PLAYER_DO_NOT_COPY");
+        List<Object> output=emptyBoard();EventViewSync.pointCards(output,board,List.of(one),List.of(two),List.of(List.of(6),List.of(6)));
+        assertEquals(120.5d,cardCell(output,16,0).getAsJsonObject("userEnteredValue").get("numberValue").getAsDouble(),0);
+        assertEquals(79.5d,cardCell(output,16,8).getAsJsonObject("userEnteredValue").get("numberValue").getAsDouble(),0);
+        assertEquals("1E PLAATS",cardCell(output,13,0).getAsJsonObject("userEnteredValue").get("stringValue").getAsString());
+        assertEquals("2E PLAATS",cardCell(output,13,8).getAsJsonObject("userEnteredValue").get("stringValue").getAsString());
+        assertEquals("4 / 52",cardCell(output,21,0).getAsJsonObject("userEnteredValue").get("stringValue").getAsString());
+        assertEquals(9,cardCell(output,21,3).getAsJsonObject("userEnteredValue").get("numberValue").getAsInt());
+        assertEquals("41 punten voorsprong",cardCell(output,23,0).getAsJsonObject("userEnteredValue").get("stringValue").getAsString());
+        String bar=cardCell(output,17,0).getAsJsonObject("userEnteredValue").get("stringValue").getAsString();assertEquals(30,bar.length());assertEquals(18,bar.chars().filter(c->c=='█').count());
+        assertFalse(new Gson().toJson(output).contains("PRIVATE_PLAYER_DO_NOT_COPY"));assertFalse(new Gson().toJson(output).contains("formulaValue"));
+    }
+    @Test public void zeroPointsShowATieWithoutFalseProgressOrDivisionErrors() throws Exception
+    {
+        List<Object> output=emptyBoard();EventViewSync.pointCards(output,List.of(),List.of(),List.of(),List.of(List.of(),List.of()));
+        String json=new Gson().toJson(output);assertFalse(json.contains("NaN"));assertFalse(json.contains("Infinity"));assertTrue(json.contains("Nog geen punten behaald"));
+        assertEquals("░".repeat(30),cardCell(output,17,0).getAsJsonObject("userEnteredValue").get("stringValue").getAsString());
+        assertEquals("GELIJKE STAND",cardCell(output,13,8).getAsJsonObject("userEnteredValue").get("stringValue").getAsString());
     }
     @Test public void unchangedUpdatesDoNotWriteOrReloadImages()
     {
