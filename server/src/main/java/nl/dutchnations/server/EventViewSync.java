@@ -408,6 +408,16 @@ final class EventViewSync
     /** Keep calculation rows intact, but show only the active game's cards and essential controls. */
     static void boardLayout(List<Object> requests,int id,String mode,int max)
     {
+        // Source formatting can finish after its values have already changed. Never
+        // inherit Zeeslag's narrow separator at I when the next board starts at I.
+        if(mode.equals("Zeeslag"))
+        {
+            columnWidth(requests,id,0,8,60);columnWidth(requests,id,8,9,24);columnWidth(requests,id,9,17,60);
+        }
+        else
+        {
+            columnWidth(requests,id,0,7,82);columnWidth(requests,id,7,8,24);columnWidth(requests,id,8,15,82);columnWidth(requests,id,15,17,68);
+        }
         hide(requests,id,0,1);
         hide(requests,id,2,12);        // Keep one game title above the cards; hide summaries and diagnostics.
         hide(requests,id,14,15);       // Explanatory legend.
@@ -449,6 +459,8 @@ final class EventViewSync
     {requests.add(map("mergeCells",map("range",map("sheetId",id,"startRowIndex",row,"endRowIndex",row+1,"startColumnIndex",start,"endColumnIndex",end),"mergeType","MERGE_ALL")));}
     private static void rowHeight(List<Object> requests,int id,int row,int pixels)
     {requests.add(map("updateDimensionProperties",map("range",map("sheetId",id,"dimension","ROWS","startIndex",row,"endIndex",row+1),"properties",map("pixelSize",pixels),"fields","pixelSize")));}
+    private static void columnWidth(List<Object> requests,int id,int start,int end,int pixels)
+    {requests.add(map("updateDimensionProperties",map("range",map("sheetId",id,"dimension","COLUMNS","startIndex",start,"endIndex",end),"properties",map("pixelSize",pixels),"fields","pixelSize")));}
     private static Map<String,Object> rgb(String hex)
     {return map("red",Integer.parseInt(hex.substring(1,3),16)/255d,"green",Integer.parseInt(hex.substring(3,5),16)/255d,"blue",Integer.parseInt(hex.substring(5,7),16)/255d);}
     private static Map<String,Object> cardStyle(int size,String color,boolean bold,String background)

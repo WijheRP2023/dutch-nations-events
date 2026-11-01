@@ -72,6 +72,39 @@ public class EventViewSyncTest
         assertEquals("BINGO",EventViewSync.gameTitle("Bingo"));assertEquals("ZEESLAG",EventViewSync.gameTitle("Zeeslag"));
         assertEquals("VIER OP EEN RIJ",EventViewSync.gameTitle("Vier-op-een-rij"));assertEquals("PUNTENCOMPETITIE",EventViewSync.gameTitle("Punten"));
     }
+    private static int[] boardWidths(List<Object> plan)
+    {
+        int[] widths=new int[17];Arrays.fill(widths,60);widths[8]=24;
+        for(JsonElement element:new Gson().toJsonTree(plan).getAsJsonArray())
+        {
+            JsonObject request=element.getAsJsonObject();if(!request.has("updateDimensionProperties"))continue;
+            JsonObject update=request.getAsJsonObject("updateDimensionProperties"),range=update.getAsJsonObject("range"),properties=update.getAsJsonObject("properties");
+            if(!range.get("dimension").getAsString().equals("COLUMNS")||!properties.has("pixelSize"))continue;
+            for(int c=range.get("startIndex").getAsInt();c<Math.min(17,range.get("endIndex").getAsInt());c++)widths[c]=properties.get("pixelSize").getAsInt();
+        }
+        return widths;
+    }
+    @Test public void gameWidthsOverrideLateSourceFormattingAndRestoreBothTeams()
+    {
+        for(String mode:List.of("Bingo","Punten","Vier-op-een-rij","Zeeslag"))
+        {
+            List<Object> plan=new ArrayList<>();EventViewSync.boardLayout(plan,1,mode,1007);
+            int[] widths=boardWidths(plan);
+            for(int col=0;col<17;col++)
+            {
+                int expected=mode.equals("Zeeslag")?(col==8?24:60):(col==7?24:col>=15?68:82);
+                assertEquals(mode+" column "+col,expected,widths[col]);
+            }
+            if(!mode.equals("Zeeslag")){assertEquals(82,widths[0]);assertEquals(82,widths[8]);}
+        }
+    }
+    @Test public void seaToBingoUpdatesWidthsEvenWhenCellValuesAreUnchanged()
+    {
+        List<Object> sea=new ArrayList<>(),bingo=new ArrayList<>();
+        EventViewSync.boardLayout(sea,1,"Zeeslag",1007);EventViewSync.boardLayout(bingo,1,"Bingo",1007);
+        int[] widths=boardWidths(EventViewSync.incremental(sea,bingo));
+        assertEquals(82,widths[0]);assertEquals(24,widths[7]);assertEquals(82,widths[8]);
+    }
     @Test public void sourceCardsOnlyChangeVisibilityOfTheInstalledBoardArea()
     {
         for(String mode:List.of("Bingo","Punten","Vier-op-een-rij","Zeeslag"))
