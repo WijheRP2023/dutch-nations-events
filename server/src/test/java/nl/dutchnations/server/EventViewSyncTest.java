@@ -17,6 +17,54 @@ public class EventViewSyncTest
         return BattleshipSheets.map("updateCells",BattleshipSheets.map("start",BattleshipSheets.map("sheetId",sheet,"rowIndex",5,"columnIndex",0),
             "rows",List.of(BattleshipSheets.map("values",cells)),"fields","userEnteredValue,userEnteredFormat,dataValidation"));
     }
+    private static boolean hidden(JsonArray requests,int oneBasedRow)
+    {
+        boolean hidden=false;
+        for(JsonElement el:requests)
+        {
+            JsonObject request=el.getAsJsonObject();if(!request.has("updateDimensionProperties"))continue;
+            JsonObject update=request.getAsJsonObject("updateDimensionProperties"),range=update.getAsJsonObject("range"),properties=update.getAsJsonObject("properties");
+            if(!properties.has("hiddenByUser")||!range.get("dimension").getAsString().equals("ROWS"))continue;
+            if(oneBasedRow-1>=range.get("startIndex").getAsInt()&&oneBasedRow-1<range.get("endIndex").getAsInt())hidden=properties.get("hiddenByUser").getAsBoolean();
+        }
+        return hidden;
+    }
+    @Test public void allGameLayoutsHideSummaryAndInstructionsButKeepPlayableCards()
+    {
+        for(String mode:List.of("Bingo","Punten","Vier-op-een-rij","Zeeslag"))
+        {
+            List<Object> plan=new ArrayList<>();EventViewSync.boardLayout(plan,1,mode,1007);
+            JsonArray requests=new Gson().toJsonTree(plan).getAsJsonArray();
+            for(int row:List.of(1,3,4,5,6,8,9,10,11,12,15,30,31,32,34,50,51,71,75,1007))assertTrue(mode+" row "+row,hidden(requests,row));
+            if(mode.equals("Zeeslag"))
+            {
+                assertTrue(hidden(requests,13));assertTrue(hidden(requests,17));
+                for(int row:List.of(52,53,54,61,63,64,65,66,68))assertFalse("Zeeslag controls "+row,hidden(requests,row));
+            }
+            else
+            {
+                assertFalse(hidden(requests,13));assertFalse(hidden(requests,17));assertTrue(hidden(requests,52));
+                if(mode.equals("Bingo")){assertFalse(hidden(requests,14));assertFalse(hidden(requests,25));assertTrue(hidden(requests,26));}
+                if(mode.equals("Vier-op-een-rij")){assertFalse(hidden(requests,14));assertFalse(hidden(requests,29));}
+                if(mode.equals("Punten")){assertTrue(hidden(requests,14));assertTrue(hidden(requests,16));assertTrue(hidden(requests,18));}
+            }
+            assertFalse(new Gson().toJson(plan).contains("deleteDimension"));
+        }
+    }
+    @Test public void pointsUseTwoReadableCardsInsteadOfTheHiddenCalculationSummary()
+    {
+        List<Object> plan=new ArrayList<>();EventViewSync.boardLayout(plan,1,"Punten",100);
+        JsonArray requests=new Gson().toJsonTree(plan).getAsJsonArray();int cards=0;
+        for(JsonElement el:requests)
+        {
+            JsonObject request=el.getAsJsonObject();if(!request.has("mergeCells"))continue;
+            JsonObject range=request.getAsJsonObject("mergeCells").getAsJsonObject("range");
+            assertEquals(16,range.get("startRowIndex").getAsInt());assertEquals(17,range.get("endRowIndex").getAsInt());
+            assertEquals(7,range.get("endColumnIndex").getAsInt()-range.get("startColumnIndex").getAsInt());cards++;
+        }
+        assertEquals(2,cards);assertTrue(new Gson().toJson(plan).contains("84"));
+        assertFalse(hidden(requests,13));assertFalse(hidden(requests,17));
+    }
     @Test public void unchangedUpdatesDoNotWriteOrReloadImages()
     {
         List<Object> plan=List.of(update(1,"IMAGE","same"),update(2,"player"));

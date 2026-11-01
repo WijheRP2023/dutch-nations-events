@@ -321,6 +321,7 @@ final class EventViewSync
             for(JsonElement m:array(structure.get(name),"merges"))
             {
                 JsonObject merge=m.getAsJsonObject().deepCopy();int end=merge.get("endRowIndex").getAsInt();
+                if(board&&mode.equals("Punten")&&(merge.has("startRowIndex")?merge.get("startRowIndex").getAsInt():0)<=16&&end>16)continue;
                 if(end>(board?75:5))continue;merge.addProperty("sheetId",id);requests.add(map("mergeCells",map("range",merge,"mergeType","MERGE_ALL")));
             }
             requests.add(map("updateSheetProperties",map("properties",map("sheetId",id,"hidden",false),"fields","hidden")));
@@ -353,16 +354,43 @@ final class EventViewSync
             else
             {
                 int max=prop.getAsJsonObject("gridProperties").get("rowCount").getAsInt();
-                if(max>75)hide(requests,id,75,max);
-                hide(requests,id,33,50);
-                if(!mode.equals("Zeeslag")) hide(requests,id,51,75);
-                if(mode.equals("Zeeslag")||mode.equals("Punten"))hide(requests,id,15,33);
+                boardLayout(requests,id,mode,max);
             }
             Map<String,Object> protection=map("description","DN_EVENT_VIEW_READ_ONLY","range",map("sheetId",id),"warningOnly",!inputEnabled);
             if(inputEnabled){protection.put("editors",map("users",List.of("zeeslag-server@dutch-nations-zeeslag.iam.gserviceaccount.com")));if(!board)protection.put("unprotectedRanges",editable);}
             requests.add(map("addProtectedRange",map("protectedRange",protection)));
         }
         return requests;
+    }
+
+    /** Keep calculation rows intact, but show only the active game's cards and essential controls. */
+    static void boardLayout(List<Object> requests,int id,String mode,int max)
+    {
+        hide(requests,id,0,12);        // Summary, links, configuration and selection diagnostics.
+        hide(requests,id,14,15);       // Explanatory legend.
+        hide(requests,id,29,51);       // Instructions and inactive space below the drop boards.
+        if(max>70)hide(requests,id,70,max);
+        if(mode.equals("Zeeslag"))
+        {
+            hide(requests,id,12,51);   // Its own team headers, boards and shot controls start at row 52.
+        }
+        else
+        {
+            if(max>51)hide(requests,id,51,max);
+            if(mode.equals("Bingo"))hide(requests,id,25,29);
+            if(mode.equals("Punten"))
+            {
+                hide(requests,id,13,16);
+                hide(requests,id,17,29);
+                for(int start:List.of(0,8))
+                {
+                    Map<String,Object> range=map("sheetId",id,"startRowIndex",16,"endRowIndex",17,"startColumnIndex",start,"endColumnIndex",start+7);
+                    requests.add(map("mergeCells",map("range",range,"mergeType","MERGE_ALL")));
+                    requests.add(map("repeatCell",map("range",range,"cell",map("userEnteredFormat",map("textFormat",map("fontSize",24,"bold",true),"horizontalAlignment","CENTER","verticalAlignment","MIDDLE")),"fields","userEnteredFormat.textFormat.fontSize,userEnteredFormat.textFormat.bold,userEnteredFormat.horizontalAlignment,userEnteredFormat.verticalAlignment")));
+                }
+                requests.add(map("updateDimensionProperties",map("range",map("sheetId",id,"dimension","ROWS","startIndex",16,"endIndex",17),"properties",map("pixelSize",84),"fields","pixelSize")));
+            }
+        }
     }
 
     static List<String> teamPlayers(List<List<Object>> own,List<List<Object>> other)
