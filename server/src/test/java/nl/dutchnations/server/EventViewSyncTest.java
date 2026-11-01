@@ -15,6 +15,29 @@ public class EventViewSyncTest
         assertEquals("FOUT_SELECTIE_TE_GROOT",EventViewSync.failureState("LEZEN",new java.io.IOException("Te veel actieve drops")));
         assertEquals("FOUT_GOOGLE_TIMEOUT",EventViewSync.failureState("LEZEN",new java.net.http.HttpTimeoutException("secret")));
         assertEquals("FOUT_LEZEN",EventViewSync.failureState("LEZEN",new java.io.IOException("PRIVATE_VALUE_NEVER_PUBLISH")));
+        assertEquals("FOUT_SERVER_GEHEUGEN",EventViewSync.failureState("LEZEN",new java.io.IOException("safe",new OutOfMemoryError("private"))));
+    }
+    @Test public void identicalSourceStylesAreSharedWithoutChangingTheirContent()
+    {
+        JsonObject snapshot=modeSnapshot("Bingo");
+        JsonArray rows=snapshot.getAsJsonArray("sheets").get(0).getAsJsonObject().getAsJsonArray("data").get(0).getAsJsonObject().getAsJsonArray("rowData");
+        JsonObject first=json("{'effectiveFormat':{'backgroundColorStyle':{'rgbColor':{'red':1}},'textFormat':{'fontSize':10}},'effectiveValue':{'stringValue':'first'}}");
+        JsonObject second=first.deepCopy();second.add("effectiveValue",json("{'stringValue':'second'}"));
+        JsonObject different=first.deepCopy();different.getAsJsonObject("effectiveFormat").getAsJsonObject("textFormat").addProperty("fontSize",12);
+        JsonArray cells=new JsonArray();cells.add(first);cells.add(second);cells.add(different);rows.get(0).getAsJsonObject().add("values",cells);
+        String before=snapshot.toString();Map<String,JsonObject> pool=new ConcurrentHashMap<>();EventViewSync.shareStyles(snapshot,pool);
+        assertEquals(before,snapshot.toString());assertEquals(2,pool.size());
+        assertSame(first.get("effectiveFormat"),second.get("effectiveFormat"));assertNotSame(first.get("effectiveFormat"),different.get("effectiveFormat"));
+    }
+    @Test public void incrementalUpdatesKeepCellObjectsInsteadOfCloningEveryStyle()
+    {
+        Map<String,Object> old=update(1,"old"),fresh=update(1,"new");
+        List<Object> result=EventViewSync.incremental(List.of(old),List.of(fresh));assertEquals(1,result.size());
+        Map<?,?> original=(Map<?,?>)fresh.get("updateCells"),change=(Map<?,?>)((Map<?,?>)result.get(0)).get("updateCells");
+        Object expected=((List<?>)((Map<?,?>)((List<?>)original.get("rows")).get(0)).get("values")).get(0);
+        Object actual=((List<?>)((Map<?,?>)((List<?>)change.get("rows")).get(0)).get("values")).get(0);
+        assertSame(expected,actual);
+        JsonObject asJson=new Gson().toJsonTree(fresh).getAsJsonObject();assertTrue(EventViewSync.incremental(List.of(fresh),List.of(asJson)).isEmpty());
     }
     @Test public void independentGoogleReadsRunConcurrentlyWithoutReorderingResults() throws Exception
     {

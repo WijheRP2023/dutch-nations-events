@@ -82,8 +82,9 @@ final class EventViewSync
             // Independent reads overlap, but every publish still verifies a fresh
             // destination binding/protection snapshot and fresh calculated styles.
             List<GoogleRead> operations=new ArrayList<>();
+            Map<String,JsonObject> stylePool=new ConcurrentHashMap<>();
             operations.add(() -> get(target, "", "sheets(properties(sheetId,title,gridProperties(rowCount,columnCount)),merges,conditionalFormats(ranges),protectedRanges(protectedRangeId)),developerMetadata(metadataKey,metadataValue)"));
-            for(List<String> group:snapshotGroups(ranges,8000))operations.add(() -> readSnapshotPart(group));
+            for(List<String> group:snapshotGroups(ranges,4000))operations.add(() -> readSnapshotPart(group,stylePool));
             List<JsonObject> read = parallelReads(readWorkers,operations);
             JsonObject destination=read.get(0),snapshot=new JsonObject();JsonArray snapshotSheets=new JsonArray();snapshot.add("sheets",snapshotSheets);
             for(int i=1;i<read.size();i++)for(JsonElement sheet:read.get(i).getAsJsonArray("sheets"))snapshotSheets.add(sheet);
@@ -116,7 +117,7 @@ final class EventViewSync
             sourceMetadata=null;
             String hint=failure.getMessage()!=null&&failure.getMessage().startsWith("Google-koppeling: HTTP ")?failure.getMessage():"";
             retryAfter=System.currentTimeMillis()+(hint.contains("429")?60_000:10_000);
-            System.err.println("Kijkbestand niet ververst ("+stage+"). "+hint+" De laatst geldige weergave blijft behouden.");
+            System.err.println("Kijkbestand niet ververst ("+stage+"). "+hint+" Type: "+failure.getClass().getSimpleName()+(failure.getCause()==null?"":" / "+failure.getCause().getClass().getSimpleName())+". De laatst geldige weergave blijft behouden.");
         }
         finally { durationMillis=System.currentTimeMillis()-started; }
     }
@@ -124,6 +125,7 @@ final class EventViewSync
     @FunctionalInterface interface GoogleRead { JsonObject read() throws IOException; }
     static String failureState(String stage,Exception failure)
     {
+        if(failure.getCause() instanceof OutOfMemoryError)return "FOUT_SERVER_GEHEUGEN";
         if("Google-antwoord is te groot".equals(failure.getMessage()))return "FOUT_ANTWOORD_TE_GROOT";
         if("Te veel actieve drops".equals(failure.getMessage()))return "FOUT_SELECTIE_TE_GROOT";
         if(failure instanceof java.net.http.HttpTimeoutException)return "FOUT_GOOGLE_TIMEOUT";
@@ -175,11 +177,24 @@ final class EventViewSync
     }
     private static int columnIndex(String letters){int n=0;for(char c:letters.toCharArray())n=n*26+c-'A'+1;return n;}
 
-    private JsonObject readSnapshotPart(List<String> ranges) throws IOException
+    private JsonObject readSnapshotPart(List<String> ranges,Map<String,JsonObject> styles) throws IOException
     {
         StringBuilder query=new StringBuilder();for(String range:ranges)query.append("&ranges=").append(enc(range));
-        return get(source,query.toString(),
+        JsonObject result=get(source,query.toString(),
             "sheets(properties,merges,data(startRow,startColumn,rowData(values(userEnteredValue,effectiveValue,effectiveFormat)),rowMetadata(pixelSize,hiddenByUser),columnMetadata(pixelSize,hiddenByUser)))");
+        shareStyles(result,styles);return result;
+    }
+
+    /** Identical immutable source styles share one object, not thousands of copies. */
+    static void shareStyles(JsonObject snapshot,Map<String,JsonObject> styles)
+    {
+        for(JsonElement sheet:array(snapshot,"sheets"))for(JsonElement grid:array(sheet.getAsJsonObject(),"data"))
+            for(JsonElement row:array(grid.getAsJsonObject(),"rowData"))for(JsonElement value:array(row.getAsJsonObject(),"values"))
+            {
+                JsonObject cell=value.getAsJsonObject();if(!cell.has("effectiveFormat"))continue;
+                JsonObject style=cell.getAsJsonObject("effectiveFormat");String key=style.toString();
+                JsonObject existing=styles.putIfAbsent(key,style);if(existing!=null)cell.add("effectiveFormat",existing);
+            }
     }
 
     private void syncSourceCardVisibility(List<List<List<Object>>> values,String fingerprint,long started)
@@ -234,19 +249,19 @@ final class EventViewSync
     {
         // Merges can change cell geometry. Only those changes and periodic repair require a rebuild.
         if(previous==null)return next;
-        List<Object> oldPlan=jsonPlan(previous),newPlan=jsonPlan(next);
+        List<Object> oldPlan=previous,newPlan=next;
         if(!operations(oldPlan,"mergeCells").equals(operations(newPlan,"mergeCells")))return next;
-        SortedMap<Long,JsonObject> before=cells(oldPlan),after=cells(newPlan);
+        SortedMap<Long,Object> before=cells(oldPlan),after=cells(newPlan);
         SortedSet<Long> keys=new TreeSet<>(before.keySet());keys.addAll(after.keySet());
         List<Object> changes=new ArrayList<>();
-        long first=-1,last=-1;JsonArray changed=new JsonArray();
+        long first=-1,last=-1;List<Object> changed=new ArrayList<>();
         for(long key:keys)
         {
-            JsonObject cell=after.getOrDefault(key,new JsonObject());
-            if(cell.equals(before.getOrDefault(key,new JsonObject())))continue;
+            Object cell=after.getOrDefault(key,Map.of()),old=before.getOrDefault(key,Map.of());
+            if(sameCell(cell,old))continue;
             if(first>=0&&(key!=last+1||(key>>>16)!=(last>>>16)))
             {
-                addCells(changes,first,changed);changed=new JsonArray();first=-1;
+                addCells(changes,first,changed);changed=new ArrayList<>();first=-1;
             }
             if(first<0)first=key;last=key;changed.add(cell);
         }
@@ -262,17 +277,36 @@ final class EventViewSync
         return changes;
     }
 
-    private static void addCells(List<Object> changes,long first,JsonArray changed)
+    private static boolean sameCell(Object one,Object two)
+    {
+        if((one instanceof Map&&two instanceof Map)||(one instanceof JsonObject&&two instanceof JsonObject))return one.equals(two);
+        Gson gson=new Gson();return gson.toJsonTree(one).equals(gson.toJsonTree(two));
+    }
+    private static void addCells(List<Object> changes,long first,List<Object> changed)
     {
         changes.add(map("updateCells",map("start",map("sheetId",(int)(first>>>32),"rowIndex",(int)((first>>>16)&65535),"columnIndex",(int)(first&65535)),
             "rows",List.of(map("values",changed)),"fields","userEnteredValue,userEnteredFormat,dataValidation")));
     }
 
-    private static SortedMap<Long,JsonObject> cells(List<Object> plan)
+    private static SortedMap<Long,Object> cells(List<Object> plan)
     {
-        SortedMap<Long,JsonObject> out=new TreeMap<>();
-        for(JsonObject request:operations(plan,"updateCells"))
+        SortedMap<Long,Object> out=new TreeMap<>();
+        for(Object entry:plan)
         {
+            if(entry instanceof Map)
+            {
+                Map<?,?> request=(Map<?,?>)entry;if(!request.containsKey("updateCells"))continue;
+                Map<?,?> update=(Map<?,?>)request.get("updateCells"),start=(Map<?,?>)update.get("start");
+                int sheet=((Number)start.get("sheetId")).intValue(),row=((Number)start.get("rowIndex")).intValue(),col=((Number)start.get("columnIndex")).intValue();
+                List<?> rows=(List<?>)update.get("rows");
+                for(int r=0;r<rows.size();r++)
+                {
+                    List<?> values=(List<?>)((Map<?,?>)rows.get(r)).get("values");
+                    for(int c=0;c<values.size();c++)out.put(((long)sheet<<32)|((long)(row+r)<<16)|(col+c),values.get(c));
+                }
+                continue;
+            }
+            JsonObject request=(JsonObject)entry;if(!request.has("updateCells"))continue;
             JsonObject u=request.getAsJsonObject("updateCells"),s=u.getAsJsonObject("start");
             int sheet=s.get("sheetId").getAsInt(),row=s.get("rowIndex").getAsInt(),col=s.get("columnIndex").getAsInt();
             JsonArray rows=u.getAsJsonArray("rows");
@@ -290,14 +324,12 @@ final class EventViewSync
         List<JsonObject> out=new ArrayList<>();Gson gson=new Gson();
         for(Object request:plan)
         {
+            if(request instanceof Map&&!((Map<?,?>)request).containsKey(type))continue;
             JsonObject r=request instanceof JsonObject?(JsonObject)request:gson.toJsonTree(request).getAsJsonObject();
             if(r.has(type))out.add(r);
         }
         return out;
     }
-
-    private static List<Object> jsonPlan(List<Object> plan)
-    { List<Object> out=new ArrayList<>();for(JsonElement r:new Gson().toJsonTree(plan).getAsJsonArray())out.add(r.getAsJsonObject());return out; }
 
     private JsonObject get(String file, String query, String fields) throws IOException
     { return google.request("GET",api(file)+"?fields="+enc(fields)+query,null,16_000_000); }
