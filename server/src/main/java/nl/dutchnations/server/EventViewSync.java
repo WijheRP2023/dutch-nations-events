@@ -573,7 +573,7 @@ final class EventViewSync
             if(mode.equals("Bingo"))hide(requests,id,25,29);
             if(mode.equals("Bingo XL"))
             {
-                for(int row=15;row<29;row++)rowHeight(requests,id,row,row%2==1?40:64);
+                for(int row=15;row<29;row++)rowHeight(requests,id,row,row%2==1?40:80);
             }
             if(mode.equals("Punten"))
             {

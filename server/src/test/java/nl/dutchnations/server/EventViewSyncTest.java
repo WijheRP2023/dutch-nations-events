@@ -147,6 +147,10 @@ public class EventViewSyncTest
         assertTrue(hidden(requests,30));assertTrue(hidden(requests,52));
         for(int c=0;c<7;c++){assertEquals(100,widths[c]);assertEquals(100,widths[c+8]);}
         assertEquals(24,widths[7]);
+        long labelRows=plan.stream().map(x->(Map<?,?>)x).filter(x->x.containsKey("updateDimensionProperties"))
+            .map(x->(Map<?,?>)x.get("updateDimensionProperties")).map(x->(Map<?,?>)x.get("properties"))
+            .filter(x->Integer.valueOf(80).equals(x.get("pixelSize"))).count();
+        assertEquals(7,labelRows);
         assertTrue(EventViewSync.gridMode("Bingo XL"));assertFalse(EventViewSync.gridMode("Punten"));
         assertFalse(hidden(new Gson().toJsonTree(EventViewSync.sourceCardVisibility(1,"Bingo XL")).getAsJsonArray(),29));
     }
