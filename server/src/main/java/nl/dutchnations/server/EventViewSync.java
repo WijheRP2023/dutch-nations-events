@@ -200,7 +200,7 @@ final class EventViewSync
     private void syncSourceCardVisibility(List<List<List<Object>>> values,String fingerprint,long started)
     {
         String mode=string(values.get(1),7,1);
-        if(values.size()<11||!"DN_POINTS_CARDS_V1".equals(string(values.get(10),0,0))||!List.of("Bingo","Punten","Vier-op-een-rij","Zeeslag").contains(mode)||started<sourceCardRetryAfter)return;
+        if(values.size()<11||!"DN_POINTS_CARDS_V1".equals(string(values.get(10),0,0))||!List.of("Bingo","Bingo XL","Punten","Vier-op-een-rij","Zeeslag").contains(mode)||started<sourceCardRetryAfter)return;
         if(mode.equals(sourceCardMode)&&started-sourceCardAt<60_000&&(!mode.equals("Punten")||fingerprint.equals(sourceCardFingerprint)))return;
         try
         {
@@ -406,7 +406,7 @@ final class EventViewSync
             if(value.has("stringValue")&&!mode.equals(value.get("stringValue").getAsString()))throw new SourceChangedException();
             // Conditional IMAGE formulas can be reconstructed before the label
             // formulas finish recalculating. Do not publish image-only tiles.
-            if(mode.equals("Bingo")||mode.equals("Vier-op-een-rij"))
+            if(gridMode(mode))
             {
                 int size=mode.equals("Bingo")?5:7;
                 Map<Integer,List<JsonObject>> boardCells=cells.get("Tussenstand");
@@ -546,6 +546,10 @@ final class EventViewSync
         {
             columnWidth(requests,id,0,8,60);columnWidth(requests,id,8,9,24);columnWidth(requests,id,9,17,60);
         }
+        else if(mode.equals("Bingo XL"))
+        {
+            columnWidth(requests,id,0,7,100);columnWidth(requests,id,7,8,24);columnWidth(requests,id,8,15,100);columnWidth(requests,id,15,17,68);
+        }
         else
         {
             columnWidth(requests,id,0,7,82);columnWidth(requests,id,7,8,24);columnWidth(requests,id,8,15,82);columnWidth(requests,id,15,17,68);
@@ -567,6 +571,10 @@ final class EventViewSync
         {
             if(max>51)hide(requests,id,51,max);
             if(mode.equals("Bingo"))hide(requests,id,25,29);
+            if(mode.equals("Bingo XL"))
+            {
+                for(int row=15;row<29;row++)rowHeight(requests,id,row,row%2==1?40:64);
+            }
             if(mode.equals("Punten"))
             {
                 hide(requests,id,24,29);
@@ -587,6 +595,8 @@ final class EventViewSync
         if(mode.equals("Vier-op-een-rij"))return "VIER OP EEN RIJ";
         return mode.toUpperCase(Locale.ROOT);
     }
+    static boolean gridMode(String mode)
+    { return mode.equals("Bingo") || mode.equals("Bingo XL") || mode.equals("Vier-op-een-rij"); }
     private static void mergeCard(List<Object> requests,int id,int row,int start,int end)
     {requests.add(map("mergeCells",map("range",map("sheetId",id,"startRowIndex",row,"endRowIndex",row+1,"startColumnIndex",start,"endColumnIndex",end),"mergeType","MERGE_ALL")));}
     private static void rowHeight(List<Object> requests,int id,int row,int pixels)
@@ -671,7 +681,7 @@ final class EventViewSync
         if(value.has("errorValue"))throw new IOException("De bron bevat een rekenfout");
         if(value.size()>0)out.put("userEnteredValue",value);
         String formula=input.has("userEnteredValue")&&input.getAsJsonObject("userEnteredValue").has("formulaValue")?input.getAsJsonObject("userEnteredValue").get("formulaValue").getAsString():"";
-        if(board&&formula.contains("IMAGE(")&&(mode.equals("Bingo")||mode.equals("Vier-op-een-rij")))
+        if(board&&formula.contains("IMAGE(")&&gridMode(mode))
         {
             Matcher modes=Pattern.compile("NOT\\(OR\\(([^)]*)\\)\\)").matcher(formula);
             if(modes.find()&&!modes.group(1).contains("\""+mode+"\""))return out;

@@ -137,6 +137,26 @@ public class EventViewSyncTest
     {
         assertEquals("BINGO",EventViewSync.gameTitle("Bingo"));assertEquals("ZEESLAG",EventViewSync.gameTitle("Zeeslag"));
         assertEquals("VIER OP EEN RIJ",EventViewSync.gameTitle("Vier-op-een-rij"));assertEquals("PUNTENCOMPETITIE",EventViewSync.gameTitle("Punten"));
+        assertEquals("BINGO XL",EventViewSync.gameTitle("Bingo XL"));
+    }
+    @Test public void bingoXlKeepsAllFortyNineTilesVisibleWithLargerCells()
+    {
+        List<Object> plan=new ArrayList<>();EventViewSync.boardLayout(plan,1,"Bingo XL",1007);
+        JsonArray requests=new Gson().toJsonTree(plan).getAsJsonArray();int[] widths=boardWidths(plan);
+        for(int row=16;row<=29;row++)assertFalse("XL row "+row,hidden(requests,row));
+        assertTrue(hidden(requests,30));assertTrue(hidden(requests,52));
+        for(int c=0;c<7;c++){assertEquals(100,widths[c]);assertEquals(100,widths[c+8]);}
+        assertEquals(24,widths[7]);
+        assertTrue(EventViewSync.gridMode("Bingo XL"));assertFalse(EventViewSync.gridMode("Punten"));
+        assertFalse(hidden(new Gson().toJsonTree(EventViewSync.sourceCardVisibility(1,"Bingo XL")).getAsJsonArray(),29));
+    }
+    @Test public void bingoXlReconstructsLastTileImageForEitherTeam() throws Exception
+    {
+        JsonObject cell=new JsonObject(),value=new JsonObject();cell.add("userEnteredValue",value);
+        value.addProperty("formulaValue","=IF(Borddata!$Z$2=\"Bingo XL\";IMAGE(INDEX(Borddata!$C$2:$C$50;IF(Borddata!$Z$2=\"Bingo\";25;49)));\"\")");
+        List<List<Object>> tiles=new ArrayList<>();for(int i=0;i<48;i++)tiles.add(List.of(""));tiles.add(List.of("Dragon boots"));
+        for(int col:List.of(6,14))assertTrue(new Gson().toJson(EventViewSync.project(cell,true,27,col,"Bingo XL",tiles,Map.of("Dragon boots","https://static.runelite.net/cache/item/icon/11840.png"))).contains("11840.png"));
+        assertFalse(new Gson().toJson(EventViewSync.project(cell,true,27,6,"Bingo",tiles,Map.of())).contains("IMAGE"));
     }
     private static int[] boardWidths(List<Object> plan)
     {

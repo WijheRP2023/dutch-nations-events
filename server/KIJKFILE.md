@@ -1,5 +1,7 @@
 # Automatisch kijkbestand
 
+Bingo XL is een aparte spelkeuze: twee onafhankelijke 7×7-kaarten met 49 vakken, 100 px brede tegels en grotere afbeelding-/tekstregels. Gewone Bingo blijft 5×5 en vier-op-een-rij behoudt zijn exclusieve claims. XL gebruikt de eigen selectie uit Spelpresets en voltooitijden uit dezelfde beveiligde teaminvoer; er is geen plug-inpublicatie nodig.
+
 De bestaande basis blijft het beheerdocument, inclusief Tussenstand en beide teampagina's. Het aanvullende kijkbestand bevat uitsluitend Tussenstand, Team 1 en Team 2. Teamleiders blijven registreren en schieten in de basis.
 
 De bestaande Google-servertoegang wordt gebruikt. Geef hetzelfde serviceaccount alleen op het nieuwe kijkbestand bewerkerrechten. Vul de document-ID in de beschermde broncel `Zeeslagdata!A6` in. Reset wist deze koppeling niet. Het kijkbestand moet documentmetadata `DN_EVENT_VIEW_SOURCE` met de bron-ID hebben en precies de drie genoemde tabbladen bevatten. Bron en bestemming moeten verschillen. Privévloten worden nooit door de kijkbestandcode gelezen.
