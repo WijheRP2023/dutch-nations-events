@@ -29,6 +29,7 @@ final class EventViewSync
     private JsonObject sourceMetadata;
     private List<Object> publishedPlan;
     private String publishedTarget = "";
+    private volatile String rosterTarget = "";
     private String sourceCardMode = "", sourceCardFingerprint = "";
     private long sourceCardAt, sourceCardRetryAfter;
     static final int POLL_SECONDS = 3;
@@ -45,6 +46,15 @@ final class EventViewSync
             connection = new BattleshipSheets(System.getenv("DN_GOOGLE_SERVICE_ACCOUNT_JSON")); }
         catch (IOException ignored) { state = "GOOGLE_TOEGANG_ONTBREEKT"; }
         google = connection;
+    }
+
+    String rosterSource(String linkedSheet)
+    { return rosterSource(source, rosterTarget, linkedSheet); }
+
+    static String rosterSource(String basis, String verifiedViewer, String linkedSheet)
+    {
+        return basis != null && verifiedViewer != null && !verifiedViewer.isEmpty() && verifiedViewer.equals(linkedSheet)
+            ? basis : linkedSheet;
     }
 
     void tick()
@@ -89,6 +99,7 @@ final class EventViewSync
             JsonObject destination=read.get(0),snapshot=new JsonObject();JsonArray snapshotSheets=new JsonArray();snapshot.add("sheets",snapshotSheets);
             for(int i=1;i<read.size();i++)for(JsonElement sheet:read.get(i).getAsJsonArray("sheets"))snapshotSheets.add(sheet);
             checkDestination(source, target, destination);
+            rosterTarget = target;
             // A game switch must never combine one game's values with another's
             // cached/recalculating card styles. Never write this partial view.
             boolean presets=false;

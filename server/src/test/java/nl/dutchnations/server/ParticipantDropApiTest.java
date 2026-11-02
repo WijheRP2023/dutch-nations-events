@@ -72,6 +72,19 @@ public class ParticipantDropApiTest
         assertFalse(DutchNationsApi.validParticipantPng(image));
     }
 
+    @Test public void dropListQueryKeepsLegacyClientsAndBoundsFreshPlayerRequests()
+    {
+        assertEquals("event",DutchNationsApi.dropListQuery("eventId=event").get("eventId"));
+        java.util.Map<String,String> query=DutchNationsApi.dropListQuery("eventId=event&rsn=One%20Player&fresh=true");
+        assertEquals("One Player",query.get("rsn"));assertEquals("true",query.get("fresh"));
+        for(String invalid:new String[]{"eventId=x&rsn=", "eventId=x&rsn=thirteenCharsX", "eventId=x&rsn=A%0AB",
+            "eventId=x&fresh=yes", "eventId=x&eventId=y", "eventId=x&unknown=y", "eventId=x&rsn=%"})
+        {
+            try { DutchNationsApi.dropListQuery(invalid);fail(invalid); }
+            catch(IllegalArgumentException expected) { }
+        }
+    }
+
     private static byte[] png()
     {
         // Real one-pixel PNG, without allocating or decoding untrusted image data.

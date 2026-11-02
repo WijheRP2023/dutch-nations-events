@@ -67,6 +67,7 @@ public final class DutchNationsApi
     private final java.util.concurrent.Semaphore participantListPermit = new java.util.concurrent.Semaphore(2);
     private volatile JDA discordBot;
     private BattleshipSync battleshipSync;
+    private volatile EventViewSync eventViewSync;
 
     private DutchNationsApi(Store store, String ownerToken)
     {
@@ -124,6 +125,7 @@ public final class DutchNationsApi
         ScheduledExecutorService battleshipWorker = Executors.newSingleThreadScheduledExecutor();
         if (BattleshipSync.configured()) battleshipWorker.scheduleWithFixedDelay(battleshipSync::tick, 5, 15, TimeUnit.SECONDS);
         EventViewSync eventView = new EventViewSync();
+        eventViewSync = eventView;
         ScheduledExecutorService eventViewWorker = Executors.newSingleThreadScheduledExecutor();
         eventViewWorker.scheduleWithFixedDelay(eventView::tick, 2, EventViewSync.POLL_SECONDS, TimeUnit.SECONDS);
         server.createContext("/api/event-view/status", exchange -> {
@@ -553,9 +555,14 @@ public final class DutchNationsApi
             if (actor == null || !actor.owner()) { sendError(exchange, 403, "Alleen de owner kan de droplijst ophalen"); return; }
         }
         String query = exchange.getRequestURI().getRawQuery();
-        String id;
-        try { id = query != null && query.startsWith("eventId=") && !query.contains("&")
-            ? URLDecoder.decode(query.substring("eventId=".length()), StandardCharsets.UTF_8) : ""; }
+        String id, rsn;
+        boolean fresh;
+        try {
+            Map<String,String> parameters = dropListQuery(query);
+            id = parameters.getOrDefault("eventId", "");
+            rsn = parameters.get("rsn");
+            fresh = "true".equals(parameters.get("fresh"));
+        }
         catch (IllegalArgumentException ex) { sendError(exchange, 400, "Ongeldig event-id"); return; }
         Event event = blank(id) || id.length() > 120 ? null : store.event(id);
         if (participant && !activeDropEvent(event, OffsetDateTime.now(ZoneOffset.UTC)))
@@ -567,7 +574,7 @@ public final class DutchNationsApi
         try
         {
             Map<String, Object> result = map("source", googleSheet ? dropListUrl : PvmWarProgress.SOURCE);
-            result.put("items", participant ? participantDropItems(event, dropListUrl, googleSheet, eventTeams(event))
+            result.put("items", participant ? participantDropItems(event, dropListUrl, googleSheet, eventTeams(event), rsn, fresh)
                 : googleSheet ? fetchEventDrops(event) : PvmWarProgress.fetch().availableItems());
             result.put("teams", EventTeams.names(eventTeams(event)));
             send(exchange, 200, result);
@@ -623,7 +630,7 @@ public final class DutchNationsApi
             PvmWarProgress.Slots slots = null;
             if (googleSheet)
             {
-                try { items = String.join(";", fetchEventDrops(event)); }
+                try { items = String.join(";", fetchEventDrops(event, report.rsn)); }
                 catch (IOException | RuntimeException ex) { sendError(exchange, 503, "Google Sheet kan niet worden gelezen; geen bericht geplaatst"); return; }
             }
             if (!googleSheet)
@@ -696,9 +703,20 @@ public final class DutchNationsApi
     }
 
     private List<String> participantDropItems(Event event, String source, boolean googleSheet, String teams) throws IOException
+    { return participantDropItems(event, source, googleSheet, teams, null, false); }
+
+    private List<String> participantDropItems(Event event, String source, boolean googleSheet, String teams, String rsn, boolean fresh) throws IOException
     {
         long now = System.currentTimeMillis();
-        String key = googleSheet ? source + "\n" + teams + "\n" + event.teamOneDropListUrl + "\n" + event.teamTwoDropListUrl : PvmWarProgress.SOURCE;
+        String team = googleSheet && !blank(rsn) && !blank(event.teamOneDropListUrl) ? screenshotTeam(event, rsn) : null;
+        if (team != null) teamDropPage(event, team); // Unknown/duplicate roster entries fail closed.
+        String key = googleSheet ? source + "\n" + teams + "\n" + event.teamOneDropListUrl + "\n" + event.teamTwoDropListUrl + "\n" + team : PvmWarProgress.SOURCE;
+        if (fresh && googleSheet)
+        {
+            if (!participantListPermit.tryAcquire()) throw new IOException("Droplijstserver is bezet");
+            try { return new ArrayList<>(team == null ? fetchEventDrops(event) : GoogleSheetDrops.fetchTeamPage(teamDropPage(event, team), team)); }
+            finally { participantListPermit.release(); }
+        }
         synchronized (participantDropLists)
         {
             participantDropLists.values().removeIf(value -> value.expiresAt <= now);
@@ -713,7 +731,8 @@ public final class DutchNationsApi
         }
         try
         {
-            List<String> items = new ArrayList<>(googleSheet ? fetchEventDrops(event) : PvmWarProgress.fetch().availableItems());
+            List<String> items = new ArrayList<>(googleSheet ? team == null ? fetchEventDrops(event)
+                : GoogleSheetDrops.fetchTeamPage(teamDropPage(event, team), team) : PvmWarProgress.fetch().availableItems());
             synchronized (participantDropLists) { participantDropLists.put(key, new CachedDropList(items, System.currentTimeMillis() + 30000)); }
             return items;
         }
@@ -749,7 +768,7 @@ public final class DutchNationsApi
         String selectedItems = event == null ? "" : event.dropItems;
         if (googleSheet)
         {
-            try { selectedItems = String.join(";", fetchEventDrops(event)); }
+            try { selectedItems = String.join(";", fetchEventDrops(event, report == null ? null : report.rsn)); }
             catch (IOException | RuntimeException ex) { sendError(exchange, 503, "Google Sheet kan niet worden gelezen; geen drop verstuurd"); return; }
         }
         PvmWarProgress.Slots slots = null;
@@ -1082,10 +1101,51 @@ public final class DutchNationsApi
         return GoogleSheetDrops.fetch(effectiveDropListUrl(event), eventTeams(event), event.teamOneDropListUrl, event.teamTwoDropListUrl);
     }
 
+    private java.util.Set<String> fetchEventDrops(Event event, String rsn) throws IOException
+    {
+        if (event == null || blank(event.teamOneDropListUrl) || blank(rsn)) return fetchEventDrops(event);
+        String team = screenshotTeam(event, rsn);
+        return GoogleSheetDrops.fetchTeamPage(teamDropPage(event, team), team);
+    }
+
+    static String teamDropPage(Event event, String team) throws IOException
+    {
+        if (event == null || !"CLAN_EVENT".equalsIgnoreCase(event.type) || blank(team)
+            || SheetTeamRoster.UNKNOWN.equals(team)) throw new IOException("Team van speler is onbekend");
+        List<String> names = EventTeams.names(event.teamNames);
+        int slot = names.indexOf(team);
+        String page = slot == 0 ? event.teamOneDropListUrl : slot == 1 ? event.teamTwoDropListUrl : null;
+        if (names.size() != 2 || GoogleSheetDrops.tabKey(page) == null) throw new IOException("Teamdroppagina ontbreekt");
+        return page;
+    }
+
+    static Map<String,String> dropListQuery(String query)
+    {
+        Map<String,String> result = new HashMap<>();
+        if (query == null) return result;
+        if (query.length() > 1024) throw new IllegalArgumentException("Query te lang");
+        for (String pair : query.split("&", -1))
+        {
+            int split = pair.indexOf('=');
+            if (split <= 0) throw new IllegalArgumentException("Ongeldige parameter");
+            String key = URLDecoder.decode(pair.substring(0, split), StandardCharsets.UTF_8);
+            String value = URLDecoder.decode(pair.substring(split + 1), StandardCharsets.UTF_8);
+            if (!List.of("eventId", "rsn", "fresh").contains(key) || result.putIfAbsent(key, value) != null)
+                throw new IllegalArgumentException("Onbekende of dubbele parameter");
+            if ("rsn".equals(key) && (blank(value) || value.length() > 12 || value.chars().anyMatch(Character::isISOControl)))
+                throw new IllegalArgumentException("Ongeldige spelernaam");
+            if ("fresh".equals(key) && !"true".equals(value) && !"false".equals(value))
+                throw new IllegalArgumentException("Ongeldige verversing");
+        }
+        return result;
+    }
+
     private String screenshotTeam(Event event, String rsn)
     {
         if (event == null || !"CLAN_EVENT".equalsIgnoreCase(event.type) || blank(event.teamNames)) return null;
         String id = SheetTeamRoster.sourceId(event.teamOneDropListUrl, event.teamTwoDropListUrl, effectiveDropListUrl(event));
+        EventViewSync view = eventViewSync;
+        if (view != null) id = view.rosterSource(id);
         return screenshotTeams.teamFor(id, rsn, event.teamNames, System.currentTimeMillis());
     }
 

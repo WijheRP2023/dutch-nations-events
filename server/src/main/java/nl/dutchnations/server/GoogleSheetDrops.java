@@ -99,13 +99,21 @@ final class GoogleSheetDrops
         return Collections.unmodifiableSet(available);
     }
 
+    static Set<String> fetchTeamPage(String link, String team) throws IOException
+    {
+        String id = sheetId(link);
+        if (id == null) throw new IOException("Geen ondersteunde teamdroppagina");
+        return parseTeamInputCsv(new String(read(publicCsv(link, id), null), StandardCharsets.UTF_8), team);
+    }
+
     /** The native event template: active rows only, validated counts, no write-back. */
     static Set<String> parseTeamInputCsv(String csv, String expectedTeam) throws IOException
     {
         List<List<String>> rows = csvRows(csv);
         boolean named = false;
         for (List<String> row : rows)
-            if (!row.isEmpty() && row.get(0).trim().equalsIgnoreCase(expectedTeam + " — teamoverzicht & invoer")) named = true;
+            if (!row.isEmpty() && (row.get(0).trim().equalsIgnoreCase(expectedTeam + " — teamoverzicht & invoer")
+                || row.get(0).trim().equalsIgnoreCase(expectedTeam + " — dropvoortgang"))) named = true;
         if (!named) throw new IOException("Teamnaam in de droppagina komt niet overeen met het event");
         for (int index = 0; index < rows.size(); index++)
         {
