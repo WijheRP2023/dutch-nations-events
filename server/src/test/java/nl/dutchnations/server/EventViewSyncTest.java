@@ -8,6 +8,14 @@ import static org.junit.Assert.*;
 
 public class EventViewSyncTest
 {
+    @Test public void catalogImagesSurviveInsertionOfTheEhbColumn()
+    {
+        String icon="https://static.runelite.net/cache/item/icon/29022.png";
+        assertEquals(icon,EventViewSync.catalogIcon(List.of(List.of(icon)),0));
+        assertEquals(icon,EventViewSync.catalogIcon(List.of(List.of("",icon)),0));
+        assertEquals(icon,EventViewSync.catalogIcon(List.of(List.of("https://evil.test/image",icon)),0));
+        assertEquals("",EventViewSync.catalogIcon(List.of(List.of("https://evil.test/image")),0));
+    }
     private static final String SOURCE="source________________________",TARGET="viewer________________________";
     @Test public void publicFailureStateDistinguishesSafeCausesWithoutLeakingMessages()
     {

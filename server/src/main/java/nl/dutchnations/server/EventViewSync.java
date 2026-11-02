@@ -73,7 +73,7 @@ final class EventViewSync
             JsonObject sourceMeta=sourceMetadata;
             List<List<List<Object>>> values = google.batchValues(source, "Zeeslagdata!A6:B6", "Tussenstand!A1:Q75",
                 "'Team 1'!A6:V"+rowCount(sourceMeta,"Team 1"), "'Team 2'!A6:V"+rowCount(sourceMeta,"Team 2"),
-                "Borddata!C2:C50", "Drops!B2:B3000", "Drops!N2:N3000", "Instellingen!B10:F10",
+                "Borddata!C2:C50", "Drops!B2:B3000", "Drops!N2:O3000", "Instellingen!B10:F10",
                 "Instellingen!A19:A"+rowCount(sourceMeta,"Instellingen"), "Instellingen!E19:E"+rowCount(sourceMeta,"Instellingen"),"Tussenstand!A82");
             String target = string(values.get(0), 0, 0);
             if (target.isEmpty()) { state = "NIET_INGESTELD"; return; }
@@ -385,7 +385,7 @@ final class EventViewSync
     {
         checkDestination(source,target,destination);
         Map<String,String> icons=new HashMap<>();
-        for(int r=0;r<values.get(5).size();r++) icons.put(string(values.get(5),r,0),string(values.get(6),r,0));
+        for(int r=0;r<values.get(5).size();r++) icons.put(string(values.get(5),r,0),catalogIcon(values.get(6),r));
         Map<String,Map<Integer,List<JsonObject>>> cells=new HashMap<>();
         Map<String,JsonObject> structure=new HashMap<>();
         Map<String,Map<Integer,JsonObject>> heights=new HashMap<>();
@@ -683,6 +683,18 @@ final class EventViewSync
 
     private static void hide(List<Object> r,int id,int start,int end)
     { r.add(map("updateDimensionProperties",map("range",map("sheetId",id,"dimension","ROWS","startIndex",start,"endIndex",end),"properties",map("hiddenByUser",true),"fields","hiddenByUser"))); }
+
+    // The EHB column shifts the catalog link from N to O. Read both during the
+    // migration so source and viewer images work before and after insertion.
+    static String catalogIcon(List<List<Object>> rows,int row)
+    {
+        for(int col=0;col<2;col++)
+        {
+            String url=string(rows,row,col);
+            if(url.matches("https://(?:oldschool\\.runescape\\.wiki|static\\.runelite\\.net|secure\\.runescape\\.com)/[^\"\\s]+"))return url;
+        }
+        return "";
+    }
 
     static Map<String,Object> project(JsonObject input,boolean board,int row,int col,String mode,List<List<Object>> tiles,Map<String,String> icons) throws IOException
     {
