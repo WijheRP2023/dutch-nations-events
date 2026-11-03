@@ -26,6 +26,7 @@ final class EventViewSync
     private String lastFingerprint = "";
     private long lastFullSync;
     private long lastLayoutSync, metadataAt, retryAfter;
+    private final RevisionGate revisions = new RevisionGate();
     private JsonObject sourceMetadata;
     private List<Object> publishedPlan;
     private String publishedTarget = "";
@@ -62,9 +63,13 @@ final class EventViewSync
         if (google == null || source == null) return;
         if (System.currentTimeMillis() < retryAfter) return;
         long started = System.currentTimeMillis();
-        String stage="BRON_LEZEN";
+        String stage="BRONVERSIE_LEZEN";
         try
         {
+            String revision=google.revision(source);
+            lastChecked=Instant.now().toString();
+            if(!revisions.due(revision,started)) { state=revisions.pending()?"WIJZIGING_ONTVANGEN":"ACTUEEL";return; }
+            stage="BRON_LEZEN";
             if (sourceMetadata == null || started - metadataAt >= 60_000)
             {
                 sourceMetadata=get(source,"","sheets(properties(title,sheetId,gridProperties(rowCount)))");
@@ -83,7 +88,7 @@ final class EventViewSync
             String fingerprint = new Gson().toJson(values);
             lastChecked = Instant.now().toString();
             syncSourceCardVisibility(values,fingerprint,started);
-            if (fingerprint.equals(lastFingerprint)&&System.currentTimeMillis()-lastFullSync<300_000) { state = "ACTUEEL"; return; }
+            if (fingerprint.equals(lastFingerprint)&&System.currentTimeMillis()-lastFullSync<RevisionGate.REPAIR_MILLIS) { revisions.committed(revision,System.currentTimeMillis());state = "ACTUEEL"; return; }
             List<String> ranges = new ArrayList<>(List.of("Tussenstand!A1:Q75", "'Team 1'!A1:V5", "'Team 2'!A1:V5"));
             stage="SELECTIE_CONTROLEREN";
             List<List<Integer>> selected = List.of(selected(values.get(2)), selected(values.get(3)));
@@ -117,6 +122,7 @@ final class EventViewSync
             if (changes == requests) lastLayoutSync=System.currentTimeMillis();
             publishedPlan=requests; publishedTarget=target;
             lastFingerprint = fingerprint; lastFullSync=System.currentTimeMillis(); lastSuccess = Instant.now().toString(); lastUpdateMillis=System.currentTimeMillis()-started; state = "ACTUEEL";
+            revisions.committed(revision,System.currentTimeMillis());
         }
         catch (SourceChangedException changed)
         {
@@ -131,6 +137,36 @@ final class EventViewSync
             System.err.println("Kijkbestand niet ververst ("+stage+"). "+hint+" Type: "+failure.getClass().getSimpleName()+(failure.getCause()==null?"":" / "+failure.getCause().getClass().getSimpleName())+". De laatst geldige weergave blijft behouden.");
         }
         finally { durationMillis=System.currentTimeMillis()-started; }
+    }
+
+    /** Tiny Drive revisions replace repeated full-workbook reads while idle. */
+    static final class RevisionGate
+    {
+        static final long REPAIR_MILLIS=6*60*60*1000L,SETTLE_MILLIS=2000,MAX_SETTLE_MILLIS=10000,CONFIRM_MILLIS=15000;
+        private String applied="",observed="";
+        private long observedAt,pendingSince,committedAt,confirmAt=Long.MAX_VALUE;
+        boolean due(String revision,long now)
+        {
+            if(revision==null||!revision.matches("[0-9]{1,30}"))throw new IllegalArgumentException("Ongeldige bestandsversie");
+            if(applied.isEmpty())return true;
+            if(!revision.equals(applied))
+            {
+                if(observed.isEmpty())pendingSince=now;
+                if(!revision.equals(observed)){observed=revision;observedAt=now;}
+                return now-observedAt>=SETTLE_MILLIS||now-pendingSince>=MAX_SETTLE_MILLIS;
+            }
+            observed="";
+            return now>=confirmAt||now-committedAt>=REPAIR_MILLIS;
+        }
+        boolean pending(){return !observed.isEmpty();}
+        void committed(String revision,long now)
+        {
+            boolean changed=!revision.equals(applied);
+            applied=revision;observed="";committedAt=now;
+            // One follow-up catches asynchronous spreadsheet recalculation; not a
+            // continuous expensive idle poll. Failed publications never call this.
+            confirmAt=changed?now+CONFIRM_MILLIS:Long.MAX_VALUE;
+        }
     }
 
     @FunctionalInterface interface GoogleRead { JsonObject read() throws IOException; }
@@ -212,7 +248,7 @@ final class EventViewSync
     {
         String mode=string(values.get(1),7,1);
         if(values.size()<11||!"DN_POINTS_CARDS_V1".equals(string(values.get(10),0,0))||!List.of("Bingo","Bingo XL","Punten","Vier-op-een-rij","Zeeslag").contains(mode)||started<sourceCardRetryAfter)return;
-        if(mode.equals(sourceCardMode)&&started-sourceCardAt<60_000&&(!mode.equals("Punten")||fingerprint.equals(sourceCardFingerprint)))return;
+        if(mode.equals(sourceCardMode)&&started-sourceCardAt<RevisionGate.REPAIR_MILLIS)return;
         try
         {
             for(JsonElement element:sourceMetadata.getAsJsonArray("sheets"))

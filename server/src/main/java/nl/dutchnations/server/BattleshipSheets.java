@@ -8,6 +8,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
@@ -23,6 +24,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.zip.GZIPInputStream;
 
 /** Fixed Google API hosts only. No credentials or fleet data are logged. */
 final class BattleshipSheets implements BattleshipGateway
@@ -46,6 +48,14 @@ final class BattleshipSheets implements BattleshipGateway
     {
         if (value == null || !value.matches("[A-Za-z0-9_-]{20,128}")) throw new IllegalArgumentException("Ongeldige Sheet-koppeling");
         return value;
+    }
+
+    String revision(String file) throws IOException
+    {
+        JsonObject result=request("GET","https://www.googleapis.com/drive/v3/files/"+id(file)+"?fields=version",null);
+        String revision=string(result,"version");
+        if(!revision.matches("[0-9]{1,30}"))throw new IOException("Ongeldige Google-bestandsversie");
+        return revision;
     }
 
     List<List<Object>> values(String file, String range) throws IOException
@@ -267,6 +277,7 @@ final class BattleshipSheets implements BattleshipGateway
     {
         credentials.refreshIfExpired();
         HttpRequest.Builder request = HttpRequest.newBuilder(URI.create(url)).timeout(requestTimeout(method,publicProjection))
+            .header("Accept-Encoding", "gzip").header("User-Agent", "DutchNationsServer/1.0 (gzip)")
             .header("Authorization", "Bearer " + credentials.getAccessToken().getTokenValue());
         if (data == null) request.GET(); else request.header("Content-Type", "application/json").method(method, HttpRequest.BodyPublishers.ofString(JSON.toJson(data)));
         try
@@ -279,19 +290,31 @@ final class BattleshipSheets implements BattleshipGateway
                     String hint="";
                     // Only public projection writes may report a bounded schema error. Fleet operations remain opaque.
                     if(publicProjection)try {
-                        JsonObject error=JsonParser.parseString(new String(body.readNBytes(4096),StandardCharsets.UTF_8)).getAsJsonObject().getAsJsonObject("error");
+                        JsonObject error=JsonParser.parseString(new String(responseBytes(body,response.headers().firstValue("Content-Encoding").orElse(""),4096),StandardCharsets.UTF_8)).getAsJsonObject().getAsJsonObject("error");
                         String message=string(error,"message").replaceAll("[\\r\\n]"," ");
                         hint=": "+message.substring(0,Math.min(600,message.length()));
-                    } catch(RuntimeException ignored) { }
+                    } catch(RuntimeException | IOException ignored) { }
                     throw new IOException("Google-koppeling: HTTP " + response.statusCode()+hint);
                 }
-                byte[] bytes = body.readNBytes(limit + 1);
-                if (bytes.length > limit) throw new IOException("Google-antwoord is te groot");
+                byte[] bytes = responseBytes(body,response.headers().firstValue("Content-Encoding").orElse(""),limit);
                 return JsonParser.parseString(new String(bytes, StandardCharsets.UTF_8)).getAsJsonObject();
             }
         }
         catch (InterruptedException ex) { Thread.currentThread().interrupt(); throw new IOException("Google-controle onderbroken"); }
         catch (RuntimeException ex) { throw new IOException("Ongeldig Google-antwoord"); }
+    }
+
+    // The limit applies AFTER decompression too, so gzip cannot bypass the bound.
+    static byte[] responseBytes(InputStream input,String encoding,int limit) throws IOException
+    {
+        if(limit<1)throw new IllegalArgumentException("Ongeldige antwoordlimiet");
+        if(!encoding.isEmpty()&&!encoding.equalsIgnoreCase("identity")&&!encoding.equalsIgnoreCase("gzip"))throw new IOException("Onbekende Google-compressie");
+        try(InputStream decoded=encoding.equalsIgnoreCase("gzip")?new GZIPInputStream(input):input)
+        {
+            byte[] bytes=decoded.readNBytes(limit+1);
+            if(bytes.length>limit)throw new IOException("Google-antwoord is te groot");
+            return bytes;
+        }
     }
 
     static Map<String, Object> map(Object... pairs)

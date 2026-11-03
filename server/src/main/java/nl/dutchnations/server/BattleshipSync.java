@@ -20,6 +20,7 @@ final class BattleshipSync
     private final DutchNationsApi.Store store;
     private BattleshipGateway google;
     private String lastError = "";
+    private String disabledControls = "";
     private final String main, first, second, credential;
     private final java.util.function.LongSupplier clock;
 
@@ -47,10 +48,18 @@ final class BattleshipSync
         try
         {
             if (google == null) google = new BattleshipSheets(credential);
+            // Do not repeatedly read both complete teams, private fleets and
+            // rewrite boards/timestamps while a different game is selected.
+            List<List<List<Object>>> controls=google.batchValues(main,"Borddata!Z2","Zeeslagdata!A5","Instellingen!B10:F12");
+            boolean disabled=!"Zeeslag".equals(text(controls.get(0),0,0))&&text(controls.get(1),0,0).isEmpty();
+            String fingerprint=new com.google.gson.Gson().toJson(controls);
+            if(disabled&&fingerprint.equals(disabledControls))return;
             sync(); lastError = "";
+            disabledControls=disabled?fingerprint:"";
         }
         catch (Exception ex)
         {
+            disabledControls="";
             // Never print Google response bodies, keys, placement values or private file IDs.
             String message = ex instanceof BattleshipGame.RuleFailure ? ex.getMessage() : "De zeeslagcontrole kon niet veilig worden afgerond. Controleer servertoegang, bladrechten en instellingen.";
             if (message == null) message = "Zeeslagcontrole mislukt";

@@ -20,6 +20,7 @@ public class BattleshipWorkerTest
         List<Map<String,List<List<?>>>> publicWrites=new ArrayList<>();
         Set<String> openOne=Set.of(),openTwo=Set.of();
         boolean failPublish;
+        int fullTeamReads,privateAccessReads;
         Google()
         {
             data.put(MAIN+"Instellingen!B10:F12",List.of(List.of(46023.5,"","","",46023.6)));
@@ -39,6 +40,7 @@ public class BattleshipWorkerTest
             List<List<List<Object>>> out=new ArrayList<>();
             for(String r:ranges)
             {
+                if(r.startsWith("Team "))fullTeamReads++;
                 if(r.equals("Tussenstand!D65:H65")||r.equals("Tussenstand!M65:Q65"))
                 {
                     assertTrue("must lock before reading",openOne.isEmpty()&&openTwo.isEmpty());
@@ -63,6 +65,7 @@ public class BattleshipWorkerTest
         }
         public BattleshipSheets.Access privateAccess(String f)
         {
+            privateAccessReads++;
             BattleshipSheets.Access access=new BattleshipSheets.Access();
             access.readers.add("owner@test"); access.owners.add("owner@test");
             access.writers.add(f.equals(ONE)?"red@test":"blue@test");return access;
@@ -72,6 +75,28 @@ public class BattleshipWorkerTest
         public void sourceLocked(String f,boolean locked,boolean payment){}
         void submit(String target){data.put(MAIN+"Tussenstand!D65",List.of(List.of(target)));data.put(MAIN+"Tussenstand!H65",List.of(List.of(true)));}
         void ready(){for(String f:List.of(ONE,TWO))data.put(f+"Vloot!B17",List.of(List.of(true)));}
+    }
+    @Test public void inactiveBattleshipDoesNotContinuouslyReadTeamsOrRewriteThePublicFile() throws Exception
+    {
+        Google google=new Google();google.data.put(MAIN+"Borddata!Z2",List.of(List.of("Bingo")));
+        DutchNationsApi.Store store=new DutchNationsApi.Store(Files.createTempDirectory("battleship-idle-").resolve("state.json"));
+        BattleshipSync sync=new BattleshipSync(store,google,MAIN,ONE,TWO,"test",()->BattleshipSync.date(46023.4));
+        sync.tick();int writes=google.publicWrites.size(),reads=google.fullTeamReads,access=google.privateAccessReads;
+        assertTrue(writes>0);assertTrue(google.openOne.isEmpty()&&google.openTwo.isEmpty());
+        for(int n=0;n<100;n++)sync.tick();
+        assertEquals(writes,google.publicWrites.size());assertEquals(reads,google.fullTeamReads);assertEquals(access,google.privateAccessReads);
+        google.data.put(MAIN+"Borddata!Z2",List.of(List.of("Zeeslag")));sync.tick();
+        assertTrue(google.fullTeamReads>reads);assertTrue(google.privateAccessReads>access);
+    }
+    @Test public void resetIsStillProcessedWhileAnotherGameIsSelected() throws Exception
+    {
+        Google google=new Google();google.data.put(MAIN+"Borddata!Z2",List.of(List.of("Bingo")));
+        DutchNationsApi.Store store=new DutchNationsApi.Store(Files.createTempDirectory("battleship-idle-reset-").resolve("state.json"));
+        BattleshipSync sync=new BattleshipSync(store,google,MAIN,ONE,TWO,"test",()->BattleshipSync.date(46023.4));sync.tick();
+        google.data.put(MAIN+"Instellingen!B10:F12",List.of());
+        google.data.put(MAIN+"Zeeslagdata!A5",List.of(List.of("RESET_V1:12345678-1234-1234-1234-123456789abc")));sync.tick();
+        assertEquals("",Google.cell(google.data.get(MAIN+"Zeeslagdata!A5")));
+        for(String f:List.of(ONE,TWO))assertEquals("",Google.cell(google.data.get(f+"Vloot!C6:D10")));
     }
     @Test public void publicationRetryAndRestartCannotDoubleChargeOrLeakFleet() throws Exception
     {
