@@ -401,6 +401,7 @@ public final class DutchNationsApi
             if (event.teamNames == null) event.teamNames = existing.teamNames;
             if (event.teamOneDropListUrl == null) event.teamOneDropListUrl = existing.teamOneDropListUrl;
             if (event.teamTwoDropListUrl == null) event.teamTwoDropListUrl = existing.teamTwoDropListUrl;
+            if (event.teamThreeDropListUrl == null) event.teamThreeDropListUrl = existing.teamThreeDropListUrl;
             event.discordText = "";
             event.type = event.type == null ? "" : event.type.toUpperCase(Locale.ROOT);
             if (!actor.canManageEventType(event.type)) { sendError(exchange, 403, "Deze rol mag alleen learner-events beheren"); return; }
@@ -530,11 +531,15 @@ public final class DutchNationsApi
         if (actor == null || !actor.owner()) { sendError(exchange, 403, "Alleen de owner kan het dropkanaal wijzigen"); return; }
         if (!"POST".equals(exchange.getRequestMethod())) { methodNotAllowed(exchange); return; }
         AnnouncementChannel change = read(exchange, AnnouncementChannel.class);
-        if (change == null || !validDiscordChannelUrl(change.url))
+        if (change == null || change.url==null || (change.team!=null&&(change.team<1||change.team>3))
+            || (!blank(change.url)?!validDiscordChannelUrl(change.url):change.team==null))
         { sendError(exchange, 400, "Geldige Discord-kanaallink is verplicht"); return; }
-        store.saveDropChannelUrl(change.url.trim());
-        store.audit(actor, "Dropkanaal gewijzigd");
-        send(exchange, 200, map("dropChannelUrl", change.url.trim()));
+        if(change.team==null)store.saveDropChannelUrl(change.url.trim());
+        else store.saveTeamDropChannelUrl(change.team,change.url.trim());
+        store.audit(actor, change.team==null?"Dropkanaal gewijzigd":"Team "+change.team+"-dropkanaal gewijzigd");
+        Map<String,Object> result=map("dropChannelUrl",change.url.trim());
+        if(change.team!=null)result.put("team",change.team);
+        send(exchange, 200, result);
     }
 
     private void googleDropList(HttpExchange exchange) throws IOException
@@ -647,13 +652,13 @@ public final class DutchNationsApi
             }
             error = validateLocalDrop(report, event, OffsetDateTime.now(ZoneOffset.UTC), items);
             if (error != null) { sendError(exchange, 409, error); return; }
-            String channelUrl = store.dropChannelUrl();
+            String teamName = screenshotTeam(event, report.rsn);
+            String channelUrl = dropChannelFor(event,store.dropChannelUrl(),teamName,store.teamDropChannels());
             if (!validDiscordChannelUrl(channelUrl)) { sendError(exchange, 400, "Stel eerst het screenshotkanaal in bij de ownerinstellingen"); return; }
             String[] channelParts = URI.create(channelUrl).getPath().split("/");
             TextChannel channel = discordBot == null ? null : discordBot.getTextChannelById(channelParts[3]);
             if (channel == null || !channelParts[2].equals(channel.getGuild().getId()))
             { sendError(exchange, 503, "Bot of ingesteld screenshotkanaal niet bereikbaar"); return; }
-            String teamName = screenshotTeam(event, report.rsn);
             // Recheck after the external Sheet lookup and before handing an image to Discord.
             if (!activeDropEvent(store.event(report.eventId), OffsetDateTime.now(ZoneOffset.UTC)))
             { sendError(exchange, 409, "Event is niet actief"); return; }
@@ -710,7 +715,7 @@ public final class DutchNationsApi
         long now = System.currentTimeMillis();
         String team = googleSheet && !blank(rsn) && !blank(event.teamOneDropListUrl) ? screenshotTeam(event, rsn) : null;
         if (team != null) teamDropPage(event, team); // Unknown/duplicate roster entries fail closed.
-        String key = googleSheet ? source + "\n" + teams + "\n" + event.teamOneDropListUrl + "\n" + event.teamTwoDropListUrl + "\n" + team : PvmWarProgress.SOURCE;
+        String key = googleSheet ? source + "\n" + teams + "\n" + event.teamOneDropListUrl + "\n" + event.teamTwoDropListUrl + "\n" + event.teamThreeDropListUrl + "\n" + team : PvmWarProgress.SOURCE;
         if (fresh && googleSheet)
         {
             if (!participantListPermit.tryAcquire()) throw new IOException("Droplijstserver is bezet");
@@ -786,7 +791,8 @@ public final class DutchNationsApi
         }
         String error = validateLocalDrop(report, event, OffsetDateTime.now(), selectedItems);
         if (error != null) { sendError(exchange, 400, error); return; }
-        String channelUrl = dropChannelFor(event, store.dropChannelUrl());
+        String teamName = screenshotTeam(event, report.rsn);
+        String channelUrl = dropChannelFor(event,store.dropChannelUrl(),teamName,store.teamDropChannels());
         if (!validDiscordChannelUrl(channelUrl)) { sendError(exchange, 400, "Dropkanaal ontbreekt"); return; }
         boolean queued = Boolean.getBoolean("dutch.nations.localDropSend");
         if (queued)
@@ -795,7 +801,6 @@ public final class DutchNationsApi
             { sendError(exchange, 403, "Dit kanaal is niet het toegestane Discord-testkanaal"); return; }
             TextChannel channel = discordBot == null ? null : discordBot.getTextChannelById(discordChannelId(channelUrl));
             if (channel == null) { sendError(exchange, 503, "Bot of dropkanaal niet bereikbaar"); return; }
-            String teamName = screenshotTeam(event, report.rsn);
             if (!activeDropEvent(store.event(report.eventId), OffsetDateTime.now(ZoneOffset.UTC)))
             { sendError(exchange, 409, "Event is niet actief"); return; }
             byte[] image = Base64.getDecoder().decode(report.screenshot);
@@ -865,6 +870,16 @@ public final class DutchNationsApi
 
     static String dropChannelFor(Event event, String defaultChannel)
     { return event == null || blank(event.dropChannelUrl) ? defaultChannel : event.dropChannelUrl; }
+
+    static String dropChannelFor(Event event,String defaultChannel,String team,String... channels)
+    {
+        if(event!=null&&"CLAN_EVENT".equalsIgnoreCase(event.type)&&team!=null&&!SheetTeamRoster.UNKNOWN.equals(team))try
+        {
+            List<String> names=EventTeams.names(event.teamNames);int slot=names.indexOf(team);
+            if((names.size()==2||names.size()==3)&&slot>=0&&slot<channels.length&&!blank(channels[slot]))return channels[slot];
+        }catch(IllegalArgumentException ignored){ }
+        return dropChannelFor(event,defaultChannel);
+    }
 
     static boolean localDropChannelAllowed(String channelUrl, String allowedUrl)
     {
@@ -996,7 +1011,7 @@ public final class DutchNationsApi
         if (!validOptional(event.clansOne, 300) || !validOptional(event.clansTwo, 300)) return "Clanlijst is ongeldig";
         if (!validOptional(event.activity, 120)) return "Activiteit is ongeldig";
         if (!validOptional(event.bossList, 300)) return "Boss- of activiteitenlijst is ongeldig";
-        String teamPageError = EventTeams.validatePages(event.type, event.teamNames, event.teamOneDropListUrl, event.teamTwoDropListUrl);
+        String teamPageError = EventTeams.validatePages(event.type, event.teamNames, event.teamOneDropListUrl, event.teamTwoDropListUrl, event.teamThreeDropListUrl);
         if (teamPageError != null) return teamPageError;
         if (!blank(event.teamNames))
         {
@@ -1098,7 +1113,7 @@ public final class DutchNationsApi
 
     private static java.util.Set<String> fetchEventDrops(Event event) throws IOException
     {
-        return GoogleSheetDrops.fetch(effectiveDropListUrl(event), eventTeams(event), event.teamOneDropListUrl, event.teamTwoDropListUrl);
+        return GoogleSheetDrops.fetch(effectiveDropListUrl(event), eventTeams(event), event.teamOneDropListUrl, event.teamTwoDropListUrl, event.teamThreeDropListUrl);
     }
 
     private java.util.Set<String> fetchEventDrops(Event event, String rsn) throws IOException
@@ -1114,8 +1129,8 @@ public final class DutchNationsApi
             || SheetTeamRoster.UNKNOWN.equals(team)) throw new IOException("Team van speler is onbekend");
         List<String> names = EventTeams.names(event.teamNames);
         int slot = names.indexOf(team);
-        String page = slot == 0 ? event.teamOneDropListUrl : slot == 1 ? event.teamTwoDropListUrl : null;
-        if (names.size() != 2 || GoogleSheetDrops.tabKey(page) == null) throw new IOException("Teamdroppagina ontbreekt");
+        String page = slot == 0 ? event.teamOneDropListUrl : slot == 1 ? event.teamTwoDropListUrl : slot == 2 ? event.teamThreeDropListUrl : null;
+        if ((names.size() != 2 && names.size() != 3) || GoogleSheetDrops.tabKey(page) == null) throw new IOException("Teamdroppagina ontbreekt");
         return page;
     }
 
@@ -1143,7 +1158,7 @@ public final class DutchNationsApi
     private String screenshotTeam(Event event, String rsn)
     {
         if (event == null || !"CLAN_EVENT".equalsIgnoreCase(event.type) || blank(event.teamNames)) return null;
-        String id = SheetTeamRoster.sourceId(event.teamOneDropListUrl, event.teamTwoDropListUrl, effectiveDropListUrl(event));
+        String id = SheetTeamRoster.sourceId(event.teamOneDropListUrl, event.teamTwoDropListUrl, event.teamThreeDropListUrl, effectiveDropListUrl(event));
         EventViewSync view = eventViewSync;
         if (view != null) id = view.rosterSource(id);
         return screenshotTeams.teamFor(id, rsn, event.teamNames, System.currentTimeMillis());
@@ -1291,6 +1306,8 @@ public final class DutchNationsApi
             feed.announcementsVisible = !Boolean.FALSE.equals(state.announcementsVisible);
             feed.eventAnnouncementsUrl = state.eventAnnouncementsUrl;
             feed.dropChannelUrl = state.dropChannelUrl;
+            String[] teamChannels=teamDropChannels();
+            feed.teamOneDropChannelUrl=teamChannels[0];feed.teamTwoDropChannelUrl=teamChannels[1];feed.teamThreeDropChannelUrl=teamChannels[2];
             feed.announcementsSequence = state.announcementsSequence;
             feed.learnerTemplates = new ArrayList<>();
             for (LearnerTemplate template : state.learnerTemplates)
@@ -1442,6 +1459,12 @@ public final class DutchNationsApi
         }
         synchronized void saveDropChannelUrl(String value) { state.dropChannelUrl = value; changed(); }
         synchronized String dropChannelUrl() { return state.dropChannelUrl; }
+        synchronized void saveTeamDropChannelUrl(int team,String value)
+        {
+            if(team==1)state.teamOneDropChannelUrl=value;else if(team==2)state.teamTwoDropChannelUrl=value;else if(team==3)state.teamThreeDropChannelUrl=value;else throw new IllegalArgumentException("Ongeldig team");
+            changed();
+        }
+        synchronized String[] teamDropChannels(){return new String[]{state.teamOneDropChannelUrl,state.teamTwoDropChannelUrl,state.teamThreeDropChannelUrl};}
         synchronized void recordAnnouncement(String channelId, String messageId)
         {
             if (blank(channelId) || blank(messageId) || !channelId.equals(discordChannelId(state.announcementsUrl))) return;
@@ -1724,13 +1747,14 @@ public final class DutchNationsApi
         Boolean announcementsVisible = true;
         String eventAnnouncementsUrl = "";
         String dropChannelUrl = "";
+        String teamOneDropChannelUrl="",teamTwoDropChannelUrl="",teamThreeDropChannelUrl="";
         long announcementsSequence;
         String lastAnnouncementMessageId = "";
         List<LogEntry> managementLogs = new ArrayList<>();
         List<LogEntry> errorLogs = new ArrayList<>();
         Map<String, BattleshipGame> battleships = new HashMap<>();
     }
-    static final class Feed { String updatedAt; String announcementsUrl; boolean announcementsVisible; String eventAnnouncementsUrl; String dropChannelUrl; long announcementsSequence; List<LearnerTemplate> learnerTemplates; List<Event> events; }
+    static final class Feed { String updatedAt; String announcementsUrl; boolean announcementsVisible; String eventAnnouncementsUrl; String dropChannelUrl; String teamOneDropChannelUrl;String teamTwoDropChannelUrl;String teamThreeDropChannelUrl; long announcementsSequence; List<LearnerTemplate> learnerTemplates; List<Event> events; }
     static final class AnnouncementVisibility { boolean visible; }
     static final class OwnerLogs { List<LogEntry> management; List<LogEntry> errors; }
     static final class LogEntry { String at; String source; String message; }
@@ -1740,7 +1764,7 @@ public final class DutchNationsApi
         String id; String startsAt; String endsAt; String type; String title;
         String world; String host; String description; String codeword; String checklist; String requiredPlugins; String strategyWikiUrl; String driveUrl; String dropListUrl; String registrationUrl; String registrationEndsAt; String youtubeUrl; String discordText; String discordDescription; String discordMessageId; String discordChannelId;
         String clansOne; String clansTwo; String activity; String bossList; String dropItems; String dropChannelUrl; String dropSource; String teamNames;
-        String teamOneDropListUrl; String teamTwoDropListUrl;
+        String teamOneDropListUrl; String teamTwoDropListUrl; String teamThreeDropListUrl;
         boolean codewordRequired;
         boolean allowConflict;
     }
@@ -1750,7 +1774,7 @@ public final class DutchNationsApi
         String requiredPlugins; String strategyWikiUrl; String youtubeUrl;
     }
     static final class RoleChange { String rsn; String role; }
-    static final class AnnouncementChannel { String url; }
+    static final class AnnouncementChannel { String url; Integer team; }
     static final class DropTestReport { String eventId; String rsn; String item; int quantity; String screenshot; }
     static final class Actor
     {

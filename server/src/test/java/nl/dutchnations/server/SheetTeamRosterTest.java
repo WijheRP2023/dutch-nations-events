@@ -7,6 +7,23 @@ import static org.junit.Assert.*;
 
 public class SheetTeamRosterTest
 {
+    @Test public void onlyConfiguredTeamsAreReadAndCachesDoNotMixTwoAndThree() throws Exception
+    {
+        String two=GoogleSheetDrops.rosterUri(ID,2).toString(),three=GoogleSheetDrops.rosterUri(ID,3).toString();
+        assertTrue(two.contains("select%20A%2CE&"));assertFalse(two.contains("%2CI"));assertTrue(three.contains("select%20A%2CE%2CI&"));
+        java.util.List<Integer> calls=new java.util.ArrayList<>();
+        SheetTeamRoster.Lookup lookup=new SheetTeamRoster.Lookup((id,count)->{
+            calls.add(count);return SheetTeamRoster.parseCsv(count==2?csv("Alice,Bob\n"):
+                "Team 1,Team 2,Team 3\nSpeler (in-game),Speler (in-game),Speler (in-game)\nAlice,Bob,Claire\nDuplicate,,duplicate\n",count);
+        });
+        assertEquals("Rood",lookup.teamFor(ID,"Alice","Rood;Blauw",1000));
+        assertEquals(java.util.List.of(2),calls);
+        assertEquals("Groen",lookup.teamFor(ID,"Claire","Rood;Blauw;Groen",1001));
+        assertEquals(SheetTeamRoster.UNKNOWN,lookup.teamFor(ID,"Duplicate","Rood;Blauw;Groen",1002));
+        assertEquals(java.util.List.of(2,3),calls);
+        assertEquals("Blauw",lookup.teamFor(ID,"Bob","Rood;Blauw",1003));assertEquals(2,calls.size());
+        assertEquals(ID,SheetTeamRoster.sourceId(BASE+"?gid=1",BASE+"?gid=2",BASE+"?gid=3",null));
+    }
     private static final String ID = "12345678901234567890";
     private static final String BASE = "https://docs.google.com/spreadsheets/d/" + ID + "/edit";
     private static String csv(String rows)
@@ -48,7 +65,7 @@ public class SheetTeamRosterTest
     @Test public void cacheDoesNotMixEventsAndDoesNotKeepStaleTeamOnFailure() throws Exception
     {
         AtomicInteger calls = new AtomicInteger();
-        SheetTeamRoster.Lookup lookup = new SheetTeamRoster.Lookup(id -> {
+        SheetTeamRoster.Lookup lookup = new SheetTeamRoster.Lookup((id,count) -> {
             if (calls.incrementAndGet() > 1) throw new IOException("offline");
             return SheetTeamRoster.parseCsv(csv("Alice,Bob\n"));
         });

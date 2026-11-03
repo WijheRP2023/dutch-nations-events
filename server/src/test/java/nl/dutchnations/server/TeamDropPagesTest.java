@@ -7,6 +7,22 @@ import static org.junit.Assert.*;
 
 public class TeamDropPagesTest
 {
+    @Test public void threeDistinctPagesAndThirdTeamAreSupported() throws Exception
+    {
+        assertNull(EventTeams.validatePages("CLAN_EVENT","Rood;Blauw;Groen",BASE+"?gid=1",BASE+"?gid=2",BASE+"?gid=3"));
+        assertNotNull(EventTeams.validatePages("CLAN_EVENT","Rood;Blauw",BASE+"?gid=1",BASE+"?gid=2",BASE+"?gid=3"));
+        assertNotNull(EventTeams.validatePages("CLAN_EVENT","Rood;Blauw;Groen",BASE+"?gid=1",BASE+"?gid=2",BASE+"?gid=2"));
+        assertNotNull(EventTeams.validatePages("CLAN_EVENT","Rood;Blauw;Groen",BASE+"?gid=1",BASE+"?gid=2",""));
+        DutchNationsApi.Event e=new DutchNationsApi.Event();e.type="CLAN_EVENT";e.teamNames="Rood;Blauw;Groen";
+        e.teamOneDropListUrl=BASE+"?gid=1";e.teamTwoDropListUrl=BASE+"?gid=2";e.teamThreeDropListUrl=BASE+"?gid=3";
+        assertEquals(e.teamThreeDropListUrl,DutchNationsApi.teamDropPage(e,"Groen"));
+        e.id="third-team";e.startsAt=java.time.OffsetDateTime.now().plusHours(1).toString();e.endsAt=java.time.OffsetDateTime.now().plusHours(2).toString();
+        java.nio.file.Path file=java.nio.file.Files.createTempDirectory("three-team-event-").resolve("state.json");
+        new DutchNationsApi.Store(file).addEvent(e);
+        assertEquals(e.teamThreeDropListUrl,new DutchNationsApi.Store(file).event(e.id).teamThreeDropListUrl);
+        assertTrue(GoogleSheetDrops.parseTeamInputCsv(csv("Groen","DROP-497,Blood Moon pieces,4,4,Klaar,TRUE\n"),"Groen").isEmpty());
+        assertEquals(4,GoogleSheetDrops.parseTeamInputCsv(csv("Groen","DROP-497,Blood Moon pieces,4,3,Nog nodig,TRUE\n"),"Groen").size());
+    }
     private static final String BASE = "https://docs.google.com/spreadsheets/d/12345678901234567890/edit";
     private static String csv(String team, String rows)
     {

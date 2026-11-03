@@ -86,15 +86,18 @@ final class GoogleSheetDrops
     }
 
     static Set<String> fetch(String link, String teamNames, String one, String two) throws IOException
+    { return fetch(link,teamNames,one,two,null); }
+
+    static Set<String> fetch(String link, String teamNames, String one, String two, String three) throws IOException
     {
-        if ((one == null || one.trim().isEmpty()) && (two == null || two.trim().isEmpty())) return fetch(link, teamNames);
-        String error = EventTeams.validatePages("CLAN_EVENT", teamNames, one, two);
+        if ((one == null || one.trim().isEmpty()) && (two == null || two.trim().isEmpty()) && (three == null || three.trim().isEmpty())) return fetch(link, teamNames);
+        String error = EventTeams.validatePages("CLAN_EVENT", teamNames, one, two, three);
         if (error != null) throw new IOException(error);
         List<String> teams = EventTeams.names(teamNames);
         Set<String> available = new LinkedHashSet<>();
-        String[] pages = {one, two};
+        String[] pages = three==null||three.trim().isEmpty()?new String[]{one,two}:new String[]{one,two,three};
         for (int i = 0; i < pages.length; i++)
-            available.addAll(parseTeamInputCsv(new String(read(publicCsv(pages[i], sheetId(pages[i])), null), StandardCharsets.UTF_8), teams.get(i)));
+            available.addAll(fetchTeamPage(pages[i],teams.get(i)));
         if (available.size() > MAX_ITEMS) throw new IOException("Te veel beschikbare teamdrops");
         return Collections.unmodifiableSet(available);
     }
@@ -103,7 +106,55 @@ final class GoogleSheetDrops
     {
         String id = sheetId(link);
         if (id == null) throw new IOException("Geen ondersteunde teamdroppagina");
-        return parseTeamInputCsv(new String(read(publicCsv(link, id), null), StandardCharsets.UTF_8), team);
+        return parseTeamInputCsv(new String(readTeamExport(teamExportUri(link)), StandardCharsets.UTF_8), team);
+    }
+
+    // gviz guesses and merges header rows and drops minority-type header cells.
+    // A native CSV export keeps the title and Drop/Doel/Behaald/Actief intact.
+    static URI teamExportUri(String link) throws IOException
+    {
+        String key=tabKey(link);
+        if(key==null)throw new IOException("Teamdroppagina vereist een expliciete gid");
+        int split=key.indexOf('/');
+        return URI.create("https://docs.google.com/spreadsheets/d/"+key.substring(0,split)+"/export?format=csv&gid="+key.substring(split+1));
+    }
+
+    static boolean allowedExportRedirect(URI uri)
+    {
+        return uri!=null&&"https".equalsIgnoreCase(uri.getScheme())&&uri.getHost()!=null
+            &&uri.getHost().matches("[a-z0-9-]+-sheets\\.googleusercontent\\.com")&&uri.getUserInfo()==null
+            &&(uri.getPort()==-1||uri.getPort()==443)&&uri.getFragment()==null;
+    }
+
+    private static byte[] readTeamExport(URI uri) throws IOException
+    {
+        // Only this PUBLIC, unauthenticated export follows Google's download hop.
+        // Never forward a credential or follow a login/third-party redirect.
+        for(int hop=0;hop<3;hop++)
+        {
+            HttpURLConnection connection=(HttpURLConnection)uri.toURL().openConnection();
+            connection.setInstanceFollowRedirects(false);connection.setConnectTimeout(6000);connection.setReadTimeout(10000);
+            try
+            {
+                int status=connection.getResponseCode();
+                if(status==302||status==303||status==307||status==308)
+                {
+                    URI next;
+                    try{String location=connection.getHeaderField("Location");next=location==null?null:uri.resolve(location);}
+                    catch(IllegalArgumentException invalid){throw new IOException("Ongeldige Google-exportverwijzing");}
+                    if(!allowedExportRedirect(next))throw new IOException("Teamdroppagina is niet openbaar bereikbaar");
+                    uri=next;continue;
+                }
+                if(status!=200)throw new IOException("Teamdroppagina gaf HTTP "+status);
+                try(java.io.InputStream input=connection.getInputStream())
+                {
+                    byte[] bytes=input.readNBytes(MAX_BYTES+1);
+                    if(bytes.length>MAX_BYTES)throw new IOException("Sheetgegevens zijn te groot");
+                    return bytes;
+                }
+            }finally{connection.disconnect();}
+        }
+        throw new IOException("Te veel Google-exportverwijzingen");
     }
 
     /** The native event template: active rows only, validated counts, no write-back. */
@@ -205,11 +256,19 @@ final class GoogleSheetDrops
     }
 
     static SheetTeamRoster fetchRoster(String id) throws IOException
+    { return fetchRoster(id,2); }
+
+    static SheetTeamRoster fetchRoster(String id,int teamCount) throws IOException
+    {
+        return SheetTeamRoster.parseCsv(new String(read(rosterUri(id,teamCount), null, 2500, 4000), StandardCharsets.UTF_8),teamCount);
+    }
+
+    static URI rosterUri(String id,int teamCount) throws IOException
     {
         if (id == null || !id.matches("[A-Za-z0-9_-]{20,128}")) throw new IOException("Ongeldig Sheet-id voor teamindeling");
-        URI uri = URI.create("https://docs.google.com/spreadsheets/d/" + id
-            + "/gviz/tq?tqx=out:csv&sheet=Instellingen&range=A17%3AE1018&tq=select%20A%2CE&headers=0");
-        return SheetTeamRoster.parseCsv(new String(read(uri, null, 2500, 4000), StandardCharsets.UTF_8));
+        if(teamCount<2||teamCount>3)throw new IOException("Ongeldig aantal aparte teams");
+        return URI.create("https://docs.google.com/spreadsheets/d/" + id
+            + "/gviz/tq?tqx=out:csv&sheet=Instellingen&range=A17%3A"+(teamCount==2?"E":"I")+"1018&tq=select%20A%2CE"+(teamCount==3?"%2CI":"")+"&headers=0");
     }
 
     private static Set<String> fetchPrivate(String id, IOException publicFailure) throws IOException
