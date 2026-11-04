@@ -20,6 +20,8 @@ final class EventViewSync
     static final String SOLO = "Ieder voor zich";
     static final String SCREENSHOT_LIST = "Screenshotlijst";
     static final String SOLO_TAB = "'Ieder voor zich'!";
+    static final int SOLO_INPUT_END = 1006;
+    static final String SOLO_INPUT_READY = "SOLO_INVOER_V1";
     static final int MAX_ACTIVE_DROPS = 2000;
     private final String source;
     private final BattleshipSheets google;
@@ -79,7 +81,7 @@ final class EventViewSync
                 metadataAt=started;
             }
             JsonObject sourceMeta=sourceMetadata;
-            List<List<List<Object>>> values = google.batchValues(source, "Zeeslagdata!A6:B6", "Tussenstand!A1:Q75",
+            List<List<List<Object>>> values = google.batchValues(source, "Zeeslagdata!A6:C6", "Tussenstand!A1:Q75",
                 "'Team 1'!A6:V"+rowCount(sourceMeta,"Team 1"), "'Team 2'!A6:V"+rowCount(sourceMeta,"Team 2"),
                 "Borddata!C2:C50", "Drops!B2:B3000", "Drops!N2:O3000", "Instellingen!B10:F10",
                 "Instellingen!A19:A"+rowCount(sourceMeta,"Instellingen"), "Instellingen!E19:E"+rowCount(sourceMeta,"Instellingen"),"Tussenstand!A82:A95");
@@ -87,10 +89,12 @@ final class EventViewSync
             if(solo)
             {
                 values=new ArrayList<>(values);
-                List<List<List<Object>>> soloValues=google.batchValues(source,SOLO_TAB+"A23:C",SOLO_TAB+"M7:P");
+                List<List<List<Object>>> soloValues=google.batchValues(source,SOLO_TAB+"A23:C",SOLO_TAB+"M7:P",
+                    SOLO_TAB+"A1:K"+SOLO_INPUT_END);
                 List<List<Object>> roster=soloValues.get(0);
                 values.add(roster);
                 values.add(soloValues.get(1));
+                values.add(soloValues.get(2));
                 ensureSoloSlots(sourceMeta,roster);
             }
             String target = string(values.get(0), 0, 0);
@@ -503,8 +507,9 @@ final class EventViewSync
         checkDestination(source,target,destination);
         if(SOLO.equals(string(values.get(1),7,1)))
         {
-            if(values.size()<13||!"TOTAAL BEHAALDE PUNTEN".equals(string(values.get(10),13,0)))throw new SourceChangedException();
-            return soloPlan(destination,values.get(11),values.get(12),time);
+            if(values.size()<14||!"TOTAAL BEHAALDE PUNTEN".equals(string(values.get(10),13,0)))throw new SourceChangedException();
+            String epoch=soloInputEpoch(source,values.get(0),values.get(7));
+            return soloPlan(destination,values.get(11),values.get(12),values.get(13),epoch,time);
         }
         Map<String,String> icons=new HashMap<>();
         for(int r=0;r<values.get(5).size();r++) icons.put(string(values.get(5),r,0),catalogIcon(values.get(6),r));
@@ -632,6 +637,7 @@ final class EventViewSync
                 if(end>(board?75:5))continue;merge.addProperty("sheetId",id);requests.add(map("mergeCells",map("range",merge,"mergeType","MERGE_ALL")));
             }
             requests.add(tabLayout(id,"Team 1".equals(name)?name:null,false));
+            if("Team 1".equals(name))freezeRows(requests,id,5);
             JsonArray columns=widths.getOrDefault(name,new JsonArray());
             for(int c=0;c<columns.size();c++)
                 if(columns.get(c).getAsJsonObject().has("pixelSize"))requests.add(map("updateDimensionProperties",map("range",map("sheetId",id,"dimension","COLUMNS","startIndex",c,"endIndex",c+1),"properties",map("pixelSize",columns.get(c).getAsJsonObject().get("pixelSize")),"fields","pixelSize")));
@@ -677,8 +683,9 @@ final class EventViewSync
         SoloPlayer(String name,double drops,double points){this.name=name;this.drops=drops;this.points=points;}
     }
 
-    /** Publish only the rankings and the solo screenshot catalog, never the drop log. */
-    static List<Object> soloPlan(JsonObject destination,List<List<Object>> roster,List<List<Object>> catalog,String time) throws IOException
+    /** The linked view keeps the same tab ID and fixed input row addresses across updates. */
+    static List<Object> soloPlan(JsonObject destination,List<List<Object>> roster,List<List<Object>> catalog,
+        List<List<Object>> mirror,String epoch,String time) throws IOException
     {
         List<List<Object>> drops=soloScreenshotRows(catalog);
         List<SoloPlayer> players=new ArrayList<>();
@@ -708,7 +715,8 @@ final class EventViewSync
             requests.add(map("unmergeCells",map("range",map("sheetId",id))));
             requests.add(map("repeatCell",map("range",map("sheetId",id),"cell",map(),"fields","userEnteredValue,userEnteredFormat,dataValidation,note,textFormatRuns")));
             requests.add(tabLayout(id,!board&&!hidden?SCREENSHOT_LIST:null,hidden));
-            int count=board?17+Math.max(0,players.size()-10)+(players.size()>10?2:0):hidden?1:drops.size();
+            int count=board?17+Math.max(0,players.size()-10)+(players.size()>10?2:0):hidden?1:
+                Math.max(SOLO_INPUT_END,Math.max(22+roster.size(),5+drops.size()));
             int max=prop.getAsJsonObject("gridProperties").get("rowCount").getAsInt();
             if(count>max)
             {
@@ -718,7 +726,7 @@ final class EventViewSync
             if(!hidden)
             {
                 List<Object> output=new ArrayList<>();
-                for(int row=0;row<count;row++)output.add(map("values",new ArrayList<>(Collections.nCopies(board?3:4,Map.of()))));
+                for(int row=0;row<count;row++)output.add(map("values",new ArrayList<>(Collections.nCopies(board?3:19,Map.of()))));
                 Map<String,Object> heading=cardStyle(19,"#E7C55A",true,"#202329");
                 Map<String,Object> label=cardStyle(11,"#FFFFFF",true,"#173C4B");
                 Map<String,Object> line=cardStyle(11,"#173C4B",false,"#E8F0F4");
@@ -754,20 +762,77 @@ final class EventViewSync
                 }
                 else
                 {
-                    for(int row=0;row<drops.size();row++)
-                        for(int col=0;col<4;col++)cardRow(output,row,col,1,drops.get(row).get(col),row==0?label:line);
-                    requests.add(map("updateDimensionProperties",map("range",map("sheetId",id,"dimension","ROWS","startIndex",0,"endIndex",count),"properties",map("pixelSize",22),"fields","pixelSize")));
-                    columnWidth(requests,id,3,4,115);
+                    soloMirror(requests,output,id,roster,drops,mirror,epoch,heading,label,line);
                 }
                 requests.add(map("updateCells",map("start",map("sheetId",id,"rowIndex",0,"columnIndex",0),"rows",output,"fields","userEnteredValue,userEnteredFormat,dataValidation")));
-                columnWidth(requests,id,0,1,board?96:305);columnWidth(requests,id,1,2,board?255:85);columnWidth(requests,id,2,3,110);
+                if(board){columnWidth(requests,id,0,1,96);columnWidth(requests,id,1,2,255);columnWidth(requests,id,2,3,110);}
                 requests.add(map("updateDimensionProperties",map("range",map("sheetId",id,"dimension","ROWS","startIndex",0,"endIndex",count),"properties",map("hiddenByUser",false),"fields","hiddenByUser")));
                 if(count<max)hide(requests,id,count,max);
             }
-            requests.add(map("addProtectedRange",map("protectedRange",map("description","DN_EVENT_VIEW_READ_ONLY","range",map("sheetId",id),
-                "warningOnly",false,"editors",map("users",List.of("zeeslag-server@dutch-nations-zeeslag.iam.gserviceaccount.com"))))));
+            Map<String,Object> protection=map("description","DN_EVENT_VIEW_READ_ONLY","range",map("sheetId",id),
+                "warningOnly",false,"editors",map("users",List.of("zeeslag-server@dutch-nations-zeeslag.iam.gserviceaccount.com")));
+            if(!board&&!hidden&&!epoch.isEmpty())protection.put("unprotectedRanges",List.of(map("sheetId",id,"startRowIndex",6,"endRowIndex",SOLO_INPUT_END,"startColumnIndex",4,"endColumnIndex",8)));
+            requests.add(map("addProtectedRange",map("protectedRange",protection)));
         }
         return requests;
+    }
+
+    private static Object soloValue(List<List<Object>> rows,int row,int col)
+    {return row<rows.size()&&col<rows.get(row).size()?rows.get(row).get(col):"";}
+
+    private static void soloMirror(List<Object> requests,List<Object> output,int id,List<List<Object>> roster,
+        List<List<Object>> drops,List<List<Object>> input,String epoch,Map<String,Object> heading,
+        Map<String,Object> label,Map<String,Object> line)
+    {
+        Map<String,Object> entry=cardStyle(10,"#173C4B",false,epoch.isEmpty()?"#E8F0F4":"#FFF0CC");
+        Map<String,Object> detail=cardStyle(10,"#173C4B",false,"#F1F6F8");detail.put("horizontalAlignment","LEFT");
+        cardRow(output,0,0,11,"IEDER VOOR ZICH  |  TUSSENSTAND",heading);
+        cardRow(output,1,0,3,"TOTAAL BEHAALDE PUNTEN",label);
+        cardRow(output,2,0,3,soloValue(input,2,0),cardStyle(23,"#FFFFFF",true,"#173C4B"));
+        cardRow(output,1,4,7,epoch.isEmpty()?"Alleen kijken. Stel eerst de start- en eindtijd in bij Instellingen.":"Bewerkers: kies een speler, drop en aantal (1–10).",detail);
+        cardRow(output,2,4,7,"Alleen goedgekeurde drops tellen mee, tot 10 per speler per drop.",detail);
+        cardRow(output,4,0,3,"TOP 10",label);
+        cardRow(output,4,4,7,"DROPINVOER",label);
+        cardRow(output,4,12,4,"DROPS UIT PUNTENSPEL",label);
+        cardRow(output,20,0,3,"DEELNEMERS • ÉÉN GROEP",label);
+        mergeCard(requests,id,0,0,11);
+        for(int row:List.of(1,2,4,20))mergeCard(requests,id,row,0,3);
+        for(int row:List.of(1,2,4))mergeCard(requests,id,row,4,11);
+        mergeCard(requests,id,4,12,16);
+        for(int c=0;c<3;c++)for(int r:List.of(5,21))cardRow(output,r,c,1,soloValue(input,r,c),label);
+        for(int c=4;c<11;c++)cardRow(output,5,c,1,soloValue(input,5,c),label);
+        for(int r=6;r<16;r++)for(int c=0;c<3;c++)cardRow(output,r,c,1,soloValue(input,r,c),line);
+        for(int r=17;r<=19;r++)
+        {
+            cardRow(output,r,0,3,soloValue(input,r,0),detail);
+            mergeCard(requests,id,r,0,3);
+        }
+        for(int r=0;r<roster.size();r++)for(int c=0;c<3;c++)cardRow(output,22+r,c,1,soloValue(roster,r,c),line);
+        for(int r=6;r<SOLO_INPUT_END;r++)
+            for(int c=4;c<11;c++)
+            {
+                cardRow(output,r,c,1,soloValue(input,r,c),c<8?entry:line);
+                if(!epoch.isEmpty()&&c<8)soloValidation(output,r,c,5+drops.size());
+            }
+        for(int r=0;r<drops.size();r++)
+            for(int c=0;c<4;c++)cardRow(output,5+r,12+c,1,drops.get(r).get(c),r==0?label:detail);
+        cardRow(output,0,17,1,epoch.isEmpty()?"":"SOLO|"+epoch,detail);
+        for(int i=0;i<10;i++)cardRow(output,6+i,18,1,i+1,detail);
+        int[] widths={86,148,84,16,114,187,70,100,72,70,118,16,240,80,78,105};
+        for(int i=0;i<widths.length;i++)columnWidth(requests,id,i,i+1,widths[i]);
+        freezeRows(requests,id,6);
+        rowHeight(requests,id,0,40);rowHeight(requests,id,2,32);
+        requests.add(map("updateDimensionProperties",map("range",map("sheetId",id,"dimension","COLUMNS","startIndex",17,"endIndex",22),
+            "properties",map("hiddenByUser",true),"fields","hiddenByUser")));
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void soloValidation(List<Object> output,int row,int col,int lastDrop)
+    {
+        String[] ranges={"=$A$23:$A","=$M$7:$M$"+Math.max(7,lastDrop),"=$S$7:$S$16"};
+        Map<String,Object> condition=col==7?map("type","BOOLEAN"):map("type","ONE_OF_RANGE","values",List.of(map("userEnteredValue",ranges[col-4])));
+        List<Object> cells=(List<Object>)((Map<?,?>)output.get(row)).get("values");
+        ((Map<String,Object>)cells.get(col)).put("dataValidation",map("condition",condition,"strict",true,"showCustomUi",true));
     }
 
     static List<List<Object>> soloScreenshotRows(List<List<Object>> catalog) throws IOException
@@ -785,7 +850,7 @@ final class EventViewSync
             if(item.isBlank()||item.length()>100||item.indexOf(';')>=0||item.chars().anyMatch(Character::isISOControl))
                 throw new IOException("Ongeldige solo dropnaam");
             double goal=metric(catalog,i,2),points=metric(catalog,i,3);
-            if(goal<1||goal>7||goal!=Math.rint(goal))throw new IOException("Ongeldig solo dropdoel");
+            if(goal<1||goal>10||goal!=Math.rint(goal))throw new IOException("Ongeldig solo dropdoel");
             if(names.add(item.replace('\u2019','\'').toLowerCase(Locale.ROOT)))out.add(List.of(item,goal,points,id));
             if(ids.size()>MAX_ACTIVE_DROPS)throw new IOException("Te veel actieve drops");
         }
@@ -858,6 +923,8 @@ final class EventViewSync
     {requests.add(map("updateDimensionProperties",map("range",map("sheetId",id,"dimension","ROWS","startIndex",row,"endIndex",row+1),"properties",map("pixelSize",pixels),"fields","pixelSize")));}
     private static void columnWidth(List<Object> requests,int id,int start,int end,int pixels)
     {requests.add(map("updateDimensionProperties",map("range",map("sheetId",id,"dimension","COLUMNS","startIndex",start,"endIndex",end),"properties",map("pixelSize",pixels),"fields","pixelSize")));}
+    private static void freezeRows(List<Object> requests,int id,int count)
+    {requests.add(map("updateSheetProperties",map("properties",map("sheetId",id,"gridProperties",map("frozenRowCount",count)),"fields","gridProperties.frozenRowCount")));}
     private static Map<String,Object> rgb(String hex)
     {return map("red",Integer.parseInt(hex.substring(1,3),16)/255d,"green",Integer.parseInt(hex.substring(3,5),16)/255d,"blue",Integer.parseInt(hex.substring(5,7),16)/255d);}
     private static Map<String,Object> cardStyle(int size,String color,boolean bold,String background)
@@ -878,6 +945,7 @@ final class EventViewSync
         for(int col=start;col<start+width;col++)cells.set(col,map("userEnteredFormat",style));
         Map<String,Object> cell=(Map<String,Object>)cells.get(start);
         if(value instanceof Number)cell.put("userEnteredValue",map("numberValue",value));
+        else if(value instanceof Boolean)cell.put("userEnteredValue",map("boolValue",value));
         else if(value!=null&&!value.equals(""))cell.put("userEnteredValue",map("stringValue",value.toString()));
     }
     /** Generated from public calculated totals only: no roster, payment details or source formulas. */
@@ -921,6 +989,13 @@ final class EventViewSync
     {
         try{double start=Double.parseDouble(string(period,0,0)),end=Double.parseDouble(string(period,0,4));return start>0&&end>start?source+"|"+Math.round(start*86400)+"|"+Math.round(end*86400):"";}
         catch(NumberFormatException ignored){return "";}
+    }
+
+    static String soloInputEpoch(String source,List<List<Object>> binding,List<List<Object>> period)
+    {
+        // The team bridge flag alone does not prove the solo handler is installed.
+        return "REGISTRATIES_V1".equals(string(binding,0,1))&&SOLO_INPUT_READY.equals(string(binding,0,2))
+            ? inputEpoch(source,period):"";
     }
     private static int goal(JsonObject cell)
     {try{double n=cell.getAsJsonObject("effectiveValue").get("numberValue").getAsDouble();return n>=1&&n<=7&&n==Math.floor(n)?(int)n:0;}catch(RuntimeException ignored){return 0;}}

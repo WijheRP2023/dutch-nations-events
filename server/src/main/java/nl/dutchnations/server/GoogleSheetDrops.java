@@ -50,6 +50,13 @@ final class GoogleSheetDrops
     {
         String id = sheetId(link);
         if (id == null) throw new IOException("Geen ondersteunde Google Sheets-link");
+        // A specific tab can place its catalog next to other tables. Native CSV
+        // preserves row-six headers and empty cells that GViz may coerce away.
+        if (tabKey(link) != null)
+        {
+            try { return parseCsv(new String(readTeamExport(teamExportUri(link)), StandardCharsets.UTF_8)); }
+            catch (IOException ignored) { /* Keep the established public/private fallbacks. */ }
+        }
         // Een openbare Sheet heeft geen Google-account of service-account nodig.
         // Probeer die route eerst, zodat de eventbeheerder niets extra's hoeft te delen.
         try

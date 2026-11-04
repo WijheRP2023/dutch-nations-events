@@ -16,7 +16,7 @@ public class EventViewSyncTest
         assertFalse(EventViewSync.choiceConsistent("Punten","Punten","Bingo"));
     }
 
-    @Test public void soloPublishesRankingsAndScreenshotDropsWithoutRosterOnSecondTab() throws Exception
+    @Test public void soloPublishesRankingsAndMirrorsTheDropInputAndCatalog() throws Exception
     {
         JsonObject destination=new JsonObject();
         JsonArray tabs=new JsonArray();destination.add("sheets",tabs);
@@ -29,8 +29,10 @@ public class EventViewSyncTest
         List<List<Object>> roster=new ArrayList<>();
         roster.add(List.of("Zulu",2,35));roster.add(List.of("Alpha",1,35));
         for(int i=0;i<9;i++)roster.add(List.of("Other "+i,1,5));
-        List<List<Object>> catalog=List.of(List.of("Abyssal whip","DROP-610",7,10),List.of("Abyssal dagger","DROP-1229",4,25));
-        JsonArray plan=new Gson().toJsonTree(EventViewSync.soloPlan(destination,roster,catalog,"test")).getAsJsonArray();
+        List<List<Object>> catalog=List.of(List.of("Abyssal whip","DROP-610",10,10),List.of("Abyssal dagger","DROP-1229",10,25));
+        List<List<Object>> input=new ArrayList<>(Collections.nCopies(6,List.of()));
+        input.add(List.of("","","","","Alpha","Abyssal whip",10,true,10,100,"Goedgekeurd"));
+        JsonArray plan=new Gson().toJsonTree(EventViewSync.soloPlan(destination,roster,catalog,input,"basis|1|2","test")).getAsJsonArray();
         Map<Integer,JsonArray> rows=new HashMap<>();
         for(JsonElement e:plan)
         {
@@ -47,17 +49,21 @@ public class EventViewSyncTest
         assertEquals(20,rows.get(1).size());
         assertEquals("Other 8",soloValue(rows.get(1),19,1).getAsString());
         assertEquals(3,soloValue(rows.get(1),19,0).getAsInt());
-        assertEquals(3,rows.get(2).size());
-        assertEquals("Drop (bewerkbaar)",soloValue(rows.get(2),0,0).getAsString());
-        assertEquals("Doel",soloValue(rows.get(2),0,1).getAsString());
-        assertEquals("Abyssal whip",soloValue(rows.get(2),1,0).getAsString());
-        assertEquals(7,soloValue(rows.get(2),1,1).getAsInt());
-        assertFalse(rows.get(2).toString().contains("Alpha"));
+        assertEquals(1006,rows.get(2).size());
+        assertEquals("Drop (bewerkbaar)",soloValue(rows.get(2),5,12).getAsString());
+        assertEquals("Doel",soloValue(rows.get(2),5,13).getAsString());
+        assertEquals("Abyssal whip",soloValue(rows.get(2),6,12).getAsString());
+        assertEquals(10,soloValue(rows.get(2),6,13).getAsInt());
+        assertEquals("Alpha",soloValue(rows.get(2),6,4).getAsString());
+        assertTrue(soloValue(rows.get(2),6,7).getAsBoolean());
+        assertEquals("SOLO|basis|1|2",soloValue(rows.get(2),0,17).getAsString());
+        assertTrue(rows.get(2).get(6).toString().contains("$S$7:$S$16"));
         assertTrue(plan.toString().contains("\"sheetId\":2,\"hidden\":false,\"title\":\"Screenshotlijst\""));
         assertFalse(rows.containsKey(3));
         assertTrue(plan.toString().contains("\"sheetId\":3,\"hidden\":true"));
         assertFalse(plan.toString().contains("formulaValue"));
-        assertFalse(plan.toString().contains("unprotectedRanges"));
+        assertTrue(plan.toString().contains("\"unprotectedRanges\":[{\"sheetId\":2,\"startRowIndex\":6,\"endRowIndex\":1006,\"startColumnIndex\":4,\"endColumnIndex\":8}]"));
+        assertFalse(new Gson().toJson(EventViewSync.soloPlan(destination,roster,catalog,input,"","test")).contains("unprotectedRanges"));
     }
 
     @Test public void screenshotListKeepsTeamOneIdentityAndCanSwitchBack() throws Exception
@@ -71,6 +77,19 @@ public class EventViewSyncTest
         EventViewSync.checkDestination(SOURCE,TARGET,d);
         assertEquals("Team 1",EventViewSync.teamTabName("Screenshotlijst"));
         assertTrue(GoogleSheetDrops.parseCsv("Drop (bewerkbaar),Doel,Pt/drop,Drop-ID\nAbyssal whip,7,10,DROP-610\n").contains("Abyssal whip"));
+    }
+
+    @Test public void soloEditingRequiresItsOwnConfirmedBridgeAndValidPeriod() throws Exception
+    {
+        List<List<Object>> period=List.of(List.of(46331d,"","","",46332d));
+        assertEquals("",EventViewSync.soloInputEpoch(SOURCE,List.of(List.of(TARGET,"REGISTRATIES_V1")),period));
+        assertEquals("",EventViewSync.soloInputEpoch(SOURCE,List.of(List.of(TARGET,"REGISTRATIES_V1","SOLO_INVOER_V1")),List.of()));
+        assertEquals(EventViewSync.inputEpoch(SOURCE,period),
+            EventViewSync.soloInputEpoch(SOURCE,List.of(List.of(TARGET,"REGISTRATIES_V1","SOLO_INVOER_V1")),period));
+        String csv="IEDER VOOR ZICH\nTOTAAL BEHAALDE PUNTEN\n0\n\nTOP 10,,,,DROPINVOER,,,,,,,,DROPS UIT PUNTENSPEL\n"
+            +"Plaats,Speler,Punten,,Speler,Drop,Aantal,Goedgekeurd,Telt mee,Punten,Controle,,Drop (bewerkbaar),Doel,Pt/drop,Drop-ID\n"
+            +"1,Test,10,,Test,Abyssal whip,1,TRUE,1,10,Goedgekeurd,,Abyssal whip,10,10,DROP-610\n";
+        assertEquals(Set.of("Abyssal whip"),GoogleSheetDrops.parseCsv(csv));
     }
 
     @Test public void basisTabsHideOnlyTheOtherMode()
