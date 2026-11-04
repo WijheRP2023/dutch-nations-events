@@ -18,6 +18,7 @@ final class EventViewSync
     static final String BINDING = "DN_EVENT_VIEW_SOURCE";
     static final List<String> TABS = List.of("Tussenstand", "Team 1", "Team 2");
     static final String SOLO = "Ieder voor zich";
+    static final String SCREENSHOT_LIST = "Screenshotlijst";
     static final String SOLO_TAB = "'Ieder voor zich'!";
     static final int MAX_ACTIVE_DROPS = 2000;
     private final String source;
@@ -86,8 +87,10 @@ final class EventViewSync
             if(solo)
             {
                 values=new ArrayList<>(values);
-                List<List<Object>> roster=google.batchValues(source,SOLO_TAB+"A23:C").get(0);
+                List<List<List<Object>>> soloValues=google.batchValues(source,SOLO_TAB+"A23:C",SOLO_TAB+"M7:P");
+                List<List<Object>> roster=soloValues.get(0);
                 values.add(roster);
+                values.add(soloValues.get(1));
                 ensureSoloSlots(sourceMeta,roster);
             }
             String target = string(values.get(0), 0, 0);
@@ -125,7 +128,8 @@ final class EventViewSync
             String time=DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm:ss").withZone(ZoneId.of("Europe/Amsterdam")).format(Instant.now());
             stage="WEERGAVE_OPBOUWEN";
             List<Object> requests = plan(source, target, destination, snapshot, values, selected, time);
-            boolean layoutRefresh = !target.equals(publishedTarget) || started-lastLayoutSync >= 300_000;
+            boolean layoutRefresh = !target.equals(publishedTarget) || started-lastLayoutSync >= 300_000
+                || solo != hasScreenshotTab(destination);
             List<Object> changes = layoutRefresh ? requests : incremental(publishedPlan, requests);
             stage="PUBLICEREN";
             if (!changes.isEmpty()) google.requestForView("POST", api(target)+":batchUpdate", map("requests",changes));
@@ -296,7 +300,9 @@ final class EventViewSync
                 JsonObject properties=element.getAsJsonObject().getAsJsonObject("properties");
                 if(properties.get("title").getAsString().equals("Tussenstand"))
                 {
-                    google.request("POST",api(source)+":batchUpdate",map("requests",sourceCardVisibility(properties.get("sheetId").getAsInt(),mode,soloPanel)));
+                    List<Object> requests=sourceCardVisibility(properties.get("sheetId").getAsInt(),mode,soloPanel);
+                    if(soloPanel)requests.addAll(sourceTabVisibility(sourceMetadata,mode));
+                    google.request("POST",api(source)+":batchUpdate",map("requests",requests));
                     sourceCardMode=layout;sourceCardFingerprint=fingerprint;sourceCardAt=started;return;
                 }
             }
@@ -319,6 +325,27 @@ final class EventViewSync
         for(int[] range:visible)requests.add(map("updateDimensionProperties",map("range",map("sheetId",id,"dimension","ROWS","startIndex",range[0],"endIndex",range[1]),"properties",map("hiddenByUser",false),"fields","hiddenByUser")));
         if(mode.equals("Punten"))hide(requests,id,84,85);
         return requests;
+    }
+
+    static List<Object> sourceTabVisibility(JsonObject meta,String mode)
+    {
+        List<Object> requests=new ArrayList<>();
+        boolean solo=SOLO.equals(mode);
+        for(JsonElement element:array(meta,"sheets"))
+        {
+            JsonObject p=element.getAsJsonObject().getAsJsonObject("properties");
+            String name=p.get("title").getAsString();
+            if(!List.of("Team 1","Team 2",SOLO).contains(name))continue;
+            requests.add(tabLayout(p.get("sheetId").getAsInt(),null,SOLO.equals(name)?!solo:solo));
+        }
+        return requests;
+    }
+
+    private static Object tabLayout(int id,String title,boolean hidden)
+    {
+        Map<String,Object> props=map("sheetId",id,"hidden",hidden);
+        if(title!=null)props.put("title",title);
+        return map("updateSheetProperties",map("properties",props,"fields",title==null?"hidden":"title,hidden"));
     }
 
     /** Merge neighbouring active rows: one grid read instead of one range per drop. */
@@ -448,7 +475,7 @@ final class EventViewSync
     {
         if(source.equals(target)) throw new IOException("Bron en kijkbestand moeten verschillen");
         Set<String> found=new HashSet<>();
-        for(JsonElement s:meta.getAsJsonArray("sheets")) found.add(s.getAsJsonObject().getAsJsonObject("properties").get("title").getAsString());
+        for(JsonElement s:meta.getAsJsonArray("sheets")) found.add(teamTabName(s.getAsJsonObject().getAsJsonObject("properties").get("title").getAsString()));
         if(!found.equals(new HashSet<>(TABS))||meta.getAsJsonArray("sheets").size()!=3) throw new IOException("Kijkbestand heeft andere tabbladen");
         boolean bound=false;
         if(meta.has("developerMetadata")) for(JsonElement e:meta.getAsJsonArray("developerMetadata"))
@@ -460,14 +487,24 @@ final class EventViewSync
         if(!bound) throw new IOException("Kijkbestand is niet aan deze bron gekoppeld");
     }
 
+    private static boolean hasScreenshotTab(JsonObject meta)
+    {
+        for(JsonElement s:array(meta,"sheets"))
+            if(SCREENSHOT_LIST.equals(s.getAsJsonObject().getAsJsonObject("properties").get("title").getAsString()))return true;
+        return false;
+    }
+
+    static String teamTabName(String title)
+    { return SCREENSHOT_LIST.equals(title)?"Team 1":title; }
+
     static List<Object> plan(String source,String target,JsonObject destination,JsonObject snapshot,
         List<List<List<Object>>> values,List<List<Integer>> selected,String time) throws IOException
     {
         checkDestination(source,target,destination);
         if(SOLO.equals(string(values.get(1),7,1)))
         {
-            if(values.size()<12||!"TOTAAL BEHAALDE PUNTEN".equals(string(values.get(10),13,0)))throw new SourceChangedException();
-            return soloPlan(destination,values.get(11),time);
+            if(values.size()<13||!"TOTAAL BEHAALDE PUNTEN".equals(string(values.get(10),13,0)))throw new SourceChangedException();
+            return soloPlan(destination,values.get(11),values.get(12),time);
         }
         Map<String,String> icons=new HashMap<>();
         for(int r=0;r<values.get(5).size();r++) icons.put(string(values.get(5),r,0),catalogIcon(values.get(6),r));
@@ -523,7 +560,7 @@ final class EventViewSync
         String epoch=inputEnabled?inputEpoch(source,values.get(7)):"";
         for(JsonElement e:destination.getAsJsonArray("sheets"))
         {
-            JsonObject dest=e.getAsJsonObject(), prop=dest.getAsJsonObject("properties");String name=prop.get("title").getAsString();int id=prop.get("sheetId").getAsInt();
+            JsonObject dest=e.getAsJsonObject(), prop=dest.getAsJsonObject("properties");String name=teamTabName(prop.get("title").getAsString());int id=prop.get("sheetId").getAsInt();
             if(!cells.containsKey(name)) throw new IOException("Onvolledige bronweergave");
             for(JsonElement pr:array(dest,"protectedRanges")) requests.add(map("deleteProtectedRange",map("protectedRangeId",pr.getAsJsonObject().get("protectedRangeId").getAsInt())));
             for(int i=array(dest,"conditionalFormats").size()-1;i>=0;i--) requests.add(map("deleteConditionalFormatRule",map("sheetId",id,"index",i)));
@@ -594,7 +631,7 @@ final class EventViewSync
                 if(board&&mode.equals("Punten")&&start<24&&end>12)continue;
                 if(end>(board?75:5))continue;merge.addProperty("sheetId",id);requests.add(map("mergeCells",map("range",merge,"mergeType","MERGE_ALL")));
             }
-            requests.add(map("updateSheetProperties",map("properties",map("sheetId",id,"hidden",false),"fields","hidden")));
+            requests.add(tabLayout(id,"Team 1".equals(name)?name:null,false));
             JsonArray columns=widths.getOrDefault(name,new JsonArray());
             for(int c=0;c<columns.size();c++)
                 if(columns.get(c).getAsJsonObject().has("pixelSize"))requests.add(map("updateDimensionProperties",map("range",map("sheetId",id,"dimension","COLUMNS","startIndex",c,"endIndex",c+1),"properties",map("pixelSize",columns.get(c).getAsJsonObject().get("pixelSize")),"fields","pixelSize")));
@@ -640,9 +677,10 @@ final class EventViewSync
         SoloPlayer(String name,double drops,double points){this.name=name;this.drops=drops;this.points=points;}
     }
 
-    /** Only valid in-game names and calculated scores from the solo roster reach the viewer. */
-    static List<Object> soloPlan(JsonObject destination,List<List<Object>> roster,String time) throws IOException
+    /** Publish only the rankings and the solo screenshot catalog, never the drop log. */
+    static List<Object> soloPlan(JsonObject destination,List<List<Object>> roster,List<List<Object>> catalog,String time) throws IOException
     {
+        List<List<Object>> drops=soloScreenshotRows(catalog);
         List<SoloPlayer> players=new ArrayList<>();
         Set<String> names=new HashSet<>();
         for(int i=0;i<roster.size();i++)
@@ -669,8 +707,8 @@ final class EventViewSync
             requests.add(map("clearBasicFilter",map("sheetId",id)));
             requests.add(map("unmergeCells",map("range",map("sheetId",id))));
             requests.add(map("repeatCell",map("range",map("sheetId",id),"cell",map(),"fields","userEnteredValue,userEnteredFormat,dataValidation,note,textFormatRuns")));
-            requests.add(map("updateSheetProperties",map("properties",map("sheetId",id,"hidden",hidden),"fields","hidden")));
-            int count=board?17+Math.max(0,players.size()-10)+(players.size()>10?2:0):hidden?1:Math.max(5,4+players.size());
+            requests.add(tabLayout(id,!board&&!hidden?SCREENSHOT_LIST:null,hidden));
+            int count=board?17+Math.max(0,players.size()-10)+(players.size()>10?2:0):hidden?1:drops.size();
             int max=prop.getAsJsonObject("gridProperties").get("rowCount").getAsInt();
             if(count>max)
             {
@@ -680,15 +718,15 @@ final class EventViewSync
             if(!hidden)
             {
                 List<Object> output=new ArrayList<>();
-                for(int row=0;row<count;row++)output.add(map("values",new ArrayList<>(List.of(Map.of(),Map.of(),Map.of()))));
+                for(int row=0;row<count;row++)output.add(map("values",new ArrayList<>(Collections.nCopies(board?3:4,Map.of()))));
                 Map<String,Object> heading=cardStyle(19,"#E7C55A",true,"#202329");
                 Map<String,Object> label=cardStyle(11,"#FFFFFF",true,"#173C4B");
                 Map<String,Object> line=cardStyle(11,"#173C4B",false,"#E8F0F4");
-                cardRow(output,0,0,3,"Stand bijgewerkt: "+time,label);
-                cardRow(output,1,0,3,board?"IEDER VOOR ZICH":"DEELNEMERS • ÉÉN GROEP",heading);
-                mergeCard(requests,id,0,0,3);mergeCard(requests,id,1,0,3);rowHeight(requests,id,1,48);
                 if(board)
                 {
+                    cardRow(output,0,0,3,"Stand bijgewerkt: "+time,label);
+                    cardRow(output,1,0,3,"IEDER VOOR ZICH",heading);
+                    mergeCard(requests,id,0,0,3);mergeCard(requests,id,1,0,3);rowHeight(requests,id,1,48);
                     cardRow(output,2,0,3,"TOTAAL BEHAALDE PUNTEN",label);
                     cardRow(output,3,0,3,total,cardStyle(30,"#FFFFFF",true,"#173C4B"));
                     cardRow(output,5,0,3,"TOP 10",label);
@@ -716,16 +754,13 @@ final class EventViewSync
                 }
                 else
                 {
-                    cardRow(output,3,0,1,"Drops",label);cardRow(output,3,1,1,"Speler",label);cardRow(output,3,2,1,"Punten",label);
-                    for(int i=0;i<players.size();i++)
-                    {
-                        SoloPlayer p=players.get(i);
-                        cardRow(output,4+i,0,1,p.drops,line);cardRow(output,4+i,1,1,p.name,line);cardRow(output,4+i,2,1,p.points,line);
-                    }
-                    if(players.isEmpty())cardRow(output,4,1,1,"Nog geen deelnemers",line);
+                    for(int row=0;row<drops.size();row++)
+                        for(int col=0;col<4;col++)cardRow(output,row,col,1,drops.get(row).get(col),row==0?label:line);
+                    requests.add(map("updateDimensionProperties",map("range",map("sheetId",id,"dimension","ROWS","startIndex",0,"endIndex",count),"properties",map("pixelSize",22),"fields","pixelSize")));
+                    columnWidth(requests,id,3,4,115);
                 }
                 requests.add(map("updateCells",map("start",map("sheetId",id,"rowIndex",0,"columnIndex",0),"rows",output,"fields","userEnteredValue,userEnteredFormat,dataValidation")));
-                columnWidth(requests,id,0,1,96);columnWidth(requests,id,1,2,255);columnWidth(requests,id,2,3,110);
+                columnWidth(requests,id,0,1,board?96:305);columnWidth(requests,id,1,2,board?255:85);columnWidth(requests,id,2,3,110);
                 requests.add(map("updateDimensionProperties",map("range",map("sheetId",id,"dimension","ROWS","startIndex",0,"endIndex",count),"properties",map("hiddenByUser",false),"fields","hiddenByUser")));
                 if(count<max)hide(requests,id,count,max);
             }
@@ -733,6 +768,28 @@ final class EventViewSync
                 "warningOnly",false,"editors",map("users",List.of("zeeslag-server@dutch-nations-zeeslag.iam.gserviceaccount.com"))))));
         }
         return requests;
+    }
+
+    static List<List<Object>> soloScreenshotRows(List<List<Object>> catalog) throws IOException
+    {
+        List<List<Object>> out=new ArrayList<>();
+        out.add(List.of("Drop (bewerkbaar)","Doel","Pt/drop","Drop-ID"));
+        Set<String> ids=new HashSet<>(), names=new HashSet<>();
+        for(int i=0;i<catalog.size();i++)
+        {
+            String item=string(catalog,i,0), id=string(catalog,i,1);
+            if(item.isEmpty()&&id.isEmpty())continue;
+            if(!id.matches("DROP-[0-9]+")||!ids.add(id))throw new IOException("Ongeldig of dubbel solo Drop-ID");
+            String suffix=" ["+id+"]";
+            if(item.endsWith(suffix))item=item.substring(0,item.length()-suffix.length());
+            if(item.isBlank()||item.length()>100||item.indexOf(';')>=0||item.chars().anyMatch(Character::isISOControl))
+                throw new IOException("Ongeldige solo dropnaam");
+            double goal=metric(catalog,i,2),points=metric(catalog,i,3);
+            if(goal<1||goal>7||goal!=Math.rint(goal))throw new IOException("Ongeldig solo dropdoel");
+            if(names.add(item.replace('\u2019','\'').toLowerCase(Locale.ROOT)))out.add(List.of(item,goal,points,id));
+            if(ids.size()>MAX_ACTIVE_DROPS)throw new IOException("Te veel actieve drops");
+        }
+        return out;
     }
 
     /** Keep calculation rows intact, but show only the active game's cards and essential controls. */

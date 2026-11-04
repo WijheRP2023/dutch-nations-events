@@ -16,7 +16,7 @@ public class EventViewSyncTest
         assertFalse(EventViewSync.choiceConsistent("Punten","Punten","Bingo"));
     }
 
-    @Test public void soloPublishesOneRosterTopTenAndPointsForAll() throws Exception
+    @Test public void soloPublishesRankingsAndScreenshotDropsWithoutRosterOnSecondTab() throws Exception
     {
         JsonObject destination=new JsonObject();
         JsonArray tabs=new JsonArray();destination.add("sheets",tabs);
@@ -29,7 +29,8 @@ public class EventViewSyncTest
         List<List<Object>> roster=new ArrayList<>();
         roster.add(List.of("Zulu",2,35));roster.add(List.of("Alpha",1,35));
         for(int i=0;i<9;i++)roster.add(List.of("Other "+i,1,5));
-        JsonArray plan=new Gson().toJsonTree(EventViewSync.soloPlan(destination,roster,"test")).getAsJsonArray();
+        List<List<Object>> catalog=List.of(List.of("Abyssal whip","DROP-610",7,10),List.of("Abyssal dagger","DROP-1229",4,25));
+        JsonArray plan=new Gson().toJsonTree(EventViewSync.soloPlan(destination,roster,catalog,"test")).getAsJsonArray();
         Map<Integer,JsonArray> rows=new HashMap<>();
         for(JsonElement e:plan)
         {
@@ -46,11 +47,48 @@ public class EventViewSyncTest
         assertEquals(20,rows.get(1).size());
         assertEquals("Other 8",soloValue(rows.get(1),19,1).getAsString());
         assertEquals(3,soloValue(rows.get(1),19,0).getAsInt());
-        assertEquals(15,rows.get(2).size());
+        assertEquals(3,rows.get(2).size());
+        assertEquals("Drop (bewerkbaar)",soloValue(rows.get(2),0,0).getAsString());
+        assertEquals("Doel",soloValue(rows.get(2),0,1).getAsString());
+        assertEquals("Abyssal whip",soloValue(rows.get(2),1,0).getAsString());
+        assertEquals(7,soloValue(rows.get(2),1,1).getAsInt());
+        assertFalse(rows.get(2).toString().contains("Alpha"));
+        assertTrue(plan.toString().contains("\"sheetId\":2,\"hidden\":false,\"title\":\"Screenshotlijst\""));
         assertFalse(rows.containsKey(3));
         assertTrue(plan.toString().contains("\"sheetId\":3,\"hidden\":true"));
         assertFalse(plan.toString().contains("formulaValue"));
         assertFalse(plan.toString().contains("unprotectedRanges"));
+    }
+
+    @Test public void screenshotListKeepsTeamOneIdentityAndCanSwitchBack() throws Exception
+    {
+        JsonObject d=destination();
+        for(JsonElement sheet:d.getAsJsonArray("sheets"))
+        {
+            JsonObject p=sheet.getAsJsonObject().getAsJsonObject("properties");
+            if(p.get("title").getAsString().equals("Team 1"))p.addProperty("title","Screenshotlijst");
+        }
+        EventViewSync.checkDestination(SOURCE,TARGET,d);
+        assertEquals("Team 1",EventViewSync.teamTabName("Screenshotlijst"));
+        assertTrue(GoogleSheetDrops.parseCsv("Drop (bewerkbaar),Doel,Pt/drop,Drop-ID\nAbyssal whip,7,10,DROP-610\n").contains("Abyssal whip"));
+    }
+
+    @Test public void basisTabsHideOnlyTheOtherMode()
+    {
+        JsonObject m=destination();
+        m.getAsJsonArray("sheets").add(json("{'properties':{'title':'Ieder voor zich','sheetId':9876}}"));
+        Gson gson=new Gson();
+        JsonArray solo=gson.toJsonTree(EventViewSync.sourceTabVisibility(m,"Ieder voor zich")).getAsJsonArray();
+        JsonArray team=gson.toJsonTree(EventViewSync.sourceTabVisibility(m,"Bingo")).getAsJsonArray();
+        assertEquals(3,solo.size());assertEquals(3,team.size());
+        for(int i=0;i<3;i++)
+        {
+            JsonObject s=solo.get(i).getAsJsonObject().getAsJsonObject("updateSheetProperties").getAsJsonObject("properties");
+            JsonObject t=team.get(i).getAsJsonObject().getAsJsonObject("updateSheetProperties").getAsJsonObject("properties");
+            boolean soloSheet=s.get("sheetId").getAsInt()==9876;
+            assertEquals(!soloSheet,s.get("hidden").getAsBoolean());
+            assertEquals(soloSheet,t.get("hidden").getAsBoolean());
+        }
     }
 
     @Test public void keepsThreeNewRegistrationRowsWithoutCountingEmptyEntries()
