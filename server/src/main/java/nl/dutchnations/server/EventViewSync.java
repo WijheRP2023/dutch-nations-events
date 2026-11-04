@@ -17,6 +17,8 @@ final class EventViewSync
 {
     static final String BINDING = "DN_EVENT_VIEW_SOURCE";
     static final List<String> TABS = List.of("Tussenstand", "Team 1", "Team 2");
+    static final String SOLO = "Ieder voor zich";
+    static final String SOLO_TAB = "'Ieder voor zich'!";
     static final int MAX_ACTIVE_DROPS = 2000;
     private final String source;
     private final BattleshipSheets google;
@@ -79,7 +81,15 @@ final class EventViewSync
             List<List<List<Object>>> values = google.batchValues(source, "Zeeslagdata!A6:B6", "Tussenstand!A1:Q75",
                 "'Team 1'!A6:V"+rowCount(sourceMeta,"Team 1"), "'Team 2'!A6:V"+rowCount(sourceMeta,"Team 2"),
                 "Borddata!C2:C50", "Drops!B2:B3000", "Drops!N2:O3000", "Instellingen!B10:F10",
-                "Instellingen!A19:A"+rowCount(sourceMeta,"Instellingen"), "Instellingen!E19:E"+rowCount(sourceMeta,"Instellingen"),"Tussenstand!A82");
+                "Instellingen!A19:A"+rowCount(sourceMeta,"Instellingen"), "Instellingen!E19:E"+rowCount(sourceMeta,"Instellingen"),"Tussenstand!A82:A95");
+            boolean solo=SOLO.equals(string(values.get(1),7,1));
+            if(solo)
+            {
+                values=new ArrayList<>(values);
+                List<List<Object>> roster=google.batchValues(source,SOLO_TAB+"A23:C").get(0);
+                values.add(roster);
+                ensureSoloSlots(sourceMeta,roster);
+            }
             String target = string(values.get(0), 0, 0);
             if (target.isEmpty()) { state = "NIET_INGESTELD"; return; }
             BattleshipSheets.id(target);
@@ -91,15 +101,15 @@ final class EventViewSync
             if (fingerprint.equals(lastFingerprint)&&System.currentTimeMillis()-lastFullSync<RevisionGate.REPAIR_MILLIS) { revisions.committed(revision,System.currentTimeMillis());state = "ACTUEEL"; return; }
             List<String> ranges = new ArrayList<>(List.of("Tussenstand!A1:Q75", "'Team 1'!A1:V5", "'Team 2'!A1:V5"));
             stage="SELECTIE_CONTROLEREN";
-            List<List<Integer>> selected = List.of(selected(values.get(2)), selected(values.get(3)));
-            for (int t=0;t<2;t++) ranges.addAll(rowRanges("Team " + (t+1), selected.get(t)));
+            List<List<Integer>> selected = solo?List.of(List.of(),List.of()):List.of(selected(values.get(2)), selected(values.get(3)));
+            if(!solo)for (int t=0;t<2;t++) ranges.addAll(rowRanges("Team " + (t+1), selected.get(t)));
             stage="KOPPELING_EN_WEERGAVE_LEZEN";
             // Independent reads overlap, but every publish still verifies a fresh
             // destination binding/protection snapshot and fresh calculated styles.
             List<GoogleRead> operations=new ArrayList<>();
             Map<String,JsonObject> stylePool=new ConcurrentHashMap<>();
             operations.add(() -> get(target, "", "sheets(properties(sheetId,title,gridProperties(rowCount,columnCount)),merges,conditionalFormats(ranges),protectedRanges(protectedRangeId)),developerMetadata(metadataKey,metadataValue)"));
-            for(List<String> group:snapshotGroups(ranges,4000))operations.add(() -> readSnapshotPart(group,stylePool));
+            if(!solo)for(List<String> group:snapshotGroups(ranges,4000))operations.add(() -> readSnapshotPart(group,stylePool));
             List<JsonObject> read = parallelReads(readWorkers,operations);
             JsonObject destination=read.get(0),snapshot=new JsonObject();JsonArray snapshotSheets=new JsonArray();snapshot.add("sheets",snapshotSheets);
             for(int i=1;i<read.size();i++)for(JsonElement sheet:read.get(i).getAsJsonArray("sheets"))snapshotSheets.add(sheet);
@@ -111,7 +121,7 @@ final class EventViewSync
             for(JsonElement sheet:sourceMeta.getAsJsonArray("sheets"))if("Spelpresets".equals(sheet.getAsJsonObject().getAsJsonObject("properties").get("title").getAsString()))presets=true;
             List<List<List<Object>>> choice=google.batchValues(source,presets?new String[]{"Tussenstand!B8","Spelpresets!I2"}:new String[]{"Tussenstand!B8"});
             String expected=string(values.get(1),7,1),latest=string(choice.get(0),0,0);
-            if(!expected.equals(latest)||(presets&&!latest.equals(string(choice.get(1),0,0))))throw new SourceChangedException();
+            if(!choiceConsistent(expected,latest,presets?string(choice.get(1),0,0):null))throw new SourceChangedException();
             String time=DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm:ss").withZone(ZoneId.of("Europe/Amsterdam")).format(Instant.now());
             stage="WEERGAVE_OPBOUWEN";
             List<Object> requests = plan(source, target, destination, snapshot, values, selected, time);
@@ -137,6 +147,33 @@ final class EventViewSync
             System.err.println("Kijkbestand niet ververst ("+stage+"). "+hint+" Type: "+failure.getClass().getSimpleName()+(failure.getCause()==null?"":" / "+failure.getCause().getClass().getSimpleName())+". De laatst geldige weergave blijft behouden.");
         }
         finally { durationMillis=System.currentTimeMillis()-started; }
+    }
+
+    static boolean choiceConsistent(String expected,String latest,String preset)
+    { return expected.equals(latest)&&(preset==null||(SOLO.equals(latest)?"Punten":latest).equals(preset)); }
+
+    static int extraSoloRows(List<List<Object>> roster,int currentRows)
+    {
+        int last=roster.size()-1;
+        while(last>=0&&string(roster,last,0).isEmpty())last--;
+        return last+23+3>currentRows?100:0;
+    }
+
+    private void ensureSoloSlots(JsonObject meta,List<List<Object>> roster) throws IOException
+    {
+        for(JsonElement sheet:meta.getAsJsonArray("sheets"))
+        {
+            JsonObject p=sheet.getAsJsonObject().getAsJsonObject("properties");
+            if(!SOLO.equals(p.get("title").getAsString()))continue;
+            int count=extraSoloRows(roster,p.getAsJsonObject("gridProperties").get("rowCount").getAsInt());
+            if(count>0)
+            {
+                sourceMetadata=null;
+                google.request("POST",api(source)+":batchUpdate",map("requests",List.of(map("appendDimension",
+                    map("sheetId",p.get("sheetId").getAsInt(),"dimension","ROWS","length",count)))));
+            }
+            return;
+        }
     }
 
     /** Tiny Drive revisions replace repeated full-workbook reads while idle. */
@@ -247,8 +284,11 @@ final class EventViewSync
     private void syncSourceCardVisibility(List<List<List<Object>>> values,String fingerprint,long started)
     {
         String mode=string(values.get(1),7,1);
-        if(values.size()<11||!"DN_POINTS_CARDS_V1".equals(string(values.get(10),0,0))||!List.of("Bingo","Bingo XL","Punten","Vier-op-een-rij","Zeeslag").contains(mode)||started<sourceCardRetryAfter)return;
-        if(mode.equals(sourceCardMode)&&started-sourceCardAt<RevisionGate.REPAIR_MILLIS)return;
+        if(values.size()<11||!"DN_POINTS_CARDS_V1".equals(string(values.get(10),0,0))||!List.of("Bingo","Bingo XL","Punten","Vier-op-een-rij","Zeeslag",SOLO).contains(mode)||started<sourceCardRetryAfter)return;
+        boolean soloPanel="TOTAAL BEHAALDE PUNTEN".equals(string(values.get(10),13,0));
+        if(SOLO.equals(mode)&&!soloPanel)return;
+        String layout=mode+"|"+soloPanel;
+        if(layout.equals(sourceCardMode)&&started-sourceCardAt<RevisionGate.REPAIR_MILLIS)return;
         try
         {
             for(JsonElement element:sourceMetadata.getAsJsonArray("sheets"))
@@ -256,8 +296,8 @@ final class EventViewSync
                 JsonObject properties=element.getAsJsonObject().getAsJsonObject("properties");
                 if(properties.get("title").getAsString().equals("Tussenstand"))
                 {
-                    google.request("POST",api(source)+":batchUpdate",map("requests",sourceCardVisibility(properties.get("sheetId").getAsInt(),mode)));
-                    sourceCardMode=mode;sourceCardFingerprint=fingerprint;sourceCardAt=started;return;
+                    google.request("POST",api(source)+":batchUpdate",map("requests",sourceCardVisibility(properties.get("sheetId").getAsInt(),mode,soloPanel)));
+                    sourceCardMode=layout;sourceCardFingerprint=fingerprint;sourceCardAt=started;return;
                 }
             }
         }
@@ -270,9 +310,12 @@ final class EventViewSync
 
     /** Formatting only, gated by the installed panel marker; never changes source values or formulas. */
     static List<Object> sourceCardVisibility(int id,String mode)
+    { return sourceCardVisibility(id,mode,false); }
+
+    static List<Object> sourceCardVisibility(int id,String mode,boolean soloPanel)
     {
-        List<Object> requests=new ArrayList<>();hide(requests,id,12,94);
-        int[][] visible=mode.equals("Punten")?new int[][]{{82,94}}:mode.equals("Zeeslag")?new int[][]{{51,70}}:new int[][]{{12,14},{15,mode.equals("Bingo")?25:29}};
+        List<Object> requests=new ArrayList<>();hide(requests,id,12,soloPanel?110:94);
+        int[][] visible=SOLO.equals(mode)?new int[][]{{94,110}}:mode.equals("Punten")?new int[][]{{82,94}}:mode.equals("Zeeslag")?new int[][]{{51,70}}:new int[][]{{12,14},{15,mode.equals("Bingo")?25:29}};
         for(int[] range:visible)requests.add(map("updateDimensionProperties",map("range",map("sheetId",id,"dimension","ROWS","startIndex",range[0],"endIndex",range[1]),"properties",map("hiddenByUser",false),"fields","hiddenByUser")));
         if(mode.equals("Punten"))hide(requests,id,84,85);
         return requests;
@@ -298,6 +341,7 @@ final class EventViewSync
         if(previous==null)return next;
         List<Object> oldPlan=previous,newPlan=next;
         if(!operations(oldPlan,"mergeCells").equals(operations(newPlan,"mergeCells")))return next;
+        if(operations(newPlan,"updateSheetProperties").stream().anyMatch(r->r.toString().contains("gridProperties.rowCount")))return next;
         SortedMap<Long,Object> before=cells(oldPlan),after=cells(newPlan);
         SortedSet<Long> keys=new TreeSet<>(before.keySet());keys.addAll(after.keySet());
         List<Object> changes=new ArrayList<>();
@@ -420,6 +464,11 @@ final class EventViewSync
         List<List<List<Object>>> values,List<List<Integer>> selected,String time) throws IOException
     {
         checkDestination(source,target,destination);
+        if(SOLO.equals(string(values.get(1),7,1)))
+        {
+            if(values.size()<12||!"TOTAAL BEHAALDE PUNTEN".equals(string(values.get(10),13,0)))throw new SourceChangedException();
+            return soloPlan(destination,values.get(11),time);
+        }
         Map<String,String> icons=new HashMap<>();
         for(int r=0;r<values.get(5).size();r++) icons.put(string(values.get(5),r,0),catalogIcon(values.get(6),r));
         Map<String,Map<Integer,List<JsonObject>>> cells=new HashMap<>();
@@ -580,6 +629,108 @@ final class EventViewSync
             Map<String,Object> protection=map("description","DN_EVENT_VIEW_READ_ONLY","range",map("sheetId",id),"warningOnly",!inputEnabled);
             if(inputEnabled){protection.put("editors",map("users",List.of("zeeslag-server@dutch-nations-zeeslag.iam.gserviceaccount.com")));if(!board)protection.put("unprotectedRanges",editable);}
             requests.add(map("addProtectedRange",map("protectedRange",protection)));
+        }
+        return requests;
+    }
+
+    private static final class SoloPlayer
+    {
+        final String name;
+        final double drops,points;
+        SoloPlayer(String name,double drops,double points){this.name=name;this.drops=drops;this.points=points;}
+    }
+
+    /** Only valid in-game names and calculated scores from the solo roster reach the viewer. */
+    static List<Object> soloPlan(JsonObject destination,List<List<Object>> roster,String time) throws IOException
+    {
+        List<SoloPlayer> players=new ArrayList<>();
+        Set<String> names=new HashSet<>();
+        for(int i=0;i<roster.size();i++)
+        {
+            String name=string(roster,i,0);
+            if(name.isEmpty())continue;
+            if(!name.equals(name.trim())||!name.matches("[A-Za-z0-9 _-]{1,12}")||!names.add(name.toLowerCase(Locale.ROOT)))
+                throw new IOException("Ongeldige solodeelnemer");
+            if(roster.get(i).size()<3||!(roster.get(i).get(1) instanceof Number)||!(roster.get(i).get(2) instanceof Number))
+                throw new SourceChangedException();
+            players.add(new SoloPlayer(name,metric(roster,i,1),metric(roster,i,2)));
+        }
+        players.sort(Comparator.comparingDouble((SoloPlayer p)->p.points).reversed().thenComparing(p->p.name,String.CASE_INSENSITIVE_ORDER));
+        double total=players.stream().mapToDouble(p->p.points).sum();
+        if(!Double.isFinite(total))throw new IOException("Ongeldige solopuntensom");
+        List<Object> requests=new ArrayList<>();
+        for(JsonElement e:destination.getAsJsonArray("sheets"))
+        {
+            JsonObject dest=e.getAsJsonObject(),prop=dest.getAsJsonObject("properties");
+            String tab=prop.get("title").getAsString();int id=prop.get("sheetId").getAsInt();
+            boolean board="Tussenstand".equals(tab),hidden="Team 2".equals(tab);
+            for(JsonElement pr:array(dest,"protectedRanges"))requests.add(map("deleteProtectedRange",map("protectedRangeId",pr.getAsJsonObject().get("protectedRangeId").getAsInt())));
+            for(int i=array(dest,"conditionalFormats").size()-1;i>=0;i--)requests.add(map("deleteConditionalFormatRule",map("sheetId",id,"index",i)));
+            requests.add(map("clearBasicFilter",map("sheetId",id)));
+            requests.add(map("unmergeCells",map("range",map("sheetId",id))));
+            requests.add(map("repeatCell",map("range",map("sheetId",id),"cell",map(),"fields","userEnteredValue,userEnteredFormat,dataValidation,note,textFormatRuns")));
+            requests.add(map("updateSheetProperties",map("properties",map("sheetId",id,"hidden",hidden),"fields","hidden")));
+            int count=board?17+Math.max(0,players.size()-10)+(players.size()>10?2:0):hidden?1:Math.max(5,4+players.size());
+            int max=prop.getAsJsonObject("gridProperties").get("rowCount").getAsInt();
+            if(count>max)
+            {
+                requests.add(map("updateSheetProperties",map("properties",map("sheetId",id,"gridProperties",map("rowCount",count)),"fields","gridProperties.rowCount")));
+                max=count;
+            }
+            if(!hidden)
+            {
+                List<Object> output=new ArrayList<>();
+                for(int row=0;row<count;row++)output.add(map("values",new ArrayList<>(List.of(Map.of(),Map.of(),Map.of()))));
+                Map<String,Object> heading=cardStyle(19,"#E7C55A",true,"#202329");
+                Map<String,Object> label=cardStyle(11,"#FFFFFF",true,"#173C4B");
+                Map<String,Object> line=cardStyle(11,"#173C4B",false,"#E8F0F4");
+                cardRow(output,0,0,3,"Stand bijgewerkt: "+time,label);
+                cardRow(output,1,0,3,board?"IEDER VOOR ZICH":"DEELNEMERS • ÉÉN GROEP",heading);
+                mergeCard(requests,id,0,0,3);mergeCard(requests,id,1,0,3);rowHeight(requests,id,1,48);
+                if(board)
+                {
+                    cardRow(output,2,0,3,"TOTAAL BEHAALDE PUNTEN",label);
+                    cardRow(output,3,0,3,total,cardStyle(30,"#FFFFFF",true,"#173C4B"));
+                    cardRow(output,5,0,3,"TOP 10",label);
+                    for(int row:List.of(2,3,5))mergeCard(requests,id,row,0,3);
+                    rowHeight(requests,id,3,52);
+                    cardRow(output,6,0,1,"Plaats",label);cardRow(output,6,1,1,"Speler",label);cardRow(output,6,2,1,"Punten",label);
+                    int rank=0;
+                    Map<String,Object> top=cardStyle(16,"#173C4B",true,"#E8F0F4");
+                    if(players.size()>10)
+                    {
+                        cardRow(output,17,0,3,"OVERIGE SPELERS",label);mergeCard(requests,id,17,0,3);
+                        cardRow(output,18,0,1,"Plaats",label);cardRow(output,18,1,1,"Speler",label);cardRow(output,18,2,1,"Punten",label);
+                    }
+                    for(int i=0;i<players.size();i++)
+                    {
+                        SoloPlayer p=players.get(i);
+                        if(i==0||p.points!=players.get(i-1).points)rank=i+1;
+                        int row=i<10?7+i:9+i;
+                        Map<String,Object> style=i<10?top:line;
+                        cardRow(output,row,0,1,rank,style);cardRow(output,row,1,1,p.name,style);cardRow(output,row,2,1,p.points,style);
+                    }
+                    for(int row=7;row<17;row++)rowHeight(requests,id,row,31);
+                    for(int row=17;row<count;row++)rowHeight(requests,id,row,22);
+                    if(players.isEmpty())cardRow(output,7,1,1,"Nog geen deelnemers",line);
+                }
+                else
+                {
+                    cardRow(output,3,0,1,"Drops",label);cardRow(output,3,1,1,"Speler",label);cardRow(output,3,2,1,"Punten",label);
+                    for(int i=0;i<players.size();i++)
+                    {
+                        SoloPlayer p=players.get(i);
+                        cardRow(output,4+i,0,1,p.drops,line);cardRow(output,4+i,1,1,p.name,line);cardRow(output,4+i,2,1,p.points,line);
+                    }
+                    if(players.isEmpty())cardRow(output,4,1,1,"Nog geen deelnemers",line);
+                }
+                requests.add(map("updateCells",map("start",map("sheetId",id,"rowIndex",0,"columnIndex",0),"rows",output,"fields","userEnteredValue,userEnteredFormat,dataValidation")));
+                columnWidth(requests,id,0,1,96);columnWidth(requests,id,1,2,255);columnWidth(requests,id,2,3,110);
+                requests.add(map("updateDimensionProperties",map("range",map("sheetId",id,"dimension","ROWS","startIndex",0,"endIndex",count),"properties",map("hiddenByUser",false),"fields","hiddenByUser")));
+                if(count<max)hide(requests,id,count,max);
+            }
+            requests.add(map("addProtectedRange",map("protectedRange",map("description","DN_EVENT_VIEW_READ_ONLY","range",map("sheetId",id),
+                "warningOnly",false,"editors",map("users",List.of("zeeslag-server@dutch-nations-zeeslag.iam.gserviceaccount.com"))))));
         }
         return requests;
     }

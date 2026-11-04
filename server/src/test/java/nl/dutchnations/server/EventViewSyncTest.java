@@ -8,6 +8,64 @@ import static org.junit.Assert.*;
 
 public class EventViewSyncTest
 {
+    @Test public void soloUsesPointsPresetWithoutAcceptingMixedGame()
+    {
+        assertTrue(EventViewSync.choiceConsistent("Ieder voor zich","Ieder voor zich","Punten"));
+        assertFalse(EventViewSync.choiceConsistent("Ieder voor zich","Punten","Punten"));
+        assertFalse(EventViewSync.choiceConsistent("Ieder voor zich","Ieder voor zich","Bingo"));
+        assertFalse(EventViewSync.choiceConsistent("Punten","Punten","Bingo"));
+    }
+
+    @Test public void soloPublishesOneRosterTopTenAndPointsForAll() throws Exception
+    {
+        JsonObject destination=new JsonObject();
+        JsonArray tabs=new JsonArray();destination.add("sheets",tabs);
+        for(int i=0;i<EventViewSync.TABS.size();i++)
+        {
+            JsonObject sheet=new JsonObject(),props=new JsonObject(),grid=new JsonObject();
+            props.addProperty("title",EventViewSync.TABS.get(i));props.addProperty("sheetId",i+1);
+            grid.addProperty("rowCount",100);props.add("gridProperties",grid);sheet.add("properties",props);tabs.add(sheet);
+        }
+        List<List<Object>> roster=new ArrayList<>();
+        roster.add(List.of("Zulu",2,35));roster.add(List.of("Alpha",1,35));
+        for(int i=0;i<9;i++)roster.add(List.of("Other "+i,1,5));
+        JsonArray plan=new Gson().toJsonTree(EventViewSync.soloPlan(destination,roster,"test")).getAsJsonArray();
+        Map<Integer,JsonArray> rows=new HashMap<>();
+        for(JsonElement e:plan)
+        {
+            JsonObject o=e.getAsJsonObject();
+            if(o.has("updateCells"))
+            {
+                JsonObject update=o.getAsJsonObject("updateCells");
+                rows.put(update.getAsJsonObject("start").get("sheetId").getAsInt(),update.getAsJsonArray("rows"));
+            }
+        }
+        assertEquals(115,soloValue(rows.get(1),3,0).getAsInt());
+        assertEquals("Alpha",soloValue(rows.get(1),7,1).getAsString());
+        assertEquals(1,soloValue(rows.get(1),8,0).getAsInt());
+        assertEquals(20,rows.get(1).size());
+        assertEquals("Other 8",soloValue(rows.get(1),19,1).getAsString());
+        assertEquals(3,soloValue(rows.get(1),19,0).getAsInt());
+        assertEquals(15,rows.get(2).size());
+        assertFalse(rows.containsKey(3));
+        assertTrue(plan.toString().contains("\"sheetId\":3,\"hidden\":true"));
+        assertFalse(plan.toString().contains("formulaValue"));
+        assertFalse(plan.toString().contains("unprotectedRanges"));
+    }
+
+    @Test public void keepsThreeNewRegistrationRowsWithoutCountingEmptyEntries()
+    {
+        List<List<Object>> roster=List.of(List.of("One",0,0),List.of("Two",0,0),List.of(""));
+        assertEquals(0,EventViewSync.extraSoloRows(roster,27));
+        assertEquals(100,EventViewSync.extraSoloRows(roster,26));
+    }
+
+    private static JsonElement soloValue(JsonArray rows,int row,int col)
+    {
+        return rows.get(row).getAsJsonObject().getAsJsonArray("values").get(col).getAsJsonObject()
+            .getAsJsonObject("userEnteredValue").entrySet().iterator().next().getValue();
+    }
+
     @Test public void catalogImagesSurviveInsertionOfTheEhbColumn()
     {
         String icon="https://static.runelite.net/cache/item/icon/29022.png";
