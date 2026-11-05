@@ -118,9 +118,9 @@ public class FeedServiceTest
         String start = java.time.OffsetDateTime.now().plusHours(1).toString();
         String end = java.time.OffsetDateTime.now().plusHours(2).toString();
         String sheet = "https://docs.google.com/spreadsheets/d/12345678901234567890/edit?gid=";
-        ClanFeed feed = service.parse("{\"teamOneDropChannelUrl\":\"https://discord.com/channels/123/456\","
+        ClanFeed feed = service.parse("{\"updatedAt\":\"" + start + "\",\"teamOneDropChannelUrl\":\"https://discord.com/channels/123/456\","
             + "\"teamTwoDropChannelUrl\":\"https://discord.com/channels/123/789\",\"teamThreeDropChannelUrl\":\"\","
-            + "\"events\":[{\"id\":\"teams\",\"type\":\"CLAN_EVENT\",\"title\":\"Bingo\",\"startsAt\":\"" + start
+            + "\"events\":[{\"id\":\"teams\",\"type\":\"CLAN_EVENT\",\"title\":\"Bingo\",\"world\":\"366\",\"startsAt\":\"" + start
             + "\",\"endsAt\":\"" + end + "\",\"teamNames\":\"Rood; Blauw\",\"teamOneDropListUrl\":\"" + sheet
             + "1\",\"teamTwoDropListUrl\":\"" + sheet + "2\",\"teamThreeDropListUrl\":\"\"}]}");
         assertNotNull(feed);
