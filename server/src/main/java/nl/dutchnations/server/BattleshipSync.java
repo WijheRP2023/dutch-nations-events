@@ -23,11 +23,13 @@ final class BattleshipSync
     private String disabledControls = "";
     private final String main, first, second, credential;
     private final java.util.function.LongSupplier clock;
+    private final BattleshipDiagnostics diagnostics = new BattleshipDiagnostics();
 
     BattleshipSync(DutchNationsApi.Store store)
     { this(store,null,System.getenv("DN_BATTLESHIP_PUBLIC_SHEET"),System.getenv("DN_BATTLESHIP_TEAM_ONE_SHEET"),System.getenv("DN_BATTLESHIP_TEAM_TWO_SHEET"),System.getenv("DN_GOOGLE_SERVICE_ACCOUNT_JSON"),System::currentTimeMillis); }
     BattleshipSync(DutchNationsApi.Store store, BattleshipGateway google, String main, String first, String second, String credential, java.util.function.LongSupplier clock)
-    { this.store=store; this.google=google; this.main=main; this.first=first; this.second=second; this.credential=credential; this.clock=clock; }
+    { this.store=store; this.main=main; this.first=first; this.second=second; this.credential=credential; this.clock=clock;
+      this.google=google==null?null:diagnostics.track(google,main,first); }
 
     static boolean configured()
     {
@@ -47,29 +49,32 @@ final class BattleshipSync
         if (google == null && !configured()) return;
         try
         {
-            if (google == null) google = new BattleshipSheets(credential);
+            if (google == null) { diagnostics.stage=BattleshipDiagnostics.Stage.INITIALIZE; google=diagnostics.track(new BattleshipSheets(credential),main,first); }
             // Do not repeatedly read both complete teams, private fleets and
             // rewrite boards/timestamps while a different game is selected.
             List<List<List<Object>>> controls=google.batchValues(main,"Borddata!Z2","Zeeslagdata!A5","Instellingen!B10:F12");
             boolean disabled=!"Zeeslag".equals(text(controls.get(0),0,0))&&text(controls.get(1),0,0).isEmpty();
             String fingerprint=new com.google.gson.Gson().toJson(controls);
             if(disabled&&fingerprint.equals(disabledControls))return;
-            sync(); lastError = "";
+            sync();
+            if (!lastError.isEmpty()) System.err.println("Zeeslagcontrole hersteld.");
+            lastError = "";
             disabledControls=disabled?fingerprint:"";
         }
         catch (Exception ex)
         {
             disabledControls="";
             // Never print Google response bodies, keys, placement values or private file IDs.
-            String message = ex instanceof BattleshipGame.RuleFailure ? ex.getMessage() : "De zeeslagcontrole kon niet veilig worden afgerond. Controleer servertoegang, bladrechten en instellingen.";
+            String message = ex instanceof BattleshipGame.RuleFailure ? ex.getMessage() : diagnostics.summary(ex);
             if (message == null) message = "Zeeslagcontrole mislukt";
-            if (!message.equals(lastError)) { store.error("Zeeslag", message); lastError = message; }
+            boolean changed = !message.equals(lastError);
+            if (changed) { store.error("Zeeslag", message); System.err.println(message); lastError = message; }
             if (google != null) try
             {
                 google.protect(main, Set.of(), Set.of());
                 publish(null, List.of(Set.of(), Set.of()), "CONTROLE", message, new boolean[2]);
             }
-            catch (Exception ignored) { /* Leave protected inputs closed on any read/write failure. */ }
+            catch (Exception fallback) { if (changed) System.err.println("Zeeslag terugmelding mislukt: " + diagnostics.summary(fallback)); }
         }
     }
 
@@ -77,6 +82,7 @@ final class BattleshipSync
     {
         google.protect(main, Set.of(), Set.of());
         BattleshipSheets.Access a = google.privateAccess(first), b = google.privateAccess(second);
+        diagnostics.stage=BattleshipDiagnostics.Stage.CHECK_SEPARATION;
         BattleshipSheets.separated(a, b);
         List<List<List<Object>>> root = google.batchValues(main, "Instellingen!B10:F12", "Instellingen!A17:G17", "Borddata!Z2", "Team 1!A5:R", "Team 2!A5:R", "Zeeslagdata!A5");
         long now = clock.getAsLong();

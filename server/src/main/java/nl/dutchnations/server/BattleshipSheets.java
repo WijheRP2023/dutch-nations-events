@@ -35,13 +35,13 @@ final class BattleshipSheets implements BattleshipGateway
 
     BattleshipSheets(String key) throws IOException
     {
-        if (key == null || key.length() > 50000) throw new IOException("Google-servertoegang ontbreekt");
+        if (key == null || key.length() > 50000) throw new BattleshipDiagnostics.Failure(BattleshipDiagnostics.Code.GOOGLE_AUTH,"Google-servertoegang ontbreekt");
         try
         {
             credentials = (ServiceAccountCredentials) ServiceAccountCredentials.fromStream(new ByteArrayInputStream(key.getBytes(StandardCharsets.UTF_8)))
                 .createScoped(Arrays.asList("https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive.metadata.readonly"));
         }
-        catch (Exception failure) { throw new IOException("Google-servertoegang is ongeldig"); }
+        catch (Exception failure) { throw new BattleshipDiagnostics.Failure(BattleshipDiagnostics.Code.GOOGLE_AUTH,"Google-servertoegang is ongeldig"); }
     }
 
     static String id(String value)
@@ -124,9 +124,9 @@ final class BattleshipSheets implements BattleshipGateway
             {
                 JsonObject permission = p.getAsJsonObject();
                 if (permission.has("deleted") && permission.get("deleted").getAsBoolean()) continue;
-                if (!"user".equals(string(permission, "type"))) throw new IOException("Een privévloot mag niet openbaar of met een groep/domein worden gedeeld");
+                if (!"user".equals(string(permission, "type"))) throw new BattleshipDiagnostics.Failure(BattleshipDiagnostics.Code.PRIVATE_ACCESS,"Een privévloot mag niet openbaar of met een groep/domein worden gedeeld");
                 String email = string(permission, "emailAddress").toLowerCase(java.util.Locale.ROOT), role = string(permission, "role");
-                if (email.isEmpty()) throw new IOException("Onbekende privétoegang");
+                if (email.isEmpty()) throw new BattleshipDiagnostics.Failure(BattleshipDiagnostics.Code.PRIVATE_ACCESS,"Onbekende privétoegang");
                 if (email.equals(credentials.getClientEmail().toLowerCase(java.util.Locale.ROOT))) continue;
                 access.readers.add(email);
                 if ("owner".equals(role)) access.owners.add(email);
@@ -142,7 +142,7 @@ final class BattleshipSheets implements BattleshipGateway
     {
         Set<String> overlap = new HashSet<>(first.readers); overlap.retainAll(second.readers);
         Set<String> owners = new HashSet<>(first.owners); owners.retainAll(second.owners); overlap.removeAll(owners);
-        if (!overlap.isEmpty()) throw new IOException("Een niet-eigenaar heeft toegang tot beide privévloten");
+        if (!overlap.isEmpty()) throw new BattleshipDiagnostics.Failure(BattleshipDiagnostics.Code.PRIVATE_ACCESS,"Een niet-eigenaar heeft toegang tot beide privévloten");
     }
 
     /** Freeze both input areas before reading a request, preventing edit/publish races. */
@@ -157,7 +157,7 @@ final class BattleshipSheets implements BattleshipGateway
     static List<Object> publicProtectionPlan(JsonObject metadata, Set<String> first, Set<String> second, String serviceEmail) throws IOException
     {
         if (!"Europe/Amsterdam".equals(string(metadata.getAsJsonObject("properties"), "timeZone")))
-            throw new IOException("De eventsheet moet tijdzone Europe/Amsterdam gebruiken");
+            throw new BattleshipDiagnostics.Failure(BattleshipDiagnostics.Code.SHEET_STRUCTURE,"De eventsheet moet tijdzone Europe/Amsterdam gebruiken");
         List<Object> updates = new ArrayList<>();
         int board = sheet(metadata, "Tussenstand"), data = sheet(metadata, "Zeeslagdata");
         List<Object> free = Arrays.asList(range(board, 64, 65, 3, 5), range(board, 64, 65, 7, 8),
@@ -240,7 +240,7 @@ final class BattleshipSheets implements BattleshipGateway
                 JsonObject pr = p.getAsJsonObject();
                 if (tag.equals(string(pr, "description"))) found = pr.get("protectedRangeId").getAsInt();
                 else if (!pr.getAsJsonObject("range").has("startRowIndex") && !string(pr, "description").startsWith("DN_ZEESLAG_"))
-                    throw new IOException("Bestaande bladbeveiliging wordt niet overschreven");
+                    throw new BattleshipDiagnostics.Failure(BattleshipDiagnostics.Code.SHEET_STRUCTURE,"Bestaande bladbeveiliging wordt niet overschreven");
             }
         }
         if (found == null) updates.add(map("addProtectedRange", map("protectedRange", value)));
@@ -254,7 +254,7 @@ final class BattleshipSheets implements BattleshipGateway
             JsonObject p = s.getAsJsonObject().getAsJsonObject("properties");
             if (title.equals(string(p, "title"))) return p.get("sheetId").getAsInt();
         }
-        throw new IOException("Zeeslagtabblad ontbreekt");
+        throw new BattleshipDiagnostics.Failure(BattleshipDiagnostics.Code.SHEET_STRUCTURE,"Zeeslagtabblad ontbreekt");
     }
 
     JsonObject request(String method, String url, Object data) throws IOException
@@ -275,7 +275,9 @@ final class BattleshipSheets implements BattleshipGateway
 
     private JsonObject request(String method,String url,Object data,int limit,boolean publicProjection) throws IOException
     {
-        credentials.refreshIfExpired();
+        try { credentials.refreshIfExpired(); }
+        catch (IOException | RuntimeException failure)
+        { throw new BattleshipDiagnostics.Failure(BattleshipDiagnostics.Code.GOOGLE_AUTH,"Google-servertoegang kon niet worden vernieuwd"); }
         HttpRequest.Builder request = HttpRequest.newBuilder(URI.create(url)).timeout(requestTimeout(method,publicProjection))
             .header("Accept-Encoding", "gzip").header("User-Agent", "DutchNationsServer/1.0 (gzip)")
             .header("Authorization", "Bearer " + credentials.getAccessToken().getTokenValue());
@@ -294,7 +296,7 @@ final class BattleshipSheets implements BattleshipGateway
                         String message=string(error,"message").replaceAll("[\\r\\n]"," ");
                         hint=": "+message.substring(0,Math.min(600,message.length()));
                     } catch(RuntimeException | IOException ignored) { }
-                    throw new IOException("Google-koppeling: HTTP " + response.statusCode()+hint);
+                    throw new BattleshipDiagnostics.Failure(BattleshipDiagnostics.Code.GOOGLE_HTTP,response.statusCode(),"Google-koppeling: HTTP " + response.statusCode()+hint);
                 }
                 byte[] bytes = responseBytes(body,response.headers().firstValue("Content-Encoding").orElse(""),limit);
                 return JsonParser.parseString(new String(bytes, StandardCharsets.UTF_8)).getAsJsonObject();
