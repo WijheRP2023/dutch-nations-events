@@ -113,6 +113,26 @@ public class FeedServiceTest
         assertNotNull(f); assertEquals("", f.events.get(0).codeword);
     }
 
+    @Test public void keepsTeamDropPagesAndOwnerChannelSettingsInFeed()
+    {
+        String start = java.time.OffsetDateTime.now().plusHours(1).toString();
+        String end = java.time.OffsetDateTime.now().plusHours(2).toString();
+        String sheet = "https://docs.google.com/spreadsheets/d/12345678901234567890/edit?gid=";
+        ClanFeed feed = service.parse("{\"teamOneDropChannelUrl\":\"https://discord.com/channels/123/456\","
+            + "\"teamTwoDropChannelUrl\":\"https://discord.com/channels/123/789\",\"teamThreeDropChannelUrl\":\"\","
+            + "\"events\":[{\"id\":\"teams\",\"type\":\"CLAN_EVENT\",\"title\":\"Bingo\",\"startsAt\":\"" + start
+            + "\",\"endsAt\":\"" + end + "\",\"teamNames\":\"Rood; Blauw\",\"teamOneDropListUrl\":\"" + sheet
+            + "1\",\"teamTwoDropListUrl\":\"" + sheet + "2\",\"teamThreeDropListUrl\":\"\"}]}");
+        assertNotNull(feed);
+        assertEquals("https://discord.com/channels/123/456", feed.teamOneDropChannelUrl);
+        assertEquals("https://discord.com/channels/123/789", feed.teamTwoDropChannelUrl);
+        assertEquals("", feed.teamThreeDropChannelUrl);
+        assertEquals("Rood; Blauw", feed.events.get(0).teamNames);
+        assertEquals(sheet + "1", feed.events.get(0).teamOneDropListUrl);
+        assertEquals(sheet + "2", feed.events.get(0).teamTwoDropListUrl);
+        assertEquals("", feed.events.get(0).teamThreeDropListUrl);
+    }
+
     @Test public void freshTeamCheckSendsPlayerAndAcceptsACompletedEmptyList() throws Exception
     {
         java.util.concurrent.atomic.AtomicReference<okhttp3.Request> request=new java.util.concurrent.atomic.AtomicReference<>();
