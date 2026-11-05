@@ -7,6 +7,33 @@ import static org.junit.Assert.*;
 
 public class FeedServiceTest
 {
+    @Test public void ownerCanSetOrClearOnlyTheRequestedTeamChannel() throws Exception
+    {
+        for(String value:new String[]{"https://discord.com/channels/123/789",""})
+        {
+            java.util.concurrent.CountDownLatch done=new java.util.concurrent.CountDownLatch(1);
+            java.util.concurrent.atomic.AtomicReference<String> saved=new java.util.concurrent.atomic.AtomicReference<>();
+            OkHttpClient client=new OkHttpClient.Builder().addInterceptor(chain->{
+                assertEquals("Bearer owner-test",chain.request().header("Authorization"));
+                okio.Buffer buffer=new okio.Buffer();chain.request().body().writeTo(buffer);
+                com.google.gson.JsonObject body=new Gson().fromJson(buffer.readUtf8(),com.google.gson.JsonObject.class);
+                assertEquals(3,body.get("team").getAsInt());assertEquals(value,body.get("url").getAsString());
+                return new okhttp3.Response.Builder().request(chain.request()).protocol(okhttp3.Protocol.HTTP_1_1).code(200).message("OK")
+                    .body(okhttp3.ResponseBody.create(okhttp3.MediaType.parse("application/json"),"{\"team\":3,\"dropChannelUrl\":"+new Gson().toJson(value)+"}")).build();
+            }).build();
+            new FeedService(client,new Gson()).saveTeamDropChannel(3,value,"owner-test",new FeedService.AnnouncementChannelListener(){
+                @Override public void success(String url){saved.set(url);done.countDown();}
+                @Override public void failure(String message){saved.set("ERROR: "+message);done.countDown();}
+            });
+            assertTrue(done.await(5,java.util.concurrent.TimeUnit.SECONDS));assertEquals(value,saved.get());
+        }
+    }
+    @Test public void eventDraftRetainsThirdTeamPageInTheJsonSentToTheServer()
+    {
+        EventDraft draft=new EventDraft();draft.teamNames="Rood;Blauw;Groen";draft.teamThreeDropListUrl="https://docs.google.com/spreadsheets/d/12345678901234567890/edit?gid=3";
+        ClanFeed.ClanEvent decoded=new Gson().fromJson(new Gson().toJson(draft),ClanFeed.ClanEvent.class);
+        assertEquals(draft.teamThreeDropListUrl,decoded.teamThreeDropListUrl);assertEquals(draft.teamNames,decoded.teamNames);
+    }
     private final FeedService service = new FeedService(new OkHttpClient(), new Gson());
 
     @Test public void normalOwnerCanSaveLiveScreenshotChannelWithoutTestFlags() throws Exception
@@ -84,6 +111,28 @@ public class FeedServiceTest
     {
         ClanFeed f = service.parse("{\"updatedAt\":\"2026-07-20T18:00:00Z\",\"events\":[{\"id\":\"1\",\"type\":\"BOSS\",\"title\":\"CoX\",\"codeword\":\"ORANJE\",\"startsAt\":\"2026-08-02T20:00:00+02:00\",\"endsAt\":\"2026-08-02T22:00:00+02:00\"}]}");
         assertNotNull(f); assertEquals("", f.events.get(0).codeword);
+    }
+
+    @Test public void freshTeamCheckSendsPlayerAndAcceptsACompletedEmptyList() throws Exception
+    {
+        java.util.concurrent.atomic.AtomicReference<okhttp3.Request> request=new java.util.concurrent.atomic.AtomicReference<>();
+        java.util.concurrent.atomic.AtomicReference<String> result=new java.util.concurrent.atomic.AtomicReference<>();
+        java.util.concurrent.CountDownLatch finished=new java.util.concurrent.CountDownLatch(1);
+        OkHttpClient isolated=new OkHttpClient.Builder().addInterceptor(chain -> {
+            request.set(chain.request());
+            return new okhttp3.Response.Builder().request(chain.request()).protocol(okhttp3.Protocol.HTTP_1_1).code(200).message("OK")
+                .body(okhttp3.ResponseBody.create(okhttp3.MediaType.parse("application/json"),
+                    "{\"source\":\"https://docs.google.com/spreadsheets/d/12345678901234567890/edit?gid=1\",\"items\":[]}")).build();
+        }).build();
+        new FeedService(isolated,new Gson()).fetchSheetDrops("event-1","One Player",true,new FeedService.DropListListener() {
+            @Override public void success(String source,String items) {result.set(items);finished.countDown();}
+            @Override public void failure(String message) {result.set(message);finished.countDown();}
+        });
+        assertTrue(finished.await(5,java.util.concurrent.TimeUnit.SECONDS));
+        assertEquals("",result.get());
+        assertEquals("One Player",request.get().url().queryParameter("rsn"));
+        assertEquals("true",request.get().url().queryParameter("fresh"));
+        assertNull(request.get().header("Authorization"));
     }
     @Test public void neverKeepsFutureBossCodewordInClientFeed()
     {

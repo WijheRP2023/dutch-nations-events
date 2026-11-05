@@ -6,6 +6,18 @@ import java.net.URI;
 final class GoogleSheetLink
 {
     private GoogleSheetLink() { }
+    static String tabKey(String link)
+    {
+        if (!supported(link)) return null;
+        URI uri = URI.create(link.trim());
+        java.util.regex.Pattern gid = java.util.regex.Pattern.compile("(?:^|&)gid=([0-9]{1,20})(?:&|$)");
+        java.util.regex.Matcher q = gid.matcher(uri.getRawQuery() == null ? "" : uri.getRawQuery());
+        java.util.regex.Matcher f = gid.matcher(uri.getRawFragment() == null ? "" : uri.getRawFragment());
+        String query = q.find() ? q.group(1) : null, fragment = f.find() ? f.group(1) : null;
+        if (query != null && fragment != null && !query.equals(fragment)) return null;
+        if (query == null && fragment == null) return null;
+        return uri.getRawPath().split("/")[3] + "/" + (query == null ? fragment : query);
+    }
     static boolean supported(String link)
     {
         try

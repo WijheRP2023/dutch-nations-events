@@ -153,6 +153,12 @@ final class FeedService
     {
         saveDiscordChannel(DROP_CHANNEL_URL, url, token, 2, listener);
     }
+
+    void saveTeamDropChannel(int team,String url,String token,AnnouncementChannelListener listener)
+    {
+        if(team<1||team>3){listener.failure("Ongeldig teamkanaal.");return;}
+        saveDiscordChannel(DROP_CHANNEL_URL,url,token,2,team,listener);
+    }
     void testDrop(DropTestReport report, DropTestListener listener)
     {
         HttpUrl target = https(DROP_TEST_URL);
@@ -179,11 +185,17 @@ final class FeedService
         });
     }
     void fetchSheetDrops(String eventId, DropListListener listener)
+    { fetchSheetDrops(eventId, null, false, listener); }
+
+    void fetchSheetDrops(String eventId, String rsn, boolean fresh, DropListListener listener)
     {
         HttpUrl base = https(DROP_LIST_URL);
         if (base == null || blank(eventId))
         { listener.failure("Droplijst vereist een actief event."); return; }
-        HttpUrl url = base.newBuilder().addQueryParameter("eventId", eventId).build();
+        HttpUrl.Builder address = base.newBuilder().addQueryParameter("eventId", eventId);
+        if (!blank(rsn)) address.addQueryParameter("rsn", rsn);
+        if (fresh) address.addQueryParameter("fresh", "true");
+        HttpUrl url = address.build();
         Request request = new Request.Builder().url(url).get().build();
         client.newCall(request).enqueue(new Callback()
         {
@@ -237,11 +249,14 @@ final class FeedService
         });
     }
     private void saveDiscordChannel(String endpoint, String url, String token, int channelType, AnnouncementChannelListener listener)
+    { saveDiscordChannel(endpoint,url,token,channelType,null,listener); }
+
+    private void saveDiscordChannel(String endpoint, String url, String token, int channelType,Integer team, AnnouncementChannelListener listener)
     {
         HttpUrl parsed = https(endpoint);
         if (parsed == null || blank(token)) { listener.failure("Owner-token ontbreekt."); return; }
         Request request = new Request.Builder().url(parsed).header("Authorization", "Bearer " + token.trim())
-            .post(RequestBody.create(JSON, gson.toJson(new AnnouncementChannel(url)))).build();
+            .post(RequestBody.create(JSON, gson.toJson(new AnnouncementChannel(url,team)))).build();
         client.newCall(request).enqueue(new Callback()
         {
             @Override public void onFailure(@javax.annotation.Nonnull Call call, @javax.annotation.Nonnull IOException e) { listener.failure("Mededelingenkanaal is niet opgeslagen: server niet bereikbaar."); }
@@ -258,7 +273,8 @@ final class FeedService
                     }
                     AnnouncementChannelResponse saved = gson.fromJson(body, AnnouncementChannelResponse.class);
                     String savedUrl = saved == null ? "" : (channelType == 2 ? saved.dropChannelUrl : channelType == 1 ? saved.eventAnnouncementsUrl : saved.announcementsUrl);
-                    if (blank(savedUrl)) { listener.failure("Server bevestigde geen kanaalinstelling."); return; }
+                    if (team!=null&&(saved==null||!team.equals(saved.team))) { listener.failure("Server bevestigde geen teamkanaal; de instelling is niet bevestigd."); return; }
+                    if (blank(savedUrl)&&team==null) { listener.failure("Server bevestigde geen kanaalinstelling."); return; }
                     listener.success(savedUrl);
                 }
             }
@@ -390,11 +406,13 @@ final class FeedService
     private static final class AnnouncementChannel
     {
         final String url;
-        AnnouncementChannel(String url) { this.url = url; }
+        final Integer team;
+        AnnouncementChannel(String url) { this(url,null); }
+        AnnouncementChannel(String url,Integer team) { this.url = url;this.team=team; }
     }
     private static final class AnnouncementVisibility { final boolean visible; AnnouncementVisibility(boolean visible) { this.visible = visible; } }
     private static final class AnnouncementVisibilityResponse { Boolean announcementsVisible; }
-    private static final class AnnouncementChannelResponse { String announcementsUrl; String eventAnnouncementsUrl; String dropChannelUrl; }
+    private static final class AnnouncementChannelResponse { String announcementsUrl; String eventAnnouncementsUrl; String dropChannelUrl; Integer team; }
     private static final class ApiError { String error; }
     private static final class RolesResponse
     {
@@ -436,7 +454,8 @@ final class FeedService
                     !event.end().isAfter(event.start()) || unsafe(event.title) || unsafe(event.world) ||
                     unsafe(event.host) || unsafe(event.description) || unsafe(event.codeword) || unsafe(event.checklist) ||
                     unsafe(event.requiredPlugins) || unsafe(event.driveUrl) || unsafe(event.dropListUrl) || unsafe(event.registrationUrl) || unsafe(event.registrationEndsAt) || unsafe(event.youtubeUrl) ||
-                    unsafe(event.clansOne) || unsafe(event.clansTwo) || unsafe(event.activity) || unsafe(event.bossList) ||
+                    unsafe(event.clansOne) || unsafe(event.clansTwo) || unsafe(event.activity) || unsafe(event.bossList) || unsafe(event.teamNames) ||
+                    unsafe(event.teamOneDropListUrl) || unsafe(event.teamTwoDropListUrl) || unsafe(event.teamThreeDropListUrl) ||
                     unsafe(event.dropItems) || unsafe(event.dropChannelUrl) || unsafe(event.dropSource)) return null;
                 if (!blank(event.registrationEndsAt)) { try { OffsetDateTime.parse(event.registrationEndsAt); } catch (RuntimeException ignored) { return null; } }
                 if ((boss || clanEvent || clanVsClan || (mass && event.codewordRequired)) && !event.active(OffsetDateTime.now())) event.codeword = "";

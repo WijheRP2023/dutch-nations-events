@@ -20,6 +20,7 @@ public class DutchNationsPanelTest
             assertNotNull(settings);
             settings.doClick();
             assertNotNull(findButton(panel, "Screenshotkanaal instellen"));
+            for(int i=1;i<=3;i++)assertNotNull(findButton(panel,"Team "+i+"-dropkanaal instellen"));
             ClanFeed feed = new ClanFeed();
             feed.dropChannelUrl = "https://discord.com/channels/123/456";
             panel.update(feed, "Geladen");
@@ -36,6 +37,7 @@ public class DutchNationsPanelTest
             DutchNationsPanel panel = panel(false);
             assertNull(findButton(panel, "Instellingen"));
             assertNull(findButton(panel, "Screenshotkanaal instellen"));
+            for(int i=1;i<=3;i++)assertNull(findButton(panel,"Team "+i+"-dropkanaal instellen"));
         });
     }
 

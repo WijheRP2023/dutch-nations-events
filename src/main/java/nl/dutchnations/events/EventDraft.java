@@ -23,6 +23,10 @@ final class EventDraft
     String clansTwo;
     String activity;
     String bossList;
+    String teamNames;
+    String teamOneDropListUrl;
+    String teamTwoDropListUrl;
+    String teamThreeDropListUrl;
     String dropItems;
     String dropChannelUrl;
     String dropSource;

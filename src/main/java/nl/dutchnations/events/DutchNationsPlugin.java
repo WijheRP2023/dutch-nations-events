@@ -114,6 +114,7 @@ public class DutchNationsPlugin extends Plugin
         panel = new DutchNationsPanel(config, this::refresh, this::canManage, this::isOwner,
             this::isAdministrator, this::isLearnerHost, this::canManageRoles, this::fetchRoles, this::fetchOwnerLogs, this::hasClanAccess,
             this::createEvent, this::updateEvent, this::deleteEvent, this::createLearnerTemplate, this::updateLearnerTemplate, this::deleteLearnerTemplate, this::saveRole, this::saveAnnouncementChannel, this::saveEventAnnouncementChannel, this::saveDropChannel, this::saveAnnouncementsVisibility, this::announcementReadSequence, this::markAnnouncementsRead, this::localPlayerName);
+        panel.setTeamDropChannelSaver(this::saveTeamDropChannel);
         ClanFeed cached = service.parse(configs.getConfiguration(DutchNationsConfig.GROUP, CACHE));
         if (cached != null) { feed = cached; panel.update(cached, "Opgeslagen versie; update wordt gecontroleerd."); }
         button = NavigationButton.builder().tooltip("Dutch Nation").icon(icon()).priority(6).panel(panel).build();
@@ -237,17 +238,18 @@ public class DutchNationsPlugin extends Plugin
             String name = itemManager.getItemComposition(itemManager.canonicalize(item.getId())).getMembersName();
             for (ClanFeed.ClanEvent event : current.events)
                 if (event.id != null && DropMatcher.matches(event, selectedDropItems(event), name, now))
-                    captureLocalDrop(event.id, rsn, name, item.getQuantity());
+                    captureEligibleDrop(event, rsn, name, item.getQuantity());
         }
     }
 
     private static String dynamicDropSource(ClanFeed.ClanEvent event)
     {
+        if ("CLAN_EVENT".equalsIgnoreCase(event.type) && GoogleSheetLink.supported(event.teamOneDropListUrl) && GoogleSheetLink.supported(event.teamTwoDropListUrl)) return event.teamOneDropListUrl;
         String dropListUrl = event.dropListUrl == null ? event.driveUrl : event.dropListUrl;
         if (GoogleSheetLink.supported(dropListUrl)) return dropListUrl;
         return "PVM_WAR_2026".equals(event.dropSource) ? event.dropSource : null;
     }
-    private static String sheetKey(ClanFeed.ClanEvent event) { return event.id + "\n" + dynamicDropSource(event); }
+    private String sheetKey(ClanFeed.ClanEvent event) { return event.id + "\n" + dynamicDropSource(event) + "\n" + event.teamTwoDropListUrl + "\n" + event.teamThreeDropListUrl + "\n" + event.teamNames + "\n" + normalize(localPlayerName()); }
 
     private String selectedDropItems(ClanFeed.ClanEvent event)
     {
@@ -271,7 +273,9 @@ public class DutchNationsPlugin extends Plugin
             String key = sheetKey(event);
             if (nowMillis < nextSheetRefresh.getOrDefault(key, 0L) || !sheetRefreshInFlight.add(key)) continue;
             nextSheetRefresh.put(key, nowMillis + 30000);
-            activeService.fetchSheetDrops(event.id, new FeedService.DropListListener()
+            String rsn = localPlayerName();
+            if ("CLAN_EVENT".equalsIgnoreCase(event.type) && (rsn == null || rsn.isEmpty())) { sheetRefreshInFlight.remove(key); continue; }
+            activeService.fetchSheetDrops(event.id, rsn, false, new FeedService.DropListListener()
             {
                 @Override public void success(String source, String items)
                 {
@@ -286,6 +290,29 @@ public class DutchNationsPlugin extends Plugin
                 }
             });
         }
+    }
+
+    private void captureEligibleDrop(ClanFeed.ClanEvent event, String rsn, String name, int quantity)
+    {
+        FeedService activeService = service;
+        if (activeService == null) return;
+        if (!GoogleSheetLink.supported(dynamicDropSource(event)))
+        { captureLocalDrop(event.id, rsn, name, quantity); return; }
+        String key = sheetKey(event);
+        // Read the team's current approvals before asking for an image. A cached
+        // list may still contain a group which was completed a moment ago.
+        activeService.fetchSheetDrops(event.id, rsn, true, new FeedService.DropListListener()
+        {
+            @Override public void success(String source, String items)
+            {
+                if (service != activeService || !source.equals(dynamicDropSource(event)) || !normalize(rsn).equals(normalize(localPlayerName()))) return;
+                sheetDrops.put(key, new SheetDropSnapshot(items, System.currentTimeMillis()));
+                if (DropMatcher.matches(event, items, name, OffsetDateTime.now()))
+                    captureLocalDrop(event.id, rsn, name, quantity);
+            }
+            @Override public void failure(String message)
+            { sheetDrops.remove(key); if (service == activeService) showDropTestStatus(message); }
+        });
     }
 
     private void captureLocalDrop(String eventId, String rsn, String name, int quantity)
@@ -640,6 +667,16 @@ public class DutchNationsPlugin extends Plugin
             { SwingUtilities.invokeLater(() -> { if (panel != null) panel.dropChannelSaved(savedUrl); refresh(); }); }
             @Override public void failure(String message)
             { SwingUtilities.invokeLater(() -> { if (panel != null) panel.dropChannelStatus(message); }); }
+        });
+    }
+
+    private void saveTeamDropChannel(int team,String url)
+    {
+        if(!isOwner()){panel.dropChannelStatus("Alleen de owner kan teamdropkanalen instellen.");return;}
+        panel.dropChannelStatus("Team "+team+"-dropkanaal opslaan...");
+        service.saveTeamDropChannel(team,url,config.managementToken(),new FeedService.AnnouncementChannelListener(){
+            @Override public void success(String saved){SwingUtilities.invokeLater(() -> {if(panel!=null)panel.teamDropChannelSaved(team,saved);refresh();});}
+            @Override public void failure(String message){SwingUtilities.invokeLater(() -> {if(panel!=null)panel.dropChannelStatus(message);});}
         });
     }
 

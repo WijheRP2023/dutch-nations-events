@@ -89,6 +89,16 @@ Na een normale login herkent de plugin de ingelogde speler automatisch opnieuw. 
 
 ## Voor organizers
 
+### Clan-events met teams en droppagina's
+
+Vink bij `CLAN_EVENT` **Meerdere teams** aan. Vul twee of drie unieke teamnamen in, gescheiden door `;`, en geef elk team een eigen openbare Google Sheets-tabbladlink met `gid`. De volgorde van namen en links moet overeenkomen. Bij twee teams blijft de derde link leeg; er worden dan geen gegevens voor een derde team opgevraagd. De tabbladen moeten uit hetzelfde kijkbestand komen. Controleer dat de titel en spelersindeling in de Sheet bij het juiste team horen.
+
+Zonder meerdere teams blijft de standaard screenshot-droplink beschikbaar, bijvoorbeeld voor een solo-event. Bestaande events met een gezamenlijke droplijst blijven ondersteund. De tussenstand-link is de ledenlink naar het bord; de teamdroppagina's bevatten de items, doelen en voortgang voor screenshotcontrole.
+
+Alleen de owner kan het algemene Discord-screenshotkanaal en aparte kanalen voor Team 1, 2 en 3 instellen. De server kiest het kanaal van het herkende team. Een leeg teamkanaal gebruikt de bestaande terugval: het oude eventkanaal als dat is ingevuld, anders het algemene kanaal. De bot moet in dat kanaal berichten en afbeeldingen kunnen plaatsen. Er wordt niet ook een tweede foto naar het algemene kanaal gestuurd.
+
+De plug-in vraagt de server om de droplijst voor de ingelogde speler. Voor een screenshot wordt de actuele voortgang nogmaals gecontroleerd, zodat een voltooid groepsdoel niet blijft vragen om bewijs. De spelernaam gaat hiervoor via HTTPS naar dezelfde bestaande Dutch Nation API; er wordt geen managementcode meegestuurd. Een Discord-foto blijft testbewijs dat de spelleider zelf moet controleren. De plug-in maakt geen derde teamtabblad of bord in een bestaande Sheet aan.
+
 - Gebruik een duidelijke titel: bijvoorbeeld `CoX Learner` of `Nex Mass`.
 - Vermeld datum, tijd, wereld en host altijd volledig.
 - Houd de tekst in RuneLite kort; plaats uitgebreide uitleg in de Discord-beschrijving van een learner-sjabloon.

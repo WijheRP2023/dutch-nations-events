@@ -80,6 +80,7 @@ final class DutchNationsPanel extends PluginPanel
     private final Consumer<String> saveAnnouncementChannel;
     private final Consumer<String> saveEventAnnouncementChannel;
     private final Consumer<String> saveDropChannel;
+    private BiConsumer<Integer,String> saveTeamDropChannel = (team,url) -> { };
     private final Consumer<Boolean> saveAnnouncementsVisibility;
     private final LongSupplier announcementReadSequence;
     private final LongConsumer markAnnouncementsRead;
@@ -153,6 +154,12 @@ final class DutchNationsPanel extends PluginPanel
     void dropChannelStatus(String message) { dropChannelStatus = message; render(); }
     void dropChannelLoaded(String url) { dropChannelUrl = url == null ? "" : url; }
     void dropChannelSaved(String url) { dropChannelLoaded(url); if (feed != null) feed.dropChannelUrl = url; dropChannelStatus("Screenshotkanaal opgeslagen."); }
+    void setTeamDropChannelSaver(BiConsumer<Integer,String> saver){saveTeamDropChannel=saver;}
+    void teamDropChannelSaved(int team,String url)
+    {
+        if(feed!=null){if(team==1)feed.teamOneDropChannelUrl=url;else if(team==2)feed.teamTwoDropChannelUrl=url;else if(team==3)feed.teamThreeDropChannelUrl=url;}
+        dropChannelStatus("Team "+team+"-dropkanaal opgeslagen."+(blank(url)?" Het algemene kanaal wordt gebruikt.":""));
+    }
     void updateCompetition(List<WomCompetition> values) { competitions = values == null ? new ArrayList<>() : new ArrayList<>(values); competitionLoaded = true; render(); }
     void competitionUnavailable() { competitionLoaded = false; render(); }
     void updateClanAccess(boolean allowed) { render(); }
@@ -346,6 +353,7 @@ final class DutchNationsPanel extends PluginPanel
 
     private void addSettingsSection()
     {
+        if(!isOwner.getAsBoolean())return;
         JPanel heading = card(STONE);
         heading.setBorder(BorderFactory.createCompoundBorder(
             BorderFactory.createMatteBorder(0, 5, 0, 0, GOLD), BorderFactory.createEmptyBorder(7, 8, 7, 8)));
@@ -381,10 +389,17 @@ final class DutchNationsPanel extends PluginPanel
 
         JPanel drops = card(CARD_BROWN);
         drops.add(bodyLabel("EVENT-DROPSCREENSHOTS", GOLD, Font.BOLD, 12f));
-        drops.add(bodyText("Kies per event het Discord-screenshotkanaal. Screenshots worden alleen tijdens een actief event gemaakt.", Color.LIGHT_GRAY, Font.PLAIN, 12f));
+        drops.add(bodyText("Het algemene kanaal blijft behouden. Clan-events gebruiken het kanaal van het herkende team; een leeg teamkanaal valt terug op algemeen. Screenshots blijven een test.", Color.LIGHT_GRAY, Font.PLAIN, 12f));
         JButton dropChannel = button("Screenshotkanaal instellen");
         dropChannel.addActionListener(event -> configureDropChannel());
         drops.add(Box.createRigidArea(new Dimension(0, 7))); drops.add(dropChannel);
+        for(int slot=1;slot<=3;slot++)
+        {
+            final int team=slot;
+            JButton teamChannel=button("Team "+team+"-dropkanaal instellen");
+            teamChannel.addActionListener(event -> configureTeamDropChannel(team));
+            drops.add(Box.createRigidArea(new Dimension(0,5)));drops.add(teamChannel);
+        }
         if (!blank(dropChannelStatus)) drops.add(bodyText(dropChannelStatus, Color.LIGHT_GRAY, Font.PLAIN, 11f));
         add(drops); add(Box.createRigidArea(new Dimension(0, 7)));
 
@@ -658,8 +673,17 @@ final class DutchNationsPanel extends PluginPanel
     }
     private void configureDropChannel()
     {
-        String url = JOptionPane.showInputDialog(this, "Plak de link van het Discord-screenshotkanaal voor dit event:", dropChannelUrl);
+        if(!isOwner.getAsBoolean())return;
+        String url = JOptionPane.showInputDialog(this, "Plak de link van het algemene Discord-screenshotkanaal:", dropChannelUrl);
         if (url != null) saveDropChannel.accept(url.trim());
+    }
+
+    private void configureTeamDropChannel(int team)
+    {
+        if(!isOwner.getAsBoolean())return;
+        String current=feed==null?"":team==1?feed.teamOneDropChannelUrl:team==2?feed.teamTwoDropChannelUrl:feed.teamThreeDropChannelUrl;
+        String url=JOptionPane.showInputDialog(this,"Discord-dropkanaal voor Team "+team+" (volgorde van de eventteams).\nLeeg laten gebruikt het algemene kanaal.",current==null?"":current);
+        if(url!=null)saveTeamDropChannel.accept(team,url.trim());
     }
 
     private static boolean validDiscordChannelUrl(String value)
@@ -827,6 +851,20 @@ final class DutchNationsPanel extends PluginPanel
         }
         if (!"BOSS".equalsIgnoreCase(event.type) && !clanVsClan && !blank(event.world)) panel.add(bodyLabel("Wereld: " + event.world, Color.WHITE, Font.PLAIN, 13f));
         if (clanEvent && !blank(event.bossList)) panel.add(bodyLabel("Bosses/activiteiten: " + event.bossList.replace(";", ", "), Color.WHITE, Font.PLAIN, 13f));
+        if (clanEvent && !blank(event.teamNames)) panel.add(bodyLabel("Teams: " + event.teamNames.replace(";", ", "), Color.WHITE, Font.PLAIN, 13f));
+        if (clanEvent && !blank(event.teamNames) && (event.teamNames.split(";").length == 2 || event.teamNames.split(";").length == 3))
+        {
+            String[] names = event.teamNames.split(";");
+            String[] links = {event.teamOneDropListUrl, event.teamTwoDropListUrl, event.teamThreeDropListUrl};
+            for (int i = 0; i < names.length; i++)
+            {
+                if (!GoogleSheetLink.supported(links[i])) continue;
+                String link = links[i];
+                JButton team = button("Drops: " + names[i].trim());
+                team.addActionListener(click -> LinkBrowser.browse(link));
+                panel.add(Box.createRigidArea(new Dimension(0, 5))); panel.add(team);
+            }
+        }
         if (!blank(event.host)) panel.add(bodyLabel("Host: " + event.host, Color.WHITE, Font.PLAIN, 13f));
         if (event.supportsPreparation() && !blank(event.checklist))
         {

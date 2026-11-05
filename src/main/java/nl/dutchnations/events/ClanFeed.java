@@ -11,6 +11,9 @@ final class ClanFeed
     Boolean announcementsVisible = true;
     String eventAnnouncementsUrl;
     String dropChannelUrl;
+    String teamOneDropChannelUrl;
+    String teamTwoDropChannelUrl;
+    String teamThreeDropChannelUrl;
     long announcementsSequence;
     List<ClanEvent> events = new ArrayList<>();
     List<LearnerTemplate> learnerTemplates = new ArrayList<>();
@@ -39,6 +42,10 @@ final class ClanFeed
         String clansTwo;
         String activity;
         String bossList;
+        String teamNames;
+        String teamOneDropListUrl;
+        String teamTwoDropListUrl;
+        String teamThreeDropListUrl;
         String dropItems;
         String dropChannelUrl;
         String dropSource;

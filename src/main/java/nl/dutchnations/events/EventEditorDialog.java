@@ -1,8 +1,10 @@
 package nl.dutchnations.events;
 
 import java.awt.Color;
+import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.GridLayout;
+import java.awt.Rectangle;
 import java.awt.Window;
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -24,6 +26,9 @@ import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
+import javax.swing.JScrollPane;
+import javax.swing.Scrollable;
+import javax.swing.JComponent;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 
@@ -68,6 +73,14 @@ final class EventEditorDialog
         JTextField clansTwo = new JTextField();
         JTextField activity = new JTextField();
         JTextField bossList = new JTextField();
+        JTextField teamNames = new JTextField();
+        teamNames.setToolTipText("Aparte droppagina's: 2 of 3 teamnamen, bijvoorbeeld Rood; Blauw; Groen. De volgorde hoort bij Team 1, 2 en 3. Een gezamenlijke lijst ondersteunt 2 t/m 7 teams.");
+        JTextField teamOneDropListUrl = new JTextField();
+        JTextField teamTwoDropListUrl = new JTextField();
+        JTextField teamThreeDropListUrl = new JTextField();
+        teamOneDropListUrl.setToolTipText("Link met gid naar Team 1 in het openbare kijkbestand. Gebruik 2 of 3 teamnamen in dezelfde volgorde als de pagina's.");
+        teamTwoDropListUrl.setToolTipText("De aparte Team 2-invoerpagina. Beide pagina's zijn openbaar alleen-lezen; de namen moeten overeenkomen met de Sheet.");
+        teamThreeDropListUrl.setToolTipText("Alleen bij drie teams: link met gid naar Team 3 in hetzelfde kijkbestand. Bij twee teams leeg laten: Team 3 wordt dan niet gelezen.");
         JTextField codeword = new JTextField();
         JTextField driveUrl = new JTextField();
         JTextField dropListUrl = new JTextField();
@@ -148,6 +161,10 @@ final class EventEditorDialog
             clansTwo.setText(existing.clansTwo == null ? "" : existing.clansTwo);
             activity.setText(existing.activity == null ? "" : existing.activity);
             bossList.setText(existing.bossList == null ? "" : existing.bossList);
+            teamNames.setText(value(existing.teamNames));
+            teamOneDropListUrl.setText(value(existing.teamOneDropListUrl));
+            teamTwoDropListUrl.setText(value(existing.teamTwoDropListUrl));
+            teamThreeDropListUrl.setText(value(existing.teamThreeDropListUrl));
             driveUrl.setText(existing.driveUrl == null ? "" : existing.driveUrl);
             dropListUrl.setText(existing.dropListUrl == null
                 ? ((GoogleSheetLink.supported(existing.driveUrl) || "PVM_WAR_2026".equals(existing.dropSource)) ? existing.driveUrl : "") : existing.dropListUrl);
@@ -171,8 +188,7 @@ final class EventEditorDialog
         JCheckBox massCodewordRequired = new JCheckBox("Codewoord nodig");
         if (editing) massCodewordRequired.setSelected(existing.codewordRequired);
 
-        JPanel form = new JPanel();
-        form.setLayout(new BoxLayout(form, BoxLayout.Y_AXIS));
+        EventForm form = new EventForm();
         JPanel worldRow = row("Wereld (learner/mass)", world);
         JPanel preparationRow = row("Voorbereiding (; gescheiden)", checklist);
         JPanel pluginSearchRow = row("Plugin zoeken (min. 2 tekens)", pluginSearch);
@@ -183,7 +199,7 @@ final class EventEditorDialog
         JPanel templateRow = row("Learner-sjabloon", learnerTemplate);
         JPanel massCodewordRow = row("Mass-event", massCodewordRequired);
         JPanel driveRow = row("Tussenstand-link (leden)", driveUrl);
-        JPanel dropListRow = row("Screenshot-droplijst-link (Sheet)", dropListUrl);
+        JPanel dropListRow = row("Standaard screenshot-droplink", dropListUrl);
         JPanel registrationLinkRow = row("Discord-aanmeldlink", registrationUrl);
         JPanel youtubeRow = row("YouTube-link (optioneel)", youtubeUrl);
         JPanel registrationDeadlineRow = row("Aanmelden tot", dateTimeFields(registrationDeadlineDate, registrationDeadlineTime));
@@ -193,12 +209,50 @@ final class EventEditorDialog
         JPanel clansTwoRow = row("Clans kant 2 (; gescheiden)", clansTwo);
         JPanel activityRow = row("Activiteit", activity);
         JPanel bossListRow = row("Bosses/activiteiten (; gescheiden)", bossList);
+        boolean hasSavedPages = hasTeamPages(teamOneDropListUrl.getText(), teamTwoDropListUrl.getText(), teamThreeDropListUrl.getText());
+        boolean hasSavedNames = !teamNames.getText().trim().isEmpty();
+        boolean legacySharedTeams = editing && hasSavedNames && !hasSavedPages;
+        JCheckBox multipleTeams = new JCheckBox("Meerdere teams", hasSavedPages || hasSavedNames);
+        JPanel multipleTeamsRow = row("", multipleTeams);
+        JPanel teamsRow = row("Teamnamen (gescheiden door ;)", teamNames);
+        JPanel teamOneRow = row("Team 1-droppagina (Sheet)", teamOneDropListUrl);
+        JPanel teamTwoRow = row("Team 2-droppagina (Sheet)", teamTwoDropListUrl);
+        JPanel teamThreeRow = row("Team 3-droppagina (alleen bij 3 teams)", teamThreeDropListUrl);
+        form.add(section("1. Eventgegevens"));
         form.add(row("Eventtype", type)); form.add(templateRow); form.add(titleRow);
         form.add(row("Startdatum/tijd", dateTimeFields(startDate, startTime))); form.add(row("Einddatum/tijd", dateTimeFields(endDate, endTime)));
         form.add(worldRow); form.add(clansOneRow); form.add(clansTwoRow); form.add(activityRow); form.add(bossListRow);
+        form.add(multipleTeamsRow);
+        JLabel teamsHeading=section("2. Teams en screenshot-droppagina's");form.add(teamsHeading);form.add(teamsRow);
+        form.add(teamOneRow); form.add(teamTwoRow); form.add(teamThreeRow);
+        JLabel teamHelp=new JLabel("<html>Vul teamnamen en links in dezelfde volgorde in.<br>Gebruik de links naar de teampagina’s in het kijkbestand.<br>Laat Team 3 leeg als je twee teams gebruikt.</html>");
+        teamHelp.setBorder(BorderFactory.createEmptyBorder(4,0,10,0));form.add(teamHelp);
+        JLabel linksHeading = section("2. Links en overige instellingen");
+        form.add(linksHeading);
         form.add(row("Host (RSN)", host)); form.add(row("Beschrijving", description)); form.add(youtubeRow);
         form.add(preparationRow); form.add(pluginSearchRow); form.add(pluginResultsRow); form.add(addPluginRow);
         form.add(selectedPluginsRow); form.add(strategyRow); form.add(massCodewordRow); form.add(driveRow); form.add(dropListRow); form.add(registrationLinkRow); form.add(registrationDeadlineRow); form.add(codewordRow);
+
+        Runnable updateTeamVisibility = () -> {
+            String eventType = (String) type.getSelectedItem();
+            boolean useTeams = usesMultipleTeams(eventType, multipleTeams.isSelected());
+            linksHeading.setText((useTeams ? "3." : "2.") + " Links en overige instellingen");
+            multipleTeamsRow.setVisible("CLAN_EVENT".equals(eventType));
+            for (Component component : Arrays.asList(teamsHeading, teamsRow, teamOneRow, teamTwoRow, teamThreeRow, teamHelp))
+                component.setVisible(useTeams);
+            boolean legacyList = legacySharedTeams && !hasTeamPages(teamOneDropListUrl.getText(), teamTwoDropListUrl.getText(), teamThreeDropListUrl.getText());
+            dropListRow.setVisible(showSharedDropList(eventType, useTeams, legacyList));
+            form.revalidate();repackParentWindow(form);
+        };
+        DocumentListener teamLinksListener = new DocumentListener() {
+            @Override public void insertUpdate(DocumentEvent e){updateTeamVisibility.run();}
+            @Override public void removeUpdate(DocumentEvent e){updateTeamVisibility.run();}
+            @Override public void changedUpdate(DocumentEvent e){updateTeamVisibility.run();}
+        };
+        if (legacySharedTeams)
+            for (JTextField link : Arrays.asList(teamOneDropListUrl, teamTwoDropListUrl, teamThreeDropListUrl))
+                link.getDocument().addDocumentListener(teamLinksListener);
+        multipleTeams.addActionListener(e -> updateTeamVisibility.run());
 
         Runnable applyTypeRules = () ->
         {
@@ -216,7 +270,7 @@ final class EventEditorDialog
             preparationRow.setVisible(learner);
             pluginSearchRow.setVisible(supportsResources); pluginResultsRow.setVisible(supportsResources);
             addPluginRow.setVisible(supportsResources); selectedPluginsRow.setVisible(supportsResources); strategyRow.setVisible(supportsResources);
-            massCodewordRow.setVisible(mass); driveRow.setVisible(boss || clanEvent || clanVsClan || mass); dropListRow.setVisible(boss || clanEvent || clanVsClan || mass); registrationLinkRow.setVisible(boss || clanEvent || clanVsClan); registrationDeadlineRow.setVisible(boss || clanEvent || clanVsClan); codewordRow.setVisible(needsCodeword);
+            massCodewordRow.setVisible(mass); driveRow.setVisible(boss || clanEvent || clanVsClan || mass); registrationLinkRow.setVisible(boss || clanEvent || clanVsClan); registrationDeadlineRow.setVisible(boss || clanEvent || clanVsClan); codewordRow.setVisible(needsCodeword);
             if (!needsCodeword) codeword.setText("");
             if (!boss && !clanEvent && !clanVsClan && !mass) { driveUrl.setText(""); dropListUrl.setText(""); registrationUrl.setText(""); }
             if (!learner) checklist.setText("");
@@ -225,8 +279,7 @@ final class EventEditorDialog
             if (!clanEvent) bossList.setText("");
             if (boss || clanVsClan) world.setText("");
             if ((mass || clanEvent) && world.getText().trim().isEmpty()) world.setText("366");
-            form.revalidate(); form.repaint();
-            repackParentWindow(form);
+            updateTeamVisibility.run();
         };
         type.addActionListener(e -> applyTypeRules.run());
         massCodewordRequired.addActionListener(e -> applyTypeRules.run());
@@ -253,10 +306,11 @@ final class EventEditorDialog
             }
         });
         applyTypeRules.run();
+        JScrollPane formScroll = form.scrollPane();
 
         while (true)
         {
-            if (JOptionPane.showConfirmDialog(null, form, editing ? "Dutch Nation - event aanpassen" : "Dutch Nation - event maken",
+            if (JOptionPane.showConfirmDialog(null, formScroll, editing ? "Dutch Nation - event aanpassen" : "Dutch Nation - event maken",
             JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE) != JOptionPane.OK_OPTION) return null;
         try
         {
@@ -287,6 +341,8 @@ final class EventEditorDialog
             draft.world = world.getText().trim(); draft.host = host.getText().trim();
             draft.description = description.getText().trim(); draft.codeword = codeword.getText().trim(); draft.driveUrl = driveUrl.getText().trim(); draft.dropListUrl = dropListUrl.getText().trim();
             configureDropSource(draft, existing);
+            configureTeams(draft, multipleTeams.isSelected(), legacySharedTeams, teamNames.getText(),
+                teamOneDropListUrl.getText(), teamTwoDropListUrl.getText(), teamThreeDropListUrl.getText());
             draft.registrationUrl = registrationUrl.getText().trim();
             draft.youtubeUrl = youtubeUrl.getText().trim();
             if (!draft.registrationUrl.isEmpty())
@@ -369,6 +425,73 @@ final class EventEditorDialog
     {
         field.setBorder(BorderFactory.createLineBorder(new Color(215, 60, 60), 2));
         field.requestFocusInWindow();
+    }
+
+    static void validateTeamPages(EventDraft draft)
+    {
+        String one = value(draft.teamOneDropListUrl).trim(), two = value(draft.teamTwoDropListUrl).trim(), three = value(draft.teamThreeDropListUrl).trim();
+        if (one.isEmpty() && two.isEmpty() && three.isEmpty()) return;
+        if (!"CLAN_EVENT".equalsIgnoreCase(draft.type)) throw new IllegalArgumentException("Teamdroppagina's zijn alleen beschikbaar bij clan-events.");
+        String names = validatedTeams(draft.type, draft.teamNames);
+        int count = three.isEmpty() ? 2 : 3;
+        if (names.isEmpty() || names.split(";").length != count) throw new IllegalArgumentException("Vul voor elk van de twee of drie teamnamen een eigen droppagina in. Laat Team 3 leeg bij twee teams.");
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        String workbook = null;
+        for (String page : count == 2 ? new String[]{one,two} : new String[]{one,two,three})
+        {
+            String key = GoogleSheetLink.tabKey(page);
+            if (key == null) throw new IllegalArgumentException("Vul voor ieder team een Google Sheet-link naar het eigen tabblad in (met gid).");
+            if (!seen.add(key)) throw new IllegalArgumentException("Gebruik voor ieder team een verschillende droppagina.");
+            String id = key.substring(0,key.indexOf('/'));
+            if (workbook != null && !workbook.equals(id)) throw new IllegalArgumentException("Gebruik teamtabbladen uit hetzelfde kijkbestand, zodat de teamindeling kan worden gevonden.");
+            workbook = id;
+        }
+    }
+
+    private static boolean usesMultipleTeams(String type, boolean selected)
+    { return selected && "CLAN_EVENT".equals(type); }
+
+    private static boolean hasTeamPages(String one, String two, String three)
+    { return !value(one).trim().isEmpty() || !value(two).trim().isEmpty() || !value(three).trim().isEmpty(); }
+
+    static void configureTeams(EventDraft draft, boolean selected, boolean legacyShared, String names, String one, String two, String three)
+    {
+        boolean useTeams = usesMultipleTeams(draft.type, selected);
+        // Empty strings explicitly clear saved team settings; null would preserve them on edit.
+        draft.teamNames = useTeams ? validatedTeams(draft.type, names) : "";
+        draft.teamOneDropListUrl = useTeams ? value(one).trim() : "";
+        draft.teamTwoDropListUrl = useTeams ? value(two).trim() : "";
+        draft.teamThreeDropListUrl = useTeams ? value(three).trim() : "";
+        if (!useTeams) return;
+        if (draft.teamNames.isEmpty()) throw new IllegalArgumentException("Vul de teamnamen in of zet Meerdere teams uit.");
+        if (!hasTeamPages(one, two, three) && !(legacyShared && GoogleSheetLink.supported(draft.dropListUrl)))
+            throw new IllegalArgumentException("Vul bij Meerdere teams voor ieder team een eigen droppagina in.");
+        validateTeamPages(draft);
+    }
+
+    static boolean showSharedDropList(String type, boolean useTeams, boolean legacyShared)
+    {
+        return ("BOSS".equals(type)||"MASS".equals(type)||"CLAN_VS_CLAN".equals(type))
+            ||("CLAN_EVENT".equals(type)&&(!useTeams||legacyShared));
+    }
+
+    static String validatedTeams(String type, String value)
+    {
+        if (!"CLAN_EVENT".equals(type) || value == null || value.trim().isEmpty()) return "";
+        if (value.length() > 300) throw new IllegalArgumentException("Teamnamen zijn te lang.");
+        String[] parts = value.split(";", -1);
+        if (parts.length < 2 || parts.length > 7) throw new IllegalArgumentException("Vul 2 tot en met 7 teams in, of laat teamnamen leeg.");
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        java.util.List<String> names = new java.util.ArrayList<>();
+        for (String part : parts)
+        {
+            String name = part.trim();
+            if (name.isEmpty() || name.length() > 40 || name.chars().anyMatch(c -> Character.isISOControl(c) || c == '<' || c == '>'))
+                throw new IllegalArgumentException("Gebruik teamnamen van 1 tot 40 tekens, gescheiden door ;");
+            if (!seen.add(name.toLowerCase(java.util.Locale.ROOT))) throw new IllegalArgumentException("Teamnamen moeten uniek zijn.");
+            names.add(name);
+        }
+        return String.join("; ", names);
     }
     static String strategyWikiUrl(String name)
     {
@@ -463,12 +586,46 @@ final class EventEditorDialog
         fields.add(date); fields.add(time); return fields;
     }
 
-    private static JPanel row(String label, java.awt.Component field)
+    static JPanel row(String label, Component field)
     {
         JPanel row = new JPanel(new GridLayout(1, 2, 6, 6));
         row.add(new JLabel(label)); row.add(field);
         row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
         return row;
+    }
+
+    private static JLabel section(String title)
+    {
+        JLabel label=new JLabel(title);label.setForeground(new Color(224,183,65));label.setFont(label.getFont().deriveFont(java.awt.Font.BOLD));
+        label.setBorder(BorderFactory.createEmptyBorder(12,0,6,0));return label;
+    }
+
+    static final class EventForm extends JPanel implements Scrollable
+    {
+        EventForm() { setLayout(new BoxLayout(this, BoxLayout.Y_AXIS)); }
+
+        @Override protected void addImpl(Component component, Object constraints, int index)
+        {
+            // Mixed alignment makes BoxLayout reserve space on either side of its axis.
+            if (component instanceof JComponent) ((JComponent) component).setAlignmentX(LEFT_ALIGNMENT);
+            super.addImpl(component, constraints, index);
+        }
+
+        JScrollPane scrollPane()
+        {
+            JScrollPane pane = new JScrollPane(this, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,
+                JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+            pane.setBorder(BorderFactory.createEmptyBorder());
+            return pane;
+        }
+
+        @Override public Dimension getPreferredScrollableViewportSize()
+        { return new Dimension(660, Math.min(680, getPreferredSize().height + 12)); }
+        @Override public boolean getScrollableTracksViewportWidth() { return true; }
+        @Override public boolean getScrollableTracksViewportHeight() { return false; }
+        @Override public int getScrollableUnitIncrement(Rectangle visible, int orientation, int direction) { return 18; }
+        @Override public int getScrollableBlockIncrement(Rectangle visible, int orientation, int direction)
+        { return Math.max(18, visible.height - 18); }
     }
 
 }
