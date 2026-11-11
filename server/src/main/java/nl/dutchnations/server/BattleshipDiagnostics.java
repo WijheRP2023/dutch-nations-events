@@ -1,6 +1,8 @@
 package nl.dutchnations.server;
 
 import java.io.IOException;
+import java.io.EOFException;
+import java.net.SocketException;
 import java.net.http.HttpTimeoutException;
 import java.util.List;
 import java.util.Map;
@@ -24,6 +26,17 @@ final class BattleshipDiagnostics
     }
 
     Stage stage = Stage.INITIALIZE;
+
+    static boolean retryableControlsRead(IOException failure)
+    {
+        if (Thread.currentThread().isInterrupted()) return false;
+        if (failure instanceof Failure)
+        {
+            Failure f = (Failure) failure;
+            return f.code == Code.GOOGLE_HTTP && (f.status == 500 || f.status == 502 || f.status == 503 || f.status == 504);
+        }
+        return failure instanceof HttpTimeoutException || failure instanceof SocketException || failure instanceof EOFException;
+    }
 
     String summary(Exception error)
     {
@@ -62,7 +75,16 @@ final class BattleshipDiagnostics
             {
                 stage = main.equals(file) ? (ranges.length == 3 && "Borddata!Z2".equals(ranges[0]) ? Stage.READ_CONTROLS : Stage.READ_EVENT)
                     : privateStage(file, Stage.READ_FLEET_1, Stage.READ_FLEET_2);
-                List<List<List<Object>>> result = delegate.batchValues(file, ranges); complete(); return result;
+                List<List<List<Object>>> result;
+                try { result = delegate.batchValues(file, ranges); }
+                catch (IOException failure)
+                {
+                    // Only retry the small, read-only control probe; never replay writes or shots.
+                    if (stage != Stage.READ_CONTROLS || !retryableControlsRead(failure)) throw failure;
+                    result = delegate.batchValues(file, ranges);
+                }
+                complete();
+                return result;
             }
             public void write(String file, Map<String,List<List<?>>> values) throws IOException
             { stage = main.equals(file) ? Stage.WRITE_PUBLIC : privateStage(file, Stage.WRITE_FLEET_1, Stage.WRITE_FLEET_2); delegate.write(file, values); complete(); }

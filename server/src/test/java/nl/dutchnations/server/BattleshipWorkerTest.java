@@ -2,6 +2,8 @@ package nl.dutchnations.server;
 
 import com.google.gson.Gson;
 import java.io.IOException;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -20,6 +22,8 @@ public class BattleshipWorkerTest
         List<Map<String,List<List<?>>>> publicWrites=new ArrayList<>();
         Set<String> openOne=Set.of(),openTwo=Set.of();
         boolean failPublish;
+        final Deque<IOException> controlFailures=new ArrayDeque<>();
+        int controlReads;
         int fullTeamReads,privateAccessReads;
         Google()
         {
@@ -35,8 +39,13 @@ public class BattleshipWorkerTest
                 data.put(f+"Vloot!B17",List.of(List.of(false)));
             }
         }
-        @SuppressWarnings("unchecked") public List<List<List<Object>>> batchValues(String f,String...ranges)
+        @SuppressWarnings("unchecked") public List<List<List<Object>>> batchValues(String f,String...ranges) throws IOException
         {
+            if(ranges.length==3&&"Borddata!Z2".equals(ranges[0]))
+            {
+                controlReads++;
+                if(!controlFailures.isEmpty())throw controlFailures.removeFirst();
+            }
             List<List<List<Object>>> out=new ArrayList<>();
             for(String r:ranges)
             {

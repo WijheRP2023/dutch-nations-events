@@ -502,6 +502,30 @@ public class EventViewSyncTest
         rows.set(16,json("{'values':[{'effectiveValue':{'stringValue':'Dragon boots 0/1'}}]}"));
         assertFalse(EventViewSync.plan(SOURCE,TARGET,destination(),snapshot,modeValues("Bingo"),List.of(List.of(),List.of()),"now").isEmpty());
     }
+
+    @Test public void sharedBoardDoesNotWaitForTheUnusedSecondBoard() throws Exception
+    {
+        for(String mode:List.of("Vier-op-een-rij","Bingo","Bingo XL"))
+        {
+            JsonObject snapshot=modeSnapshot(mode);
+            JsonArray rows=snapshot.getAsJsonArray("sheets").get(0).getAsJsonObject().getAsJsonArray("data").get(0).getAsJsonObject().getAsJsonArray("rowData");
+            JsonArray images=new JsonArray(),labels=new JsonArray();
+            for(int col=0;col<=8;col++)
+            {
+                images.add(col==0||col==8?json("{'userEnteredValue':{'formulaValue':'=IMAGE(1)'}}"):new JsonObject());
+                labels.add(col==0?json("{'effectiveValue':{'stringValue':'Dragon boots — open'}}"):new JsonObject());
+            }
+            JsonObject imageRow=new JsonObject(),labelRow=new JsonObject();
+            imageRow.add("values",images);labelRow.add("values",labels);rows.set(15,imageRow);rows.set(16,labelRow);
+            if(mode.equals("Vier-op-een-rij"))
+            {
+                assertFalse(EventViewSync.plan(SOURCE,TARGET,destination(),snapshot,modeValues(mode),List.of(List.of(),List.of()),"now").isEmpty());
+                labels.set(0,new JsonObject());
+            }
+            try{EventViewSync.plan(SOURCE,TARGET,destination(),snapshot,modeValues(mode),List.of(List.of(),List.of()),"now");fail(mode);}
+            catch(EventViewSync.SourceChangedException expected){}
+        }
+    }
     @Test public void inputRosterRejectsDuplicatesCrossTeamAndInvalidNames()
     {
         assertEquals(List.of("heavenskill"),EventViewSync.teamPlayers(List.of(List.of("heavenskill"),List.of("Duplicate"),List.of("DUPLICATE"),List.of("Other team"),List.of("=FORMULA")),List.of(List.of("Other team"))));
@@ -530,7 +554,9 @@ public class EventViewSyncTest
             for(int r=0;r<8;r++)rows.add(json("{'values':[{'effectiveValue':{'stringValue':'DROP-1'}},{},{'effectiveValue':{'numberValue':2}}]}"));
             JsonObject grid=new JsonObject();grid.add("rowData",rows);JsonArray grids=new JsonArray();grids.add(grid);s.add("data",grids);
         }
-        List<List<Object>> board=new ArrayList<>();for(int r=0;r<8;r++)board.add(List.of("",r==7?"Bingo":""));
+        for(String mode:List.of("Bingo","Bingo XL","Punten","Vier-op-een-rij","Zeeslag"))
+        {
+        List<List<Object>> board=new ArrayList<>();for(int r=0;r<8;r++)board.add(List.of("",r==7?mode:""));
         List<List<List<Object>>> values=List.of(List.of(List.of(TARGET,"REGISTRATIES_V1")),board,List.of(),List.of(),List.of(),List.of(),List.of(),
             List.of(List.of(46000d,"","","",47000d)),List.of(List.of("Alice")),List.of(List.of("Bob")));
         JsonArray requests=new Gson().toJsonTree(EventViewSync.plan(SOURCE,TARGET,destination(),snapshot,values,List.of(List.of(8),List.of(8)),"now")).getAsJsonArray();
@@ -549,6 +575,7 @@ public class EventViewSyncTest
             }
         }
         assertEquals(2,protectedInputs);assertTrue(stableRow);assertTrue(epoch);
+        }
     }
     @Test public void rejectsSourceOrUnboundDestination() throws Exception
     {

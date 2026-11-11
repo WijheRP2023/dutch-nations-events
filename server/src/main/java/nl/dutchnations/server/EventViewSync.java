@@ -551,7 +551,8 @@ final class EventViewSync
                 for(int tile=0;tile<size*size;tile++)if(!string(values.get(4),tile,0).isEmpty())
                 {
                     int row=15+(tile/size)*2,col=tile%size;
-                    for(int side:List.of(0,8))
+                    // Connect Four has one shared board; the right side holds scores, not tiles.
+                    for(int side:mode.equals("Vier-op-een-rij")?List.of(0):List.of(0,8))
                     {
                         List<JsonObject> image=boardCells.getOrDefault(row,List.of()),label=boardCells.getOrDefault(row+1,List.of());
                         if(image.size()<=col+side)continue;

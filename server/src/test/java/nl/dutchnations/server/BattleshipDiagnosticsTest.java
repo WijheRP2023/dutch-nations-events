@@ -76,4 +76,36 @@ public class BattleshipDiagnosticsTest
             assertFalse(error.toString().contains(SECRET));
         }
     }
+
+    @Test public void workerRetriesTransientControlReadWithoutRecordingAnError() throws Exception
+    {
+        for(IOException failure:List.of(new HttpTimeoutException(SECRET),new java.net.SocketException(SECRET),
+            new BattleshipDiagnostics.Failure(BattleshipDiagnostics.Code.GOOGLE_HTTP,503,SECRET)))
+        {
+            BattleshipWorkerTest.Google fake=new BattleshipWorkerTest.Google();
+            fake.controlFailures.add(failure);
+            DutchNationsApi.Store store=new DutchNationsApi.Store(Files.createTempDirectory("battleship-retry-").resolve("state.json"));
+            new BattleshipSync(store,fake,MAIN,ONE,TWO,"test",()->BattleshipSync.date(46023.4)).tick();
+            assertEquals(2,fake.controlReads);
+            assertEquals(2,fake.privateAccessReads);
+            assertTrue(store.ownerLogs().errors.isEmpty());
+        }
+    }
+
+    @Test public void workerDoesNotRetryPermissionErrorsOrLoopOnOutage() throws Exception
+    {
+        for(int status:new int[]{403,429,503})
+        {
+            BattleshipWorkerTest.Google fake=new BattleshipWorkerTest.Google();
+            fake.controlFailures.add(new BattleshipDiagnostics.Failure(BattleshipDiagnostics.Code.GOOGLE_HTTP,status,SECRET));
+            fake.controlFailures.add(new BattleshipDiagnostics.Failure(BattleshipDiagnostics.Code.GOOGLE_HTTP,status,SECRET));
+            fake.openOne=java.util.Set.of("owner@test");
+            DutchNationsApi.Store store=new DutchNationsApi.Store(Files.createTempDirectory("battleship-retry-limit-").resolve("state.json"));
+            new BattleshipSync(store,fake,MAIN,ONE,TWO,"test",()->BattleshipSync.date(46023.4)).tick();
+            assertEquals(status==503?2:1,fake.controlReads);
+            assertEquals(0,fake.privateAccessReads);
+            assertTrue(fake.openOne.isEmpty()&&fake.openTwo.isEmpty());
+            assertTrue(store.ownerLogs().errors.get(0).message.contains("stap=READ_CONTROLS; HTTP="+status));
+        }
+    }
 }
