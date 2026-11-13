@@ -446,9 +446,23 @@ public final class DutchNationsApi
     private void ownerLogs(HttpExchange exchange) throws IOException
     {
         Actor actor = authenticate(exchange);
-        if (actor == null || !actor.owner()) { sendError(exchange, 403, "Alleen de owner kan de logs bekijken"); return; }
-        if (!"GET".equals(exchange.getRequestMethod())) { methodNotAllowed(exchange); return; }
-        send(exchange, 200, store.ownerLogs());
+        if (actor == null || !actor.owner()) { sendError(exchange, 403, "Alleen de owner heeft toegang tot de logs"); return; }
+        String path = exchange.getRequestURI().getPath();
+        String method = exchange.getRequestMethod();
+        if ("/api/owner-logs".equals(path))
+        {
+            if (!"GET".equals(method)) { methodNotAllowed(exchange); return; }
+            send(exchange, 200, store.ownerLogs());
+            return;
+        }
+        boolean management = "/api/owner-logs/management".equals(path);
+        if (!management && !"/api/owner-logs/errors".equals(path))
+        { sendError(exchange, 404, "Onbekend log"); return; }
+        if (!"DELETE".equals(method)) { methodNotAllowed(exchange); return; }
+        OwnerLogs logs;
+        try { logs = store.clearOwnerLog(management); }
+        catch (IllegalStateException failure) { sendError(exchange, 500, "Het log kon niet worden opgeslagen"); return; }
+        send(exchange, 200, logs);
     }
 
     private void learnerTemplates(HttpExchange exchange) throws IOException
@@ -1479,6 +1493,16 @@ public final class DutchNationsApi
             logs.management = copyLogs(state.managementLogs);
             logs.errors = copyLogs(state.errorLogs);
             return logs;
+        }
+        synchronized OwnerLogs clearOwnerLog(boolean management)
+        {
+            List<LogEntry> entries = management ? state.managementLogs : state.errorLogs;
+            if (entries.isEmpty()) return ownerLogs();
+            List<LogEntry> before = new ArrayList<>(entries);
+            entries.clear();
+            try { save(); }
+            catch (IllegalStateException failure) { entries.addAll(before); throw failure; }
+            return ownerLogs();
         }
         synchronized void audit(Actor actor, String message)
         {
