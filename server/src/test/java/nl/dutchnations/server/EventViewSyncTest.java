@@ -8,6 +8,20 @@ import static org.junit.Assert.*;
 
 public class EventViewSyncTest
 {
+    @Test public void editMarkerDetectsInputWhileDriveVersionIsStillUnchanged()
+    {
+        String first=EventViewSync.watchRevision("100",List.of(List.of(List.of("KVI1:first")),List.of(List.of("Bingo"))));
+        String changed=EventViewSync.watchRevision("100",List.of(List.of(List.of("KVI1:second")),List.of(List.of("Bingo"))));
+        assertNotEquals(first,changed);assertFalse(first.contains("KVI1"));
+        EventViewSync.RevisionGate gate=new EventViewSync.RevisionGate();gate.committed(first,0);
+        assertFalse(gate.due(changed,1000));assertTrue(gate.due(changed,3000));
+    }
+    @Test public void gameSwitchAlsoChangesTheTinyWatchToken()
+    {
+        assertNotEquals(EventViewSync.watchRevision("100",List.of(List.of(),List.of(List.of("Bingo")))),
+            EventViewSync.watchRevision("100",List.of(List.of(),List.of(List.of("Punten")))));
+        assertEquals(EventViewSync.watchRevision("100",List.of(List.of(),List.of())),EventViewSync.watchRevision("100",List.of(List.of(),List.of())));
+    }
     private static List<List<List<Object>>> cacheValues()
     {
         List<List<List<Object>>> values=new ArrayList<>();for(int i=0;i<10;i++)values.add(new ArrayList<>());

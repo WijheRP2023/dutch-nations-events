@@ -34,6 +34,8 @@ final class EventViewSync
     private String sourceTeamVisibility = "";
     private long sourceTeamVisibilityAt;
     private TeamSnapshotCache teamSnapshot;
+    private String driveRevision="";
+    private long driveRevisionAt;
     private final RevisionGate revisions = new RevisionGate();
     private JsonObject sourceMetadata;
     private List<Object> publishedPlan;
@@ -74,7 +76,12 @@ final class EventViewSync
         String stage="BRONVERSIE_LEZEN";
         try
         {
-            String revision=google.revision(source);
+            // Drive versions may lag behind an already committed Sheets edit.
+            // Two tiny values detect the private edit bridge and game switches
+            // directly, without scanning drop rows while nothing changes.
+            if(driveRevision.isEmpty()||started-driveRevisionAt>=15_000)
+            {driveRevision=google.revision(source);driveRevisionAt=started;}
+            String revision=watchRevision(driveRevision,google.batchValues(source,"Zeeslagdata!D6","Tussenstand!B8"));
             lastChecked=Instant.now().toString();
             if(!revisions.due(revision,started)) { state=revisions.pending()?"WIJZIGING_ONTVANGEN":"ACTUEEL";return; }
             stage="BRON_LEZEN";
@@ -184,6 +191,19 @@ final class EventViewSync
     static boolean choiceConsistent(String expected,String latest,String preset)
     { return expected.equals(latest)&&(preset==null||(SOLO.equals(latest)?"Punten":latest).equals(preset)); }
 
+    static String watchRevision(String drive,List<List<List<Object>>> watch)
+    {
+        if(drive==null||!drive.matches("[0-9]{1,30}"))throw new IllegalArgumentException("Ongeldige bestandsversie");
+        try
+        {
+            byte[] digest=java.security.MessageDigest.getInstance("SHA-256").digest(new Gson().toJson(watch).getBytes(StandardCharsets.UTF_8));
+            StringBuilder token=new StringBuilder(drive).append('-');
+            for(int i=0;i<8;i++)token.append(Character.forDigit((digest[i]>>>4)&15,16)).append(Character.forDigit(digest[i]&15,16));
+            return token.toString();
+        }
+        catch(java.security.NoSuchAlgorithmException impossible){throw new IllegalStateException(impossible);}
+    }
+
     static String teamSnapshotContext(String target,List<List<List<Object>>> values,List<List<Integer>> selected)
     {
         // Score changes do not invalidate every team row. Game, catalogue,
@@ -285,7 +305,7 @@ final class EventViewSync
         private long observedAt,pendingSince,committedAt,confirmAt=Long.MAX_VALUE;
         boolean due(String revision,long now)
         {
-            if(revision==null||!revision.matches("[0-9]{1,30}"))throw new IllegalArgumentException("Ongeldige bestandsversie");
+            if(revision==null||!revision.matches("[0-9]{1,30}(-[a-f0-9]{16})?"))throw new IllegalArgumentException("Ongeldige bestandsversie");
             if(applied.isEmpty())return true;
             if(!revision.equals(applied))
             {
