@@ -8,6 +8,81 @@ import static org.junit.Assert.*;
 
 public class EventViewSyncTest
 {
+    private static List<List<List<Object>>> cacheValues()
+    {
+        List<List<List<Object>>> values=new ArrayList<>();for(int i=0;i<10;i++)values.add(new ArrayList<>());
+        for(int t=2;t<4;t++)values.get(t).addAll(List.of(new ArrayList<>(List.of("DROP-A","One",1,"")),new ArrayList<>(List.of("DROP-B","Two",1,""))));
+        values.set(1,new ArrayList<>(Collections.nCopies(8,List.of("","Bingo"))));
+        return values;
+    }
+    private static JsonObject cacheSnapshot()
+    {
+        return json("{'sheets':[{'properties':{'title':'Team 1','sheetId':1},'data':[{'startRow':5,'rowData':[{'values':[{'effectiveValue':{'stringValue':'first'}}]},{'values':[{'effectiveValue':{'stringValue':'second'}}]}],'rowMetadata':[{'pixelSize':30},{'pixelSize':31}]}]},{'properties':{'title':'Team 2','sheetId':2},'data':[{'startRow':5,'rowData':[{'values':[]}]}]}]}");
+    }
+    @Test public void ordinaryInputReadsOnlyItsChangedTeamRow() throws Exception
+    {
+        List<List<List<Object>>> values=cacheValues();List<List<Integer>> selected=List.of(List.of(6,7),List.of(6));
+        String context=EventViewSync.teamSnapshotContext(TARGET,values,selected);
+        EventViewSync.TeamSnapshotCache cache=EventViewSync.TeamSnapshotCache.capture(context,1000,cacheSnapshot(),values,selected);
+        assertTrue(cache.changedRows(0,values.get(2),selected.get(0)).isEmpty());
+        values.get(2).get(1).set(3,"Player");
+        assertEquals(context,EventViewSync.teamSnapshotContext(TARGET,values,selected));
+        assertEquals(List.of(7),cache.changedRows(0,values.get(2),selected.get(0)));
+        assertTrue(cache.changedRows(1,values.get(3),selected.get(1)).isEmpty());
+        // Erasing an input is a change too, not just adding a player.
+        EventViewSync.TeamSnapshotCache edited=EventViewSync.TeamSnapshotCache.capture(context,1000,cacheSnapshot(),values,selected);
+        values.get(2).get(1).set(3,"");assertEquals(List.of(7),edited.changedRows(0,values.get(2),selected.get(0)));
+    }
+    @Test public void contextChangesAndAgeForceFreshTeamStyles() throws Exception
+    {
+        List<List<List<Object>>> values=cacheValues();List<List<Integer>> selected=List.of(List.of(6,7),List.of(6));
+        String context=EventViewSync.teamSnapshotContext(TARGET,values,selected);
+        EventViewSync.TeamSnapshotCache cache=EventViewSync.TeamSnapshotCache.capture(context,1000,cacheSnapshot(),values,selected);
+        assertTrue(cache.reusable(context,1001));assertFalse(cache.reusable(context,301000));assertFalse(cache.reusable(context,999));
+        assertFalse(cache.reusable(EventViewSync.teamSnapshotContext(SOURCE,values,selected),1001));
+        assertFalse(cache.reusable(EventViewSync.teamSnapshotContext(TARGET,values,List.of(List.of(7),List.of(6))),1001));
+        for(int index:List.of(0,4,5,6,7,8,9))
+        {
+            values.get(index).add(List.of("change"));
+            assertFalse(cache.reusable(EventViewSync.teamSnapshotContext(TARGET,values,selected),1001));values.get(index).clear();
+        }
+        values.get(1).set(7,List.of("","Punten"));assertFalse(cache.reusable(EventViewSync.teamSnapshotContext(TARGET,values,selected),1001));
+    }
+    @Test public void mergedCacheKeepsFreshChangedRowAndDropsDeselectedHistory() throws Exception
+    {
+        List<List<List<Object>>> values=cacheValues();List<List<Integer>> selected=List.of(List.of(6,7),List.of(6));
+        EventViewSync.TeamSnapshotCache cache=EventViewSync.TeamSnapshotCache.capture("c",1000,cacheSnapshot(),values,selected);
+        JsonObject combined=new JsonObject();JsonArray sheets=new JsonArray();combined.add("sheets",sheets);cache.appendTo(sheets);
+        sheets.add(json("{'properties':{'title':'Team 1','sheetId':1},'data':[{'startRow':6,'rowData':[{'values':[{'effectiveValue':{'stringValue':'updated'},'effectiveFormat':{'textFormat':{'bold':true}}}]}]}]}"));
+        EventViewSync.TeamSnapshotCache updated=EventViewSync.TeamSnapshotCache.capture("c",cache.refreshedAt,combined,values,List.of(List.of(7),List.of()));
+        assertEquals(Set.of(7),updated.grids.get(0).keySet());assertTrue(updated.grids.get(1).isEmpty());
+        assertTrue(updated.grids.get(0).get(7).toString().contains("updated"));assertTrue(updated.grids.get(0).get(7).toString().contains("bold"));
+        assertEquals(1000,updated.refreshedAt);
+        assertTrue(cache.grids.get(0).get(7).toString().contains("second"));
+    }
+    @Test public void incompleteTeamCacheFailsClosedInsteadOfPublishingBlankRows() throws Exception
+    {
+        try{EventViewSync.TeamSnapshotCache.capture("x",0,cacheSnapshot(),cacheValues(),List.of(List.of(8),List.of()));fail();}
+        catch(java.io.IOException expected){assertEquals("Onvolledige teamweergave",expected.getMessage());}
+    }
+    @Test public void cachedRowsAndFreshHeadersProduceIdenticalPlanIncludingMerges() throws Exception
+    {
+        JsonObject original=modeSnapshot("Bingo");
+        JsonObject team=original.getAsJsonArray("sheets").get(1).getAsJsonObject();
+        team.add("merges",JsonParser.parseString("[{\"sheetId\":2,\"startRowIndex\":1,\"endRowIndex\":2,\"startColumnIndex\":0,\"endColumnIndex\":3}]"));
+        List<List<List<Object>>> values=cacheValues();List<List<Integer>> selected=List.of(List.of(6),List.of(6));
+        EventViewSync.TeamSnapshotCache cache=EventViewSync.TeamSnapshotCache.capture("same",0,original,values,selected);
+        JsonObject headers=original.deepCopy();
+        for(JsonElement sheet:headers.getAsJsonArray("sheets"))if(!sheet.getAsJsonObject().getAsJsonObject("properties").get("title").getAsString().equals("Tussenstand"))
+        {
+            JsonArray rows=sheet.getAsJsonObject().getAsJsonArray("data").get(0).getAsJsonObject().getAsJsonArray("rowData");
+            while(rows.size()>5)rows.remove(rows.size()-1);
+        }
+        JsonObject combined=new JsonObject();JsonArray sheets=new JsonArray();combined.add("sheets",sheets);cache.appendTo(sheets);
+        for(JsonElement sheet:headers.getAsJsonArray("sheets"))sheets.add(sheet);
+        assertEquals(new Gson().toJson(EventViewSync.plan(SOURCE,TARGET,destination(),original,values,selected,"now")),
+            new Gson().toJson(EventViewSync.plan(SOURCE,TARGET,destination(),combined,values,selected,"now")));
+    }
     @Test public void soloUsesPointsPresetWithoutAcceptingMixedGame()
     {
         assertTrue(EventViewSync.choiceConsistent("Ieder voor zich","Ieder voor zich","Punten"));

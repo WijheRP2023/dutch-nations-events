@@ -33,6 +33,7 @@ final class EventViewSync
     private long lastLayoutSync, metadataAt, retryAfter;
     private String sourceTeamVisibility = "";
     private long sourceTeamVisibilityAt;
+    private TeamSnapshotCache teamSnapshot;
     private final RevisionGate revisions = new RevisionGate();
     private JsonObject sourceMetadata;
     private List<Object> publishedPlan;
@@ -123,16 +124,21 @@ final class EventViewSync
             List<String> ranges = new ArrayList<>(List.of("Tussenstand!A1:Q75", "'Team 1'!A1:V5", "'Team 2'!A1:V5"));
             stage="SELECTIE_CONTROLEREN";
             List<List<Integer>> selected = solo?List.of(List.of(),List.of()):List.of(selected(values.get(2)), selected(values.get(3)));
-            if(!solo)for (int t=0;t<2;t++) ranges.addAll(rowRanges("Team " + (t+1), selected.get(t)));
+            String teamContext=solo?"":teamSnapshotContext(target,values,selected);
+            boolean reuseTeams=!solo&&teamSnapshot!=null&&teamSnapshot.reusable(teamContext,started);
+            if(!solo)for (int t=0;t<2;t++) ranges.addAll(rowRanges("Team " + (t+1),
+                reuseTeams?teamSnapshot.changedRows(t,values.get(2+t),selected.get(t)):selected.get(t)));
             stage="KOPPELING_EN_WEERGAVE_LEZEN";
             // Independent reads overlap, but every publish still verifies a fresh
-            // destination binding/protection snapshot and fresh calculated styles.
+            // destination binding/protection snapshot. The board and headers are
+            // always fresh; unchanged team rows reuse their last verified styles.
             List<GoogleRead> operations=new ArrayList<>();
             Map<String,JsonObject> stylePool=new ConcurrentHashMap<>();
             operations.add(() -> get(target, "", "sheets(properties(sheetId,title,gridProperties(rowCount,columnCount)),merges,conditionalFormats(ranges),protectedRanges(protectedRangeId)),developerMetadata(metadataKey,metadataValue)"));
             if(!solo)for(List<String> group:snapshotGroups(ranges,4000))operations.add(() -> readSnapshotPart(group,stylePool));
             List<JsonObject> read = parallelReads(readWorkers,operations);
             JsonObject destination=read.get(0),snapshot=new JsonObject();JsonArray snapshotSheets=new JsonArray();snapshot.add("sheets",snapshotSheets);
+            if(reuseTeams)teamSnapshot.appendTo(snapshotSheets);
             for(int i=1;i<read.size();i++)for(JsonElement sheet:read.get(i).getAsJsonArray("sheets"))snapshotSheets.add(sheet);
             checkDestination(source, target, destination);
             rosterTarget = target;
@@ -146,6 +152,9 @@ final class EventViewSync
             String time=DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm:ss").withZone(ZoneId.of("Europe/Amsterdam")).format(Instant.now());
             stage="WEERGAVE_OPBOUWEN";
             List<Object> requests = plan(source, target, destination, snapshot, values, selected, time);
+            // Prepare before writing, commit only after the publication succeeds.
+            TeamSnapshotCache nextTeams=solo?null:TeamSnapshotCache.capture(teamContext,
+                reuseTeams?teamSnapshot.refreshedAt:started,snapshot,values,selected);
             boolean layoutRefresh = !target.equals(publishedTarget) || started-lastLayoutSync >= 300_000
                 || solo != hasScreenshotTab(destination);
             List<Object> changes = layoutRefresh ? requests : incremental(publishedPlan, requests);
@@ -153,6 +162,7 @@ final class EventViewSync
             if (!changes.isEmpty()) google.requestForView("POST", api(target)+":batchUpdate", map("requests",changes));
             if (changes == requests) lastLayoutSync=System.currentTimeMillis();
             publishedPlan=requests; publishedTarget=target;
+            teamSnapshot=nextTeams;
             lastFingerprint = fingerprint; lastFullSync=System.currentTimeMillis(); lastSuccess = Instant.now().toString(); lastUpdateMillis=System.currentTimeMillis()-started; state = "ACTUEEL";
             revisions.committed(revision,System.currentTimeMillis());
         }
@@ -173,6 +183,75 @@ final class EventViewSync
 
     static boolean choiceConsistent(String expected,String latest,String preset)
     { return expected.equals(latest)&&(preset==null||(SOLO.equals(latest)?"Punten":latest).equals(preset)); }
+
+    static String teamSnapshotContext(String target,List<List<List<Object>>> values,List<List<Integer>> selected)
+    {
+        // Score changes do not invalidate every team row. Game, catalogue,
+        // selection, period and roster changes do: they can affect all cells.
+        return new Gson().toJson(List.of(target,values.get(0),string(values.get(1),7,1),
+            values.subList(4,10),selected));
+    }
+
+    /** Bounded to the current selection; never grows with edit history. */
+    static final class TeamSnapshotCache
+    {
+        static final long REFRESH_MILLIS=300_000;
+        final String context;
+        final long refreshedAt;
+        final List<Map<Integer,JsonObject>> grids=List.of(new HashMap<>(),new HashMap<>());
+        final List<Map<Integer,String>> keys=List.of(new HashMap<>(),new HashMap<>());
+        TeamSnapshotCache(String context,long at){this.context=context;refreshedAt=at;}
+        boolean reusable(String expected,long now)
+        {return context.equals(expected)&&now>=refreshedAt&&now-refreshedAt<REFRESH_MILLIS;}
+        List<Integer> changedRows(int team,List<List<Object>> values,List<Integer> selected)
+        {
+            List<Integer> changed=new ArrayList<>();
+            for(int row:selected)if(!grids.get(team).containsKey(row)||!rowKey(values,row).equals(keys.get(team).get(row)))changed.add(row);
+            return changed;
+        }
+        private static String rowKey(List<List<Object>> values,int row)
+        {return new Gson().toJson(row>=6&&row-6<values.size()?values.get(row-6):List.of());}
+        void appendTo(JsonArray sheets)
+        {
+            for(int team=0;team<2;team++)
+            {
+                JsonObject sheet=new JsonObject(),properties=new JsonObject();
+                properties.addProperty("title","Team "+(team+1));sheet.add("properties",properties);
+                JsonArray data=new JsonArray();grids.get(team).entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(e->data.add(e.getValue()));
+                sheet.add("data",data);sheets.add(sheet);
+            }
+        }
+        static TeamSnapshotCache capture(String context,long at,JsonObject snapshot,
+            List<List<List<Object>>> values,List<List<Integer>> selected) throws IOException
+        {
+            TeamSnapshotCache result=new TeamSnapshotCache(context,at);
+            for(JsonElement element:array(snapshot,"sheets"))
+            {
+                JsonObject sheet=element.getAsJsonObject();String title=sheet.getAsJsonObject("properties").get("title").getAsString();
+                int team=title.equals("Team 1")?0:title.equals("Team 2")?1:-1;if(team<0)continue;
+                Set<Integer> wanted=new HashSet<>(selected.get(team));
+                for(JsonElement block:array(sheet,"data"))
+                {
+                    JsonObject grid=block.getAsJsonObject();int start=grid.has("startRow")?grid.get("startRow").getAsInt():0;
+                    if(grid.has("startColumn")&&grid.get("startColumn").getAsInt()!=0)throw new IOException("Onvolledige teamweergave");
+                    JsonArray rows=array(grid,"rowData"),dimensions=array(grid,"rowMetadata");
+                    for(int r=0;r<rows.size();r++)if(wanted.contains(start+r+1))
+                    {
+                        JsonObject single=new JsonObject();single.addProperty("startRow",start+r);
+                        JsonArray cells=new JsonArray();cells.add(rows.get(r));single.add("rowData",cells);
+                        if(r<dimensions.size()){JsonArray dims=new JsonArray();dims.add(dimensions.get(r));single.add("rowMetadata",dims);}
+                        result.grids.get(team).put(start+r+1,single);
+                    }
+                }
+            }
+            for(int t=0;t<2;t++)for(int row:selected.get(t))
+            {
+                if(!result.grids.get(t).containsKey(row))throw new IOException("Onvolledige teamweergave");
+                result.keys.get(t).put(row,rowKey(values.get(t+2),row));
+            }
+            return result;
+        }
+    }
 
     static int extraSoloRows(List<List<Object>> roster,int currentRows)
     {
@@ -563,7 +642,8 @@ final class EventViewSync
         {
             JsonObject sh=e.getAsJsonObject(); String name=sh.getAsJsonObject("properties").get("title").getAsString();
             if(!TABS.contains(name)) continue;
-            structure.putIfAbsent(name,sh);
+            // Cached row-only fragments have no layout; fresh headers own it.
+            if(sh.getAsJsonObject("properties").has("sheetId"))structure.putIfAbsent(name,sh);
             Map<Integer,List<JsonObject>> rows=cells.computeIfAbsent(name,k->new HashMap<>());
             for(JsonElement g:array(sh,"data"))
             {
