@@ -31,6 +31,8 @@ final class EventViewSync
     private String lastFingerprint = "";
     private long lastFullSync;
     private long lastLayoutSync, metadataAt, retryAfter;
+    private String sourceTeamVisibility = "";
+    private long sourceTeamVisibilityAt;
     private final RevisionGate revisions = new RevisionGate();
     private JsonObject sourceMetadata;
     private List<Object> publishedPlan;
@@ -105,6 +107,18 @@ final class EventViewSync
             String fingerprint = new Gson().toJson(values);
             lastChecked = Instant.now().toString();
             syncSourceCardVisibility(values,fingerprint,started);
+            stage="BRONSELECTIE_TONEN";
+            if(!solo && "REGISTRATIES_V1".equals(string(values.get(0),0,1)))
+            {
+                List<Object> visibility=sourceTeamVisibility(sourceMeta,
+                    List.of(selected(values.get(2)),selected(values.get(3))));
+                String visibilityKey=new Gson().toJson(visibility);
+                if(!visibilityKey.equals(sourceTeamVisibility)||started-sourceTeamVisibilityAt>=RevisionGate.REPAIR_MILLIS)
+                {
+                    if(!visibility.isEmpty())google.request("POST",api(source)+":batchUpdate",map("requests",visibility));
+                    sourceTeamVisibility=visibilityKey;sourceTeamVisibilityAt=started;
+                }
+            }
             if (fingerprint.equals(lastFingerprint)&&System.currentTimeMillis()-lastFullSync<RevisionGate.REPAIR_MILLIS) { revisions.committed(revision,System.currentTimeMillis());state = "ACTUEEL"; return; }
             List<String> ranges = new ArrayList<>(List.of("Tussenstand!A1:Q75", "'Team 1'!A1:V5", "'Team 2'!A1:V5"));
             stage="SELECTIE_CONTROLEREN";
@@ -350,6 +364,34 @@ final class EventViewSync
         Map<String,Object> props=map("sheetId",id,"hidden",hidden);
         if(title!=null)props.put("title",title);
         return map("updateSheetProperties",map("properties",props,"fields",title==null?"hidden":"title,hidden"));
+    }
+
+    /** Preserve stable drop/input addresses; only row visibility follows the catalog checkbox. */
+    static List<Object> sourceTeamVisibility(JsonObject metadata,List<List<Integer>> selected) throws IOException
+    {
+        List<Object> requests=new ArrayList<>();
+        for(JsonElement element:array(metadata,"sheets"))
+        {
+            JsonObject properties=element.getAsJsonObject().getAsJsonObject("properties");
+            String name=properties.get("title").getAsString();
+            if(!name.equals("Team 1")&&!name.equals("Team 2"))continue;
+            int team=name.equals("Team 1")?0:1;
+            int count=properties.getAsJsonObject("gridProperties").get("rowCount").getAsInt();
+            Set<Integer> visible=new HashSet<>(selected.get(team));
+            for(int row:visible)if(row<6||row>count)throw new IOException("Ongeldige geselecteerde teamrij");
+            int start=5;
+            while(start<count)
+            {
+                boolean hidden=!visible.contains(start+1);
+                int end=start+1;
+                while(end<count&&(!visible.contains(end+1))==hidden)end++;
+                requests.add(map("updateDimensionProperties",map("range",map("sheetId",properties.get("sheetId").getAsInt(),
+                    "dimension","ROWS","startIndex",start,"endIndex",end),
+                    "properties",map("hiddenByUser",hidden),"fields","hiddenByUser")));
+                start=end;
+            }
+        }
+        return requests;
     }
 
     /** Merge neighbouring active rows: one grid read instead of one range per drop. */

@@ -486,6 +486,41 @@ public class EventViewSyncTest
         List<List<Object>> board=new ArrayList<>();for(int row=0;row<8;row++)board.add(List.of("",row==7?mode:""));
         return List.of(List.of(),board,List.of(),List.of(),List.of(List.of("Dragon boots")),List.of(),List.of());
     }
+    @Test public void sourceTeamsShowOnlySelectedRowsWithoutTouchingInputs() throws Exception
+    {
+        JsonObject meta=destination();
+        for(JsonElement sheet:meta.getAsJsonArray("sheets"))
+            sheet.getAsJsonObject().getAsJsonObject("properties").getAsJsonObject("gridProperties").addProperty("rowCount",12);
+        List<List<Integer>> selections=List.of(List.of(6,8,9,12),List.of(7,10));
+        JsonArray requests=new Gson().toJsonTree(EventViewSync.sourceTeamVisibility(meta,selections)).getAsJsonArray();
+        boolean[][] visible=new boolean[2][13];
+        int[] ids=new int[2];
+        for(JsonElement sheet:meta.getAsJsonArray("sheets"))
+        {
+            JsonObject properties=sheet.getAsJsonObject().getAsJsonObject("properties");
+            if(properties.get("title").getAsString().equals("Team 1"))ids[0]=properties.get("sheetId").getAsInt();
+            if(properties.get("title").getAsString().equals("Team 2"))ids[1]=properties.get("sheetId").getAsInt();
+        }
+        for(JsonElement element:requests)
+        {
+            JsonObject request=element.getAsJsonObject();
+            assertEquals(1,request.size());
+            JsonObject update=request.getAsJsonObject("updateDimensionProperties"),range=update.getAsJsonObject("range");
+            assertEquals("hiddenByUser",update.get("fields").getAsString());
+            assertEquals("ROWS",range.get("dimension").getAsString());
+            int team=range.get("sheetId").getAsInt()==ids[0]?0:1;
+            assertEquals(ids[team],range.get("sheetId").getAsInt());
+            assertTrue(range.get("startIndex").getAsInt()>=5);
+            for(int index=range.get("startIndex").getAsInt();index<range.get("endIndex").getAsInt();index++)
+                visible[team][index+1]=!update.getAsJsonObject("properties").get("hiddenByUser").getAsBoolean();
+        }
+        for(int team=0;team<2;team++)for(int row=6;row<=12;row++)
+            assertEquals(selections.get(team).contains(row),visible[team][row]);
+        String empty=new Gson().toJson(EventViewSync.sourceTeamVisibility(meta,List.of(List.of(),List.of())));
+        assertFalse(empty.contains("false"));
+        assertFalse(empty.contains("deleteDimension"));assertFalse(empty.contains("updateCells"));
+    }
+
     @Test public void refusesMixedGameValuesAndStyles() throws Exception
     {
         try{EventViewSync.plan(SOURCE,TARGET,destination(),modeSnapshot("Punten"),modeValues("Bingo"),List.of(List.of(),List.of()),"now");fail();}
